@@ -9,7 +9,7 @@
 			"installBicep": true,
 			"version": "latest"
 		},
-		"ghcr.io/meaningful-ooo/devcontainer-features/fish:1": {
+		"ghcr.io/meaningful-ooo/devcontainer-features/fish:2": {
 			"fisher": true
 		},
 		"ghcr.io/lumenpink/devcontainer-features/wasm-pack:0": {}
