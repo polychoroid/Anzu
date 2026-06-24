@@ -2,11 +2,13 @@
 
 ## Repository Structure
 - `anzu-engine/` — Core Rust library compiled to WebAssembly for browser deployment.
-  - `src/lib.rs` — wasm-bindgen entry point.
-  - `src/platform_browser.rs` — Browser platform adapter (canvas setup, DOM interactions).
-  - `Cargo.toml` — Rust dependencies and build configuration for wasm32 target.
-  - `static/` — Static assets (HTML, CSS) served directly to the browser.
-- `docs/` — Documentation (architecture, user guide, API reference).
+  - `src/lib.rs` — wasm-bindgen startup and browser event loop wiring.
+  - `src/renderer.rs` — GPU state, rendering pipeline, resize/reconfigure behavior.
+  - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
+  - `Cargo.toml` — Rust dependencies and wasm target configuration.
+  - `static/` — Browser shell and static runtime assets.
+- `docs/` — Documentation set (architecture, developer, deployment, operations, user, API).
+- `BACKLOG.md` — Top-down roadmap and task tracking.
 
 ## Local Development
 
@@ -68,16 +70,24 @@ sleep 1 && open http://localhost:8000/index.html  # macOS
 ```
 
 ### Browser Requirements
-- **Supported:** Chrome (Canary or dev build with WebGPU enabled), Edge (Canary), Safari (Tech Preview).
-- **WebGPU Status:** Native WebGPU support required; no WebGL fallback provided.
-- **Testing:** Use the browser's Developer Tools console to check for errors or log messages from the wasm module.
+- **Supported:** modern desktop browsers with WebGPU support preferred.
+- **Fallback behavior:** runtime initializes browser WebGPU with WebGL fallback support via wgpu browser backends.
+- **Testing:** use browser Developer Tools console to inspect startup, manifest loader, and render errors.
 
 ### Development Workflow
 
 1. **Edit code** in `anzu-engine/src/*.rs`.
-2. **Rebuild** the wasm package using `wasm-pack build` or `cargo build`.
+2. **Rebuild** the wasm package using `wasm-pack build`.
 3. **Refresh the browser** to load the new version (or enable auto-reload if using a file watcher).
 4. **Debug** via browser DevTools (console for `console.log` output from Rust).
+
+### Typical Validation Commands
+
+```bash
+cd anzu-engine
+cargo build --lib --target wasm32-unknown-unknown --release
+wasm-pack build --target web --out-dir static/pkg --release
+```
 
 ### Formatting and Linting
 
