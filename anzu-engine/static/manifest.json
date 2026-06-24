@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "assets": [
+    {
+      "id": "triangle-mesh",
+      "type": "mesh",
+      "source_url": "assets/meshes/triangle.json",
+      "hash": "sha256:todo"
+    },
+    {
+      "id": "triangle-shader",
+      "type": "shader",
+      "source_url": "assets/shaders/triangle.wgsl",
+      "hash": "sha256:todo"
+    }
+  ]
+}
