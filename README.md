@@ -31,8 +31,7 @@ cd static
 python3 -m http.server 8000
 ```
 
-3. Open:
-- http://localhost:8000/index.html
+3. Open localhost:8000
 
 ## Documentation Index
 
