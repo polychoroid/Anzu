@@ -197,7 +197,7 @@ impl Default for TriangleManSpec {
             asteroid_spawn_min_interval_seconds: 0.45,
             asteroid_spawn_accel_per_second: 2.0,
             asteroid_spawn_max_burst: 25,
-            asteroid_target_count: 10000,
+            asteroid_target_count: 1000,
             asteroid_target_time_seconds: 300.0,
             asteroid_mass_scale_at_target: 8.0,
             scale: 0.1,
