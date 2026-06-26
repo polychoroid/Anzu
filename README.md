@@ -11,6 +11,7 @@ Current project status:
 ## Repository Layout
 
 - `anzu-engine/` - Rust crate compiled to WebAssembly and loaded by browser shell.
+- `static/` - Browser entry page, manifest, content assets, and generated wasm/js package.
 - `docs/` - Architecture, developer, deployment, operations, and API documentation.
 - `BACKLOG.md` - Top-down implementation roadmap with milestones/tasks.
 
@@ -20,13 +21,13 @@ Current project status:
 
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir static/pkg --release
+wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
 2. Serve browser assets:
 
 ```bash
-cd anzu-engine/static
+cd static
 python3 -m http.server 8000
 ```
 

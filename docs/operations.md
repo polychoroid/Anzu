@@ -31,7 +31,7 @@ Debug workflow:
 1. Rebuild with wasm-pack release output.
 2. Hard-refresh browser page.
 3. Inspect console messages for startup and render diagnostics.
-4. Validate static server root is `anzu-engine/static`.
+4. Validate static server root is `static`.
 
 Memory pressure workflow:
 1. Reproduce with constrained memory settings or high-content scenes.

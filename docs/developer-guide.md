@@ -6,7 +6,7 @@
   - `src/renderer.rs` — GPU state, rendering pipeline, resize/reconfigure behavior.
   - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
   - `Cargo.toml` — Rust dependencies and wasm target configuration.
-  - `static/` — Browser shell and static runtime assets.
+- `static/` — Browser shell and static runtime assets.
 - `docs/` — Documentation set (architecture, developer, deployment, operations, user, API).
 - `BACKLOG.md` — Top-down roadmap and task tracking.
 
@@ -30,7 +30,7 @@ Ensure you have:
 **Option A: Using `wasm-pack` (recommended)**
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir static/pkg
+wasm-pack build --target web --out-dir ../static/pkg
 ```
 
 **Option B: Using `cargo` + `wasm-bindgen` CLI**
@@ -39,7 +39,7 @@ cd anzu-engine
 cargo build --lib --release --target wasm32-unknown-unknown
 wasm-bindgen \
   --target web \
-  --out-dir static/pkg \
+  --out-dir ../static/pkg \
   target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 
@@ -49,7 +49,7 @@ Serve the `static/` directory with any HTTP server. A few common options:
 
 **Python 3 (built-in)**
 ```bash
-cd anzu-engine/static
+cd static
 python3 -m http.server 8000
 ```
 Then open `http://localhost:8000/index.html` in your browser.
@@ -57,13 +57,13 @@ Then open `http://localhost:8000/index.html` in your browser.
 **Node.js http-server**
 ```bash
 npm install -g http-server
-cd anzu-engine/static
+cd static
 http-server
 ```
 
 **Simple shell script (for development)**
 ```bash
-cd anzu-engine/static && python3 -m http.server 8000 &
+cd static && python3 -m http.server 8000 &
 sleep 1 && open http://localhost:8000/index.html  # macOS
 # On Linux, use: xdg-open http://localhost:8000/index.html
 # On Windows, use: start http://localhost:8000/index.html
@@ -86,7 +86,7 @@ sleep 1 && open http://localhost:8000/index.html  # macOS
 ```bash
 cd anzu-engine
 cargo build --lib --target wasm32-unknown-unknown --release
-wasm-pack build --target web --out-dir static/pkg --release
+wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
 ### Formatting and Linting

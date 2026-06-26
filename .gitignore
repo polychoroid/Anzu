@@ -7,8 +7,6 @@
 # ------------------------------
 # WASM / web build outputs
 # ------------------------------
-anzu-engine/pkg/
-anzu-engine/static/pkg/
 
 # ------------------------------
 # Node / frontend dependencies

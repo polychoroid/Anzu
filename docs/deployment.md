@@ -5,21 +5,21 @@
 Primary deploy target is browser-hosted static content + wasm package.
 
 ### Build Artifacts
-- `anzu-engine/static/index.html` - browser entry page.
-- `anzu-engine/static/manifest.json` - startup manifest payload.
-- `anzu-engine/static/pkg/*` - generated wasm/js bundle from wasm-pack.
+- `static/index.html` - browser entry page.
+- `static/manifest.json` - startup manifest payload.
+- `static/pkg/*` - generated wasm/js bundle from wasm-pack.
 
 ### Release Build
 
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir static/pkg --release
+wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
 ### Local Smoke Test
 
 ```bash
-cd anzu-engine/static
+cd static
 python3 -m http.server 8000
 ```
 
@@ -54,7 +54,7 @@ cargo clippy --target wasm32-unknown-unknown
 ```bash
 cd anzu-engine
 cargo build --lib --target wasm32-unknown-unknown --release
-wasm-pack build --target web --out-dir static/pkg --release
+wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
 3. Optional hosted smoke test in PR environments (serve `static/` and run browser check script).
