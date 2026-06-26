@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::ecs::{EntityId, World};
+use winit::keyboard::KeyCode;
 
 #[derive(Clone, Copy, Default)]
 pub struct SimulationTransform2D {
@@ -11,8 +12,16 @@ pub struct SimulationTransform2D {
 }
 
 pub trait SimulationModel {
+    fn handle_key_event(&mut self, _key_code: KeyCode, _is_pressed: bool, _is_repeat: bool) {}
     fn update(&mut self, delta_seconds: f32);
     fn transform_2d(&self) -> SimulationTransform2D;
+    fn reconcile_world(
+        &mut self,
+        _world: &mut World,
+        _delta_seconds: f32,
+        _frame_report: &SchedulerFrameReport,
+    ) {
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -157,9 +166,15 @@ impl Scheduler {
             });
         }
 
-        for body in &mut entities {
-            resolve_world_bounds(body, &self.physics_config);
-        }
+        let mut out_of_bounds_entities: Vec<EntityId> = Vec::new();
+        entities.retain(|body| {
+            if is_out_of_bounds(body, &self.physics_config) {
+                out_of_bounds_entities.push(body.entity_id);
+                false
+            } else {
+                true
+            }
+        });
 
         let mut current_proximity_pairs = BTreeSet::new();
         for i in 0..entities.len() {
@@ -232,21 +247,20 @@ impl Scheduler {
             }
         }
 
-        let mut despawn_list = Vec::new();
+        let mut despawn_ids: BTreeSet<EntityId> = out_of_bounds_entities.into_iter().collect();
         for (entity_id, lifecycle) in world.lifecycles_mut() {
             lifecycle.ttl_seconds -= delta_seconds;
             if lifecycle.ttl_seconds <= 0.0 {
-                despawn_list.push(entity_id);
+                despawn_ids.insert(entity_id);
             }
         }
 
-        if !despawn_list.is_empty() {
-            let despawned_ids: BTreeSet<EntityId> = despawn_list.iter().copied().collect();
+        if !despawn_ids.is_empty() {
             self.previous_proximity_pairs
-                .retain(|(a, b)| !despawned_ids.contains(a) && !despawned_ids.contains(b));
+                .retain(|(a, b)| !despawn_ids.contains(a) && !despawn_ids.contains(b));
         }
 
-        for entity_id in despawn_list {
+        for entity_id in despawn_ids {
             world.despawn(entity_id);
             report.despawned_entities.push(entity_id);
         }
@@ -255,7 +269,7 @@ impl Scheduler {
     }
 }
 
-fn resolve_world_bounds(state: &mut BodyState, config: &PhysicsConfig) {
+fn is_out_of_bounds(state: &BodyState, config: &PhysicsConfig) -> bool {
     let polygon = transformed_polygon(state);
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
@@ -269,21 +283,10 @@ fn resolve_world_bounds(state: &mut BodyState, config: &PhysicsConfig) {
         max_y = max_y.max(vertex[1]);
     }
 
-    if min_x < config.world_min_x {
-        state.position_x += config.world_min_x - min_x;
-        state.velocity_x = state.velocity_x.abs() * state.restitution;
-    } else if max_x > config.world_max_x {
-        state.position_x -= max_x - config.world_max_x;
-        state.velocity_x = -state.velocity_x.abs() * state.restitution;
-    }
-
-    if min_y < config.world_min_y {
-        state.position_y += config.world_min_y - min_y;
-        state.velocity_y = state.velocity_y.abs() * state.restitution;
-    } else if max_y > config.world_max_y {
-        state.position_y -= max_y - config.world_max_y;
-        state.velocity_y = -state.velocity_y.abs() * state.restitution;
-    }
+    min_x < config.world_min_x
+        || max_x > config.world_max_x
+        || min_y < config.world_min_y
+        || max_y > config.world_max_y
 }
 
 fn positional_correction(

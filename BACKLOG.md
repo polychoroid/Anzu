@@ -35,8 +35,6 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Keep streaming and upload work off the frame-critical path via priority queues and bounded per-frame upload budgets.
 - Require fallback assets/LODs for streamable content so over-budget conditions degrade quality, not correctness.
 
----
-
 ## Epic: Runtime Execution Model
 
 **Description**: Deterministic engine scheduler, ECS, world state, and frame lifecycle.
@@ -97,14 +95,14 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 ### Milestone 3: Input-Driven Movement and Deterministic Simulation
 **Outcome**: Player can control a triangle with keyboard (WASD for movement, arrow keys for rotation). Simulation is deterministic (same input sequence = same output).
 
-- [ ] Task 3.1: Implement InputManager (capture keyboard events)
-- [ ] Task 3.2: Add input-to-action mapping (WASD → move, arrows → rotate)
-- [ ] Task 3.3: Create input event stage in scheduler
-- [ ] Task 3.4: Add fixed timestep simulation stage (60 Hz)
-- [ ] Task 3.5: Update transform based on input each frame
-- [ ] Task 3.6: Record input history and test replay (same result)
-- [ ] Task 3.7: Test determinism across multiple browser sessions
-- [ ] Task 3.8: Add frame-by-frame debug stepping (optional)
+- [x] Task 3.1: Implement InputManager (capture keyboard events)
+- [x] Task 3.2: Add input-to-action mapping (WASD → move, arrows → rotate)
+- [x] Task 3.3: Create input event stage in scheduler
+- [x] Task 3.4: Add fixed timestep simulation stage (60 Hz)
+- [x] Task 3.5: Update transform based on input each frame
+- [x] Task 3.6: Record input history and test replay (same result)
+- [x] Task 3.7: Test determinism across multiple browser sessions
+- [x] Task 3.8: Add frame-by-frame debug stepping (optional)
 
 **Demonstrates**:
 - Input abstraction works on browser
@@ -718,6 +716,206 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Audio System
 - Debugging & Observability
 - State Synchronization Model
+
+---
+
+## Initiative: GPU-Driven Neural Skeletal Animation (Rust + wgpu)
+
+**Goal**: Run neural-network-driven skeletal animation fully on GPU (compute + vertex skinning) with minimal CPU-GPU traffic and scalable multi-character support.
+
+### Suggested Development Order (Dependencies)
+1. NS-01 -> NS-02 -> NS-03 (authoritative data model first)
+2. NS-04 -> NS-05 (GPU resource model before shaders)
+3. NS-06 -> NS-07 (render baseline before GPU NN)
+4. NS-08 -> NS-09 (compute inference then transform compose)
+5. NS-10 -> NS-11 (multi-character scale + profiling)
+6. NS-12 in parallel after NS-06 (debug/visualization)
+
+### Epic NS-01: GLB/glTF Import and Canonicalization
+**Feature NS-01.1: GLB ingest pipeline**
+- [ ] Task NS-01.1.1: Add GLB loader module to parse meshes, skins, joints, node hierarchy, and animations from binary glTF
+- [ ] Task NS-01.1.2: Validate required vertex attributes exist (`POSITION`, `NORMAL`, `JOINTS_0`, `WEIGHTS_0`)
+- [ ] Task NS-01.1.3: Implement strict error types for missing/incompatible skin data
+
+**Feature NS-01.2: Coordinate and unit normalization**
+- [ ] Task NS-01.2.1: Define canonical engine space (handedness, up axis, meters scale)
+- [ ] Task NS-01.2.2: Normalize imported transforms to canonical space during asset build/import
+- [ ] Task NS-01.2.3: Add import report output (joint count, mesh count, scale factors, warnings)
+
+**Feature NS-01.3: Offline asset packing**
+- [ ] Task NS-01.3.1: Create packed runtime structs for static mesh/skeleton data
+- [ ] Task NS-01.3.2: Emit contiguous arrays for GPU upload (no pointer-linked runtime graph)
+- [ ] Task NS-01.3.3: Cache packed output with content hash to avoid repeated conversion
+
+### Epic NS-02: Skeletal Data Structures and Hierarchy
+**Feature NS-02.1: Runtime skeleton model**
+- [ ] Task NS-02.1.1: Define flat joint table (`parent_index`, `inverse_bind`, `rest_pose`)
+- [ ] Task NS-02.1.2: Define joint remap table between glTF node order and skin joint order
+- [ ] Task NS-02.1.3: Add max joint limits and validation gates for target hardware profiles
+
+**Feature NS-02.2: Transform math contracts**
+- [ ] Task NS-02.2.1: Standardize transform representation (`quat + translation`, optional uniform scale)
+- [ ] Task NS-02.2.2: Implement CPU reference compose path for validation (not per-frame runtime path)
+- [ ] Task NS-02.2.3: Add quaternion normalization and NaN guard utilities shared by CPU/GPU tests
+
+### Epic NS-03: Neural Network Representation
+**Feature NS-03.1: MLP schema and serialization**
+- [ ] Task NS-03.1.1: Define layer schema (`in_dim`, `out_dim`, activation)
+- [ ] Task NS-03.1.2: Define flat buffer layout for weights/biases per layer (aligned to 16-byte boundaries)
+- [ ] Task NS-03.1.3: Implement NN asset serializer/deserializer with versioned header
+
+**Feature NS-03.2: Input/Output contracts**
+- [ ] Task NS-03.2.1: Define per-character input vector schema (velocity, facing, prior latent/state, optional env probes)
+- [ ] Task NS-03.2.2: Define output schema mapping to joint local transforms (quat + translation per joint)
+- [ ] Task NS-03.2.3: Add shape checks that fail pipeline creation when model/joint dimensions mismatch
+
+### Epic NS-04: GPU Buffer Layout and Resource Management
+**Feature NS-04.1: Buffer inventory and binding model**
+- [ ] Task NS-04.1.1: Define storage buffers for skeletons, NN weights, per-character state, and output transforms
+- [ ] Task NS-04.1.2: Define static vertex/index buffers for skinned meshes uploaded once at load
+- [ ] Task NS-04.1.3: Define per-frame transient buffers (if needed) with ring-buffer allocator policy
+
+**Feature NS-04.2: Layout correctness and alignment**
+- [ ] Task NS-04.2.1: Add Rust-side `repr(C)` structs that mirror WGSL struct layout rules
+- [ ] Task NS-04.2.2: Add compile-time/static assertions for stride/alignment and padding expectations
+- [ ] Task NS-04.2.3: Add integration test that writes sentinel values and verifies shader reads
+
+**Feature NS-04.3: Bind groups and pipeline layout**
+- [ ] Task NS-04.3.1: Create separate bind group layouts for inference, transform compose, and skinning render
+- [ ] Task NS-04.3.2: Implement resource lifetime ownership map (who creates, updates, destroys)
+- [ ] Task NS-04.3.3: Add hot-reload-safe resource rebuild path for shader/layout changes
+
+### Epic NS-05: Rendering Baseline with GPU Skinning
+**Feature NS-05.1: Skinned mesh vertex shader path**
+- [ ] Task NS-05.1.1: Implement WGSL vertex skinning using 4-joint blend weights
+- [ ] Task NS-05.1.2: Compute skinned normals correctly (rotation-only or inverse-transpose path)
+- [ ] Task NS-05.1.3: Add fallback path for meshes with fewer than 4 influences
+
+**Feature NS-05.2: Minimal animated render scene**
+- [ ] Task NS-05.2.1: Render one character using static test joint transforms from buffer
+- [ ] Task NS-05.2.2: Add camera/light controls to inspect skinning artifacts
+- [ ] Task NS-05.2.3: Capture reference screenshots for regression comparison
+
+### Epic NS-06: Compute Shader NN Inference (WGSL)
+**Feature NS-06.1: Layer kernels**
+- [ ] Task NS-06.1.1: Implement WGSL kernel for dense layer mat-vec (or small mat-mat for batched chars)
+- [ ] Task NS-06.1.2: Implement WGSL activation functions (`relu`, `tanh`, optional `gelu`)
+- [ ] Task NS-06.1.3: Chain multiple layers with explicit intermediate buffers or ping-pong buffers
+
+**Feature NS-06.2: Dispatch and synchronization**
+- [ ] Task NS-06.2.1: Define workgroup sizes from target device limits and benchmark candidates
+- [ ] Task NS-06.2.2: Insert required compute-to-render synchronization barriers in command encoding
+- [ ] Task NS-06.2.3: Add per-dispatch timing markers for profiling
+
+**Feature NS-06.3: CPU parity harness**
+- [ ] Task NS-06.3.1: Implement CPU reference inference for same model format
+- [ ] Task NS-06.3.2: Run parity tests GPU vs CPU with tolerance thresholds per layer
+- [ ] Task NS-06.3.3: Log max absolute and relative error per output block
+
+### Epic NS-07: Bone Transform Generation and Hierarchy Resolve
+**Feature NS-07.1: Local output to model-space matrices**
+- [ ] Task NS-07.1.1: Convert NN outputs to normalized local transforms per joint
+- [ ] Task NS-07.1.2: Resolve hierarchy (parent-child compose) on GPU compute pass
+- [ ] Task NS-07.1.3: Multiply by inverse bind matrices to produce final skinning palette
+
+**Feature NS-07.2: Stability and plausibility guards**
+- [ ] Task NS-07.2.1: Clamp extreme translations/rotations to configured per-joint limits
+- [ ] Task NS-07.2.2: Add optional temporal smoothing buffer for jitter reduction
+- [ ] Task NS-07.2.3: Add root-motion extraction output channel for gameplay integration
+
+### Epic NS-08: End-to-End GPU Animation Pipeline
+**Feature NS-08.1: Frame graph integration**
+- [ ] Task NS-08.1.1: Encode pass order: character state update -> NN inference -> hierarchy compose -> render skinning
+- [ ] Task NS-08.1.2: Keep per-frame CPU writes limited to compact character input/state buffer updates
+- [ ] Task NS-08.1.3: Add validation mode that can read back a tiny subset of outputs for debugging only
+
+**Feature NS-08.2: System modularization**
+- [ ] Task NS-08.2.1: Split modules: `asset_loading`, `nn_runtime`, `animation_gpu`, `render_skinning`
+- [ ] Task NS-08.2.2: Define trait contracts between modules to avoid tight coupling
+- [ ] Task NS-08.2.3: Add dependency-injection-friendly initialization for testability
+
+### Epic NS-09: Multi-Character Batching and Scaling
+**Feature NS-09.1: Character indexing strategy**
+- [ ] Task NS-09.1.1: Add SoA layout for per-character inputs/states to improve coalesced access
+- [ ] Task NS-09.1.2: Add character index indirection table for active/inactive pooling
+- [ ] Task NS-09.1.3: Ensure all shader addressing is index-driven (no per-character pipeline changes)
+
+**Feature NS-09.2: Batched inference and skinning**
+- [ ] Task NS-09.2.1: Dispatch inference for N characters per frame with configurable batch size
+- [ ] Task NS-09.2.2: Support multiple skeleton archetypes via offsets/ranges in shared buffers
+- [ ] Task NS-09.2.3: Add frustum/visibility gate to skip skinning for fully off-screen characters
+
+**Feature NS-09.3: Scaling validation**
+- [ ] Task NS-09.3.1: Add benchmark scenarios for 1, 10, 50, 100+ characters
+- [ ] Task NS-09.3.2: Record frame time split (CPU encode, compute, render)
+- [ ] Task NS-09.3.3: Add automated threshold alerts when scaling regresses
+
+### Epic NS-10: Debugging and Visualization Tooling
+**Feature NS-10.1: Skeleton debug view**
+- [ ] Task NS-10.1.1: Render bone lines/joint axes overlay pass
+- [ ] Task NS-10.1.2: Toggle between rest pose, NN output pose, and final skinned pose
+- [ ] Task NS-10.1.3: Color joints by constraint violation or output magnitude
+
+**Feature NS-10.2: GPU introspection aids**
+- [ ] Task NS-10.2.1: Add optional buffer dump tool for selected character and frame
+- [ ] Task NS-10.2.2: Add debug labels/markers for command encoder passes
+- [ ] Task NS-10.2.3: Add shader compile error surfacing with file/line mapping in logs
+
+### Epic NS-11: Performance Optimization
+**Feature NS-11.1: Memory layout tuning**
+- [ ] Task NS-11.1.1: Compare AoS vs SoA for NN IO and transform buffers
+- [ ] Task NS-11.1.2: Align buffer strides to avoid bank conflicts/misaligned loads
+- [ ] Task NS-11.1.3: Minimize duplicated data across passes (reuse intermediates where safe)
+
+**Feature NS-11.2: Dispatch and occupancy tuning**
+- [ ] Task NS-11.2.1: Sweep workgroup sizes and measure occupancy/latency
+- [ ] Task NS-11.2.2: Fuse lightweight passes where it reduces memory traffic
+- [ ] Task NS-11.2.3: Gate optional high-cost features behind quality levels
+
+**Feature NS-11.3: CPU-GPU transfer minimization checks**
+- [ ] Task NS-11.3.1: Add per-frame upload byte counter and target budget
+- [ ] Task NS-11.3.2: Assert static mesh/skeleton/weight buffers are not re-uploaded per frame
+- [ ] Task NS-11.3.3: Add CI regression test for unexpected buffer write growth
+
+### Epic NS-12: Testing and Validation Strategy
+**Feature NS-12.1: Unit tests (CPU-side contracts)**
+- [ ] Task NS-12.1.1: Test glTF parsing and canonicalization edge cases
+- [ ] Task NS-12.1.2: Test transform compose, quaternion normalization, and hierarchy traversal math
+- [ ] Task NS-12.1.3: Test NN serialization/deserialization and shape validation
+
+**Feature NS-12.2: GPU parity and correctness tests**
+- [ ] Task NS-12.2.1: Add deterministic GPU-vs-CPU inference test vectors
+- [ ] Task NS-12.2.2: Add skinning correctness test with known simple rig pose
+- [ ] Task NS-12.2.3: Add tolerance-based snapshot test for joint matrices across frames
+
+**Feature NS-12.3: Visual validation**
+- [ ] Task NS-12.3.1: Define golden animation clips and expected pose checkpoints
+- [ ] Task NS-12.3.2: Add screenshot/video diff checks for key camera angles
+- [ ] Task NS-12.3.3: Add debug HUD with per-pass timings, joint counts, and active character count
+
+### Potential Pitfalls (Track as Risk Issues)
+- [ ] Risk NS-R1: Coordinate system mismatch between Blender/glTF/import/runtime causes mirrored or rotated skeletons
+- [ ] Risk NS-R2: WGSL/Rust layout mismatch (`std430`-style assumptions, padding) corrupts transforms
+- [ ] Risk NS-R3: Quaternion drift without normalization creates exploding poses over time
+- [ ] Risk NS-R4: Inverse bind matrix ordering mismatch yields subtle skinning distortions
+- [ ] Risk NS-R5: Precision loss (`f16`/`f32`) destabilizes NN outputs for deep/wide models
+- [ ] Risk NS-R6: Hidden CPU sync points (buffer mapping/readback) stall frame pipeline
+- [ ] Risk NS-R7: Bone hierarchy resolve becomes bottleneck for large rigs without optimized pass design
+- [ ] Risk NS-R8: Divergent branches in shader constraints/smoothing hurt occupancy
+
+### Iteration Path (Start Simple -> Scale)
+1. Single character, single rig, fixed test inputs, static NN weights, no environment inputs
+2. Single character, dynamic per-frame inputs, GPU NN inference, basic constraints
+3. Multiple characters with same rig, batched inference and skinning
+4. Multiple rigs/archetypes with shared pipelines and offset indexing
+5. Add optional environment features, temporal smoothing, quality tiers, and aggressive perf tuning
+
+### Optional Stretch Goals
+- [ ] Stretch NS-S1: Mixed precision inference (`f16` weights/intermediates) with automatic fallback to `f32`
+- [ ] Stretch NS-S2: GPU IK post-pass for feet/hands grounding after NN pose output
+- [ ] Stretch NS-S3: Motion matching or latent-space controller feeding NN inputs
+- [ ] Stretch NS-S4: Runtime model hot-swap and A/B blend between two NN policies
+- [ ] Stretch NS-S5: Async streaming of NN models and skeleton LOD sets based on distance/perf budget
 
 ---
 

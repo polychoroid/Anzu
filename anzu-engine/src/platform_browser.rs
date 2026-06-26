@@ -193,6 +193,9 @@ impl ApplicationHandler<renderer::State> for App {
                 log_info("[APP] close requested: exiting event loop");
                 event_loop.exit()
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                state.handle_key_event(&event);
+            }
             WindowEvent::Resized(size) => {
                 log_info(&format!(
                     "[RENDER] resize event: width={} height={}",

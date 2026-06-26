@@ -103,7 +103,9 @@ impl<C: Component> SparseStorage<C> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (EntityId, &C)> {
-        self.entries.iter().map(|(entity_id, component)| (*entity_id, component))
+        self.entries
+            .iter()
+            .map(|(entity_id, component)| (*entity_id, component))
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut C)> {
@@ -187,7 +189,8 @@ impl World {
 
     pub fn set_mesh_instance(&mut self, entity_id: EntityId, asset_id: MeshAssetId) {
         self.meshes.remove(entity_id);
-        self.mesh_instances.insert(entity_id, MeshInstance { asset_id });
+        self.mesh_instances
+            .insert(entity_id, MeshInstance { asset_id });
     }
 
     pub fn mesh(&self, entity_id: EntityId) -> Option<&Mesh> {

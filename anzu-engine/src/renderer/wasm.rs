@@ -2,12 +2,19 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use winit::window::Window;
+use winit::{
+    event::{ElementState, KeyEvent},
+    keyboard::PhysicalKey,
+    window::Window,
+};
 
 use super::core::{BatchVertex, RenderCore, RenderError, RotationUniform};
 use crate::ecs::{EntityId, World};
 use crate::renderer::RenderRomPackage;
 use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel};
+
+const FIXED_STEP_SECONDS: f32 = 1.0 / 60.0;
+const MAX_FIXED_STEPS_PER_FRAME: u32 = 8;
 
 fn log_info(message: &str) {
     web_sys::console::log_1(&JsValue::from_str(message));
@@ -30,7 +37,13 @@ pub struct State {
     anchor_entity: EntityId,
     scheduler: Scheduler,
     frame_index: u64,
+    fixed_tick_index: u64,
     next_scheduler_log_frame: u64,
+    fixed_time_accumulator_seconds: f32,
+    fixed_step_clamp_count: u64,
+    game_over: bool,
+    simulation_paused: bool,
+    pending_step_ticks: u32,
     simulation: Box<dyn SimulationModel>,
     render_core: RenderCore,
 }
@@ -51,10 +64,14 @@ impl State {
             linear_momentum_x += body.mass * transform.velocity_x;
             linear_momentum_y += body.mass * transform.velocity_y;
             angular_momentum += body.moment_of_inertia * transform.angular_velocity;
-            kinetic_energy_linear +=
-                0.5 * body.mass * (transform.velocity_x * transform.velocity_x + transform.velocity_y * transform.velocity_y);
-            kinetic_energy_angular +=
-                0.5 * body.moment_of_inertia * transform.angular_velocity * transform.angular_velocity;
+            kinetic_energy_linear += 0.5
+                * body.mass
+                * (transform.velocity_x * transform.velocity_x
+                    + transform.velocity_y * transform.velocity_y);
+            kinetic_energy_angular += 0.5
+                * body.moment_of_inertia
+                * transform.angular_velocity
+                * transform.angular_velocity;
         }
 
         (
@@ -245,7 +262,13 @@ impl State {
             anchor_entity,
             scheduler: Scheduler::new(physics_config),
             frame_index: 0,
+            fixed_tick_index: 0,
             next_scheduler_log_frame: 0,
+            fixed_time_accumulator_seconds: 0.0,
+            fixed_step_clamp_count: 0,
+            game_over: false,
+            simulation_paused: false,
+            pending_step_ticks: 0,
             simulation,
             render_core,
         })
@@ -263,13 +286,88 @@ impl State {
         self.render_core.resize(&self.surface, width, height);
     }
 
-    pub fn update(&mut self, delta_seconds: f32) {
-        self.frame_index = self.frame_index.saturating_add(1);
-        let report = self.scheduler.update_world(&mut self.world, delta_seconds);
+    pub fn handle_key_event(&mut self, event: &KeyEvent) {
+        let PhysicalKey::Code(key_code) = event.physical_key else {
+            return;
+        };
+
+        let is_pressed = event.state == ElementState::Pressed;
+        if event.repeat && is_pressed {
+            return;
+        }
+
+        match key_code {
+            winit::keyboard::KeyCode::Backquote => {
+                if is_pressed {
+                    self.simulation_paused = !self.simulation_paused;
+                    log_info(&format!(
+                        "[SIM] pause toggled: paused={} fixed_tick={}",
+                        self.simulation_paused, self.fixed_tick_index
+                    ));
+                }
+            }
+            winit::keyboard::KeyCode::Period => {
+                if is_pressed {
+                    self.pending_step_ticks = self.pending_step_ticks.saturating_add(1);
+                }
+            }
+            _ => {
+                self.simulation
+                    .handle_key_event(key_code, is_pressed, event.repeat);
+            }
+        }
+    }
+
+    fn sync_anchor_from_simulation(&mut self) {
+        let transform = self.simulation.transform_2d();
+        if let Some(entity_transform) = self.world.transform_mut(self.anchor_entity) {
+            entity_transform.position_x = transform.position_x;
+            entity_transform.position_y = transform.position_y;
+            entity_transform.rotation_rad = transform.rotation_rad;
+            entity_transform.uniform_scale = transform.uniform_scale;
+        }
+    }
+
+    fn run_fixed_tick(&mut self) {
+        if self.game_over {
+            return;
+        }
+
+        let should_tick = if self.simulation_paused {
+            if self.pending_step_ticks > 0 {
+                self.pending_step_ticks = self.pending_step_ticks.saturating_sub(1);
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+
+        if !should_tick {
+            return;
+        }
+
+        let report = self
+            .scheduler
+            .update_world(&mut self.world, FIXED_STEP_SECONDS);
+
+        self.simulation
+            .reconcile_world(&mut self.world, FIXED_STEP_SECONDS, &report);
+
+        if report.despawned_entities.contains(&self.anchor_entity) {
+            self.game_over = true;
+            log_info(&format!(
+                "[GAME] game over: anchor entity {} despawned at fixed_tick={}",
+                self.anchor_entity, self.fixed_tick_index
+            ));
+        }
+
+        self.fixed_tick_index = self.fixed_tick_index.saturating_add(1);
 
         let has_activity =
             !report.interaction_events.is_empty() || !report.despawned_entities.is_empty();
-        if has_activity && self.frame_index >= self.next_scheduler_log_frame {
+        if has_activity && self.fixed_tick_index >= self.next_scheduler_log_frame {
             let mut collisions = 0u32;
             let mut proximity_enter = 0u32;
             let mut proximity_exit = 0u32;
@@ -287,10 +385,9 @@ impl State {
             }
 
             let (p_x, p_y, l_z, e_linear, e_angular) = self.simulation_counters();
-
             log_info(&format!(
-                "[SIM] scheduler frame={} pairs_checked={} collisions={} proximity_enter={} proximity_exit={} despawned={} momentum=({:.4},{:.4}) angular_momentum={:.4} energy_linear={:.4} energy_angular={:.4}",
-                self.frame_index,
+                "[SIM] fixed_tick={} pairs_checked={} collisions={} proximity_enter={} proximity_exit={} despawned={} momentum=({:.4},{:.4}) angular_momentum={:.4} energy_linear={:.4} energy_angular={:.4}",
+                self.fixed_tick_index,
                 report.interaction_pairs_checked,
                 collisions,
                 proximity_enter,
@@ -310,17 +407,43 @@ impl State {
                 ));
             }
 
-            // Throttle to about once per second at 60fps.
-            self.next_scheduler_log_frame = self.frame_index.saturating_add(60);
+            self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(60);
         }
 
-        self.simulation.update(delta_seconds);
-        let transform = self.simulation.transform_2d();
-        if let Some(entity_transform) = self.world.transform_mut(self.anchor_entity) {
-            entity_transform.position_x = transform.position_x;
-            entity_transform.position_y = transform.position_y;
-            entity_transform.rotation_rad = transform.rotation_rad;
-            entity_transform.uniform_scale = transform.uniform_scale;
+        self.simulation.update(FIXED_STEP_SECONDS);
+        self.sync_anchor_from_simulation();
+    }
+
+    pub fn update(&mut self, delta_seconds: f32) {
+        self.frame_index = self.frame_index.saturating_add(1);
+        let clamped_delta_seconds = delta_seconds.clamp(0.0, 0.25);
+        self.fixed_time_accumulator_seconds += clamped_delta_seconds;
+
+        let mut ticks_this_frame = 0u32;
+        while self.fixed_time_accumulator_seconds >= FIXED_STEP_SECONDS
+            && ticks_this_frame < MAX_FIXED_STEPS_PER_FRAME
+        {
+            self.fixed_time_accumulator_seconds -= FIXED_STEP_SECONDS;
+            self.run_fixed_tick();
+            ticks_this_frame = ticks_this_frame.saturating_add(1);
+        }
+
+        if self.fixed_time_accumulator_seconds >= FIXED_STEP_SECONDS {
+            self.fixed_step_clamp_count = self.fixed_step_clamp_count.saturating_add(1);
+            self.fixed_time_accumulator_seconds = FIXED_STEP_SECONDS * 0.5;
+        }
+
+        if self.frame_index % 120 == 0 {
+            log_info(&format!(
+                "[SIM] fixed-step summary frame={} ticks_this_frame={} accumulator={:.5} clamped_frames={} game_over={} paused={} pending_steps={}",
+                self.frame_index,
+                ticks_this_frame,
+                self.fixed_time_accumulator_seconds,
+                self.fixed_step_clamp_count,
+                self.game_over,
+                self.simulation_paused,
+                self.pending_step_ticks
+            ));
         }
     }
 
