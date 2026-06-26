@@ -1,0 +1,8 @@
+{
+  "scene_id": "sandbox",
+  "description": "Interactive sandbox scene for object interaction and input-driven motion",
+  "entity_templates": [
+    "player-bike-template",
+    "enemy-bike-template"
+  ]
+}

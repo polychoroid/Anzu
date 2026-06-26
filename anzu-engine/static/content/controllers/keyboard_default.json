@@ -1,0 +1,17 @@
+{
+  "map_id": "keyboard-default",
+  "bindings": [
+    {
+      "action": "turn_left",
+      "input": "ArrowLeft"
+    },
+    {
+      "action": "turn_right",
+      "input": "ArrowRight"
+    },
+    {
+      "action": "boost",
+      "input": "Space"
+    }
+  ]
+}

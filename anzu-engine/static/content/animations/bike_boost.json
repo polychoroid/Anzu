@@ -1,0 +1,11 @@
+{
+  "clip_id": "bike-boost-animation",
+  "fps": 16,
+  "loop": true,
+  "frames": [
+    3,
+    4,
+    5,
+    4
+  ]
+}

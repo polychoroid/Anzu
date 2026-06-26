@@ -113,6 +113,20 @@ wasm-pack build --target web --out-dir static/pkg --release
   - Use wgpu v29+ API.
   - Keep shader code as embedded WGSL strings (see examples in triangle demo code).
   - Avoid deprecated or platform-specific wgpu APIs.
+- **Resource classification:**
+  - Declare asset class and priority in manifest metadata (`critical`, `scaled_optional`, `reused`, `streaming`).
+  - Treat missing classification metadata as a validation error.
+- **Streaming and async rules:**
+  - Use staged load flow (`fetch` -> `decode` -> `upload` -> `activate`) for streamable assets.
+  - Keep upload work off frame-critical path via queue tiers (`critical_stream`, `normal_decode`, `background_cleanup`).
+  - Enforce per-frame upload byte limits to avoid frame spikes.
+- **Budgeting and fallback:**
+  - Track CPU/WASM and GPU usage separately when possible.
+  - Under pressure, degrade optional quality first (LOD/fallback), then evict non-critical content.
+  - Do not block simulation ticks waiting for optional high-LOD content.
+- **Verification gates:**
+  - New asset/streaming work must include measurable checks (startup time, frame time, memory, queue depth, eviction churn).
+  - Include at least one pressure test proving graceful degradation and recovery.
 - **Documentation expectations:**
   - Add doc comments (`///`) to public functions and types in Rust.
   - Keep README files in each module directory up-to-date with build/run instructions.

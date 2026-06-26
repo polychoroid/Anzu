@@ -45,6 +45,24 @@ Guidelines:
 - Keep buffer usage flags minimal and explicit.
 - Keep GPU state and simulation state represented as separate structs.
 
+Residency and classification rules:
+- Every runtime asset is classified as `critical`, `scaled_optional`, `reused`, or `streaming`.
+- Runtime tracks residency state per handle (`Queued`, `Loading`, `Resident`, `EvictionPending`, `Evicted`).
+- Quality fallback is mandatory for streamable visuals (fallback LOD/placeholder must exist).
+- Eviction policy is class-specific and pressure-aware, not one global strategy.
+
+Budget model:
+- Budget hierarchy: `global` -> `cpu_wasm` and `gpu` -> per-class pools.
+- Budget signals are dynamic and may change during a session.
+- Pressure responses are staged: lower optional quality first, then evict non-critical content.
+- Frame-critical logic must continue running when optional content is constrained.
+
+Streaming subsystem:
+- World content is partitioned into zones/cells with explicit dependencies.
+- Cell activation is visibility-led with neighbor prefetch and unload hysteresis.
+- Upload/stream work uses priority queues and bounded per-frame upload budgets.
+- Renderer consumes resident handles only; streaming system drives transitions asynchronously.
+
 ## Performance Considerations
 Runtime performance policy:
 - Frame pacing: maintain stable pacing and avoid large dt spikes driving simulation instability.

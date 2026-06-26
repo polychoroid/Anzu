@@ -5,11 +5,6 @@
       "resolved": "ghcr.io/devcontainers/features/azure-cli@sha256:d98f1066c077be0fa9d115b718f458bd803e415181b4a96f82a6f5d9f77241ac",
       "integrity": "sha256:d98f1066c077be0fa9d115b718f458bd803e415181b4a96f82a6f5d9f77241ac"
     },
-    "ghcr.io/lumenpink/devcontainer-features/wasm-pack:0": {
-      "version": "0.0.3",
-      "resolved": "ghcr.io/lumenpink/devcontainer-features/wasm-pack@sha256:1c5c7bc7948db687ddc5a27114b794d4c196e23b60727af9cd78188ba77c8646",
-      "integrity": "sha256:1c5c7bc7948db687ddc5a27114b794d4c196e23b60727af9cd78188ba77c8646"
-    },
     "ghcr.io/meaningful-ooo/devcontainer-features/fish:2.0.0": {
       "version": "2.0.0",
       "resolved": "ghcr.io/meaningful-ooo/devcontainer-features/fish@sha256:c37c61d097aca9f0f4e35193eecd7c1f4f6f92225deaef7d98852de363a68a34",

@@ -27,14 +27,21 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Avoid `unwrap`/`expect` in startup, rendering, networking, and asset-loading paths.
 - Require measurable acceptance checks for each completed task (build/test/profile evidence).
 - Keep deterministic simulation behavior isolated from I/O and rendering side effects.
+- Keep physics response deterministic while supporting configurable restitution (elastic/inelastic) and bounded-world collisions.
 - Enforce deny-by-default authz and per-request authorization checks for protected endpoints.
 - Prefer documented extension seams (traits/modules/contracts) before adding complexity.
+- Classify runtime resources (`critical`, `scaled_optional`, `reused`, `streaming`) and tie each class to explicit budget/eviction policy.
+- Treat memory budgets as dynamic signals (CPU/WASM + GPU), with graceful quality fallback before hard failure.
+- Keep streaming and upload work off the frame-critical path via priority queues and bounded per-frame upload budgets.
+- Require fallback assets/LODs for streamable content so over-budget conditions degrade quality, not correctness.
 
 ---
 
 ## Epic: Runtime Execution Model
 
 **Description**: Deterministic engine scheduler, ECS, world state, and frame lifecycle.
+
+**Design constraint**: Simulation stage depends on a trait contract with swappable implementations rather than a mode enum.
 
 ### Milestone 1: Walking Skeleton—Browser-Hosted Engine with Moving Triangle
 **Outcome**: A web client loads a WASM engine, initializes WebGPU, and renders a triangle that rotates each frame.
@@ -63,21 +70,29 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 ### Milestone 2: Add ECS Foundation and Multi-Entity Rendering
 **Outcome**: Engine can spawn multiple entities (triangle, square, etc.), each with position/rotation components, updated by a simple scheduler.
 
-- [ ] Task 2.1: Implement minimal ECS (Entity ID, Component trait, sparse storage)
-- [ ] Task 2.2: Add Transform component (position, rotation, scale)
-- [ ] Task 2.3: Add Mesh component with vertex/index data
-- [ ] Task 2.4: Create simple scheduler to iterate entities and update transforms
-- [ ] Task 2.5: Spawn 3+ entities with different meshes and animations
-- [ ] Task 2.6: Render all entities in single batched call
-- [ ] Task 2.7: Add per-entity move/rotate logic
-- [ ] Task 2.8: Test performance with ~100 entities
-- [ ] Task 2.9: Add entity lifecycle (spawn/despawn) without leaks
+- [x] Task 2.1: Implement minimal ECS with simulation trait contract boundary (Entity ID, Component trait, sparse storage)
+- [x] Task 2.1a: Add compile-time boundary check: runtime depends on simulation trait interface, not concrete ROM simulation types
+- [x] Task 2.2: Add Transform component (position, rotation, scale)
+- [x] Task 2.3: Add Mesh component with vertex/index data
+- [x] Task 2.4: Create simple scheduler to iterate entities and update transforms
+- [x] Task 2.4a: Add collision/proximity components (AABB or circle bounds) for object interaction checks
+- [x] Task 2.4b: Add deterministic interaction stage in scheduler (proximity + collision evaluation)
+- [x] Task 2.4c: Emit typed entity interaction events (`Collision`, `ProximityEnter`, `ProximityExit`)
+- [x] Task 2.4d: Add simple interaction response handler (state change or momentum impulse on contact)
+- [x] Task 2.4e: Add deterministic interaction regression test (same entity ordering -> same event ordering)
+- [x] Task 2.5: Spawn 3+ entities with different meshes and animations
+- [x] Task 2.6: Render all entities in single batched call
+- [x] Task 2.7: Add per-entity move/rotate logic
+- [x] Task 2.8: Test performance with ~100 entities
+- [x] Task 2.9: Add entity lifecycle (spawn/despawn) without leaks
+- [x] Task 2.10: Implement flyweight pattern for shared mesh data (dedup vertex/index buffers across entities with same mesh)
 
 **Demonstrates**:
 - ECS patterns work for multi-entity games
 - Scheduler ordering is correct
 - Batching and GPU resource reuse work
 - Entity spawn/despawn is leak-free
+- Engine/ROM separation is enforced by trait/interface boundary rather than runtime mode branching
 
 ### Milestone 3: Input-Driven Movement and Deterministic Simulation
 **Outcome**: Player can control a triangle with keyboard (WASD for movement, arrow keys for rotation). Simulation is deterministic (same input sequence = same output).
@@ -168,42 +183,80 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 
 **Description**: ROM formats, asset dependency graph, streaming, caching, versioning.
 
-### Milestone 1: Load Texture and Mesh Assets from Manifest, Render Them
-**Outcome**: Engine loads a manifest that references remote PNG textures and mesh data. Textures are fetched, bound to GPU, and rendered on geometry.
+### Milestone 1: Classified Asset Loading and Residency Baseline
+**Outcome**: Engine loads manifest-defined textures/meshes with explicit resource classification, async staged loading, and residency-aware handles.
 
-- [ ] Task 1.1: Design asset manifest schema (id, type, source URL, hash)
-- [ ] Task 1.2: Implement AssetManager with handle allocation
-- [ ] Task 1.3: Create asset loader for PNG textures (fetch + GPU upload)
-- [ ] Task 1.4: Create asset loader for mesh data (JSON vertices/indices + GPU buffers)
-- [ ] Task 1.5: Write manifest JSON with example texture and mesh references
-- [ ] Task 1.6: Integrate manifest loader into scene loading
-- [ ] Task 1.7: Bind loaded textures to render pass and display them
-- [ ] Task 1.8: Add error handling for missing or corrupt assets
-- [ ] Task 1.9: Test with multiple assets and verify GPU memory usage
-- [ ] Task 1.10: Add asset caching to avoid re-fetching
+- [ ] Task 1.1: Extend manifest schema with runtime loading metadata (`resource_class`, `priority_tier`, `residency_hint`, `streaming_unit`, `fallback_chain`, `hash`)
+- [ ] Task 1.2: Implement `AssetManager` residency model (`Queued`, `Loading`, `Resident`, `EvictionPending`, `Evicted`) with per-class memory accounting
+- [ ] Task 1.3: Implement staged texture pipeline (`fetch` -> `decode` -> `upload` -> `activate`) with cancelation support
+- [ ] Task 1.4: Implement staged mesh pipeline with placeholder LOD activation before full-quality readiness
+- [ ] Task 1.5: Author example manifest that includes per-asset class/priority/fallback metadata
+- [ ] Task 1.6: Integrate residency-aware manifest loading into scene instantiation
+- [ ] Task 1.7: Bind active resident assets in render pass and fallback to lower LOD when high LOD is unavailable
+- [ ] Task 1.8: Add typed error handling for missing assets, hash mismatch, and invalid class metadata
+- [ ] Task 1.9: Define profiling gate for startup/frame/memory budgets and verify with multi-asset scene
+- [ ] Task 1.10: Add cache/index layer keyed by content hash + version, not URL alone
 
 **Demonstrates**:
-- Remote asset fetching works
-- GPU resource management works
-- Manifest-driven content is practical
-- Build pipeline can package and serve assets
+- Manifest-driven loading is budget-aware
+- Asset lifecycle and residency transitions are explicit
+- Graceful fallback works under partial availability
+- Startup/perf gates exist before scale-up
+
+### Milestone 1.5: Real ROM Manifest and Content Templates
+**Outcome**: Engine loads a ROM manifest with entry scene, controller maps, and entity templates. Runtime instantiates interactive entities from ROM content declarations.
+
+- [ ] Task 1.5.1: Define ROM manifest schema v1 (`rom_id`, `version`, `entry_scene`, `assets`, `scenes`, `controller_maps`, `entity_templates`)
+- [ ] Task 1.5.2: Add sprite/animation asset types and metadata conventions to manifest schema
+- [ ] Task 1.5.3: Define scene reference records and controller-map reference records
+- [ ] Task 1.5.4: Define entity template schema linking assets, interaction config, and controller maps
+- [ ] Task 1.5.5: Implement ROM manifest parser validation for required fields and duplicate IDs
+- [ ] Task 1.5.6: Integrate ROM entity-template instantiation into scene loading
+- [ ] Task 1.5.7: Add ROM validator checks (missing references, empty IDs, hash presence for remote assets)
+- [ ] Task 1.5.8: Add integration test loading a non-trivial ROM (multiple assets + interactive entities)
+- [ ] Task 1.5.9: Add manifest compatibility/version gate checks
+
+**Demonstrates**:
+- ROM content is first-class (not example-only)
+- Interactive object definitions can be authored as data
+- Runtime content loading supports scenes + controls + entity templates
+- Validation catches broken ROM definitions before runtime crashes
 
 ### Milestone 2: Dependency Graph and Asset Preloading
 - [ ] Task 2.1: Build asset dependency resolver (e.g., mesh depends on texture)
 - [ ] Task 2.2: Implement topological sort for correct load ordering
 - [ ] Task 2.3: Add batch preload for manifest assets
-- [ ] Task 2.4: Support optional lazy-load directives
+- [ ] Task 2.4: Support explicit preload/lazy/stream directives with class-specific defaults
 - [ ] Task 2.5: Test circular dependency detection
-- [ ] Task 2.6: Measure load time and memory usage
-- [ ] Task 2.7: Add progress reporting during preload
+- [ ] Task 2.6: Measure load time, peak memory, and residency churn under preload
+- [ ] Task 2.7: Add preload/stream progress reporting (bytes, queued jobs, resident set)
 
-### Milestone 3: Cache Eviction and Version Invalidation
-- [ ] Task 3.1: Implement LRU/size-based cache eviction policy
-- [ ] Task 3.2: Add version hash checking for asset staleness
-- [ ] Task 3.3: Support partial cache invalidation by type
-- [ ] Task 3.4: Add cache statistics and diagnostics
-- [ ] Task 3.5: Test memory bounds and cleanup
-- [ ] Task 3.6: Validate that eviction doesn't crash active scenes
+### Milestone 2.5: Cell Streaming and Adaptive LOD
+**Outcome**: Runtime streams scene cells/zones and dynamically selects LOD based on visibility and memory pressure.
+
+- [ ] Task 2.5.1: Define cell/zone schema and spatial partition metadata for scenes
+- [ ] Task 2.5.2: Implement cell activation policy (visible set + neighbor ring prefetch)
+- [ ] Task 2.5.3: Implement LOD selector using distance + pressure-driven quality caps
+- [ ] Task 2.5.4: Add hysteresis policy to prevent load/unload thrash near cell boundaries
+- [ ] Task 2.5.5: Validate seamless cell transitions with no hard visual pop/freeze
+- [ ] Task 2.5.6: Benchmark transition latency, upload burst size, and resident memory stability
+
+### Milestone 3: Budget Hierarchy, Eviction, and Versioned Delivery
+- [ ] Task 3.1: Implement budget tree (`global` -> `cpu_wasm`/`gpu` -> per-class pools) with runtime tuning hooks
+- [ ] Task 3.2: Implement class-specific eviction strategies and pressure callbacks (LOD drop, staged eviction, forced reclaim)
+- [ ] Task 3.3: Support partial invalidation and live replacement by class/resource scope
+- [ ] Task 3.4: Add detailed diagnostics (resident ratio, eviction reason, queue depth, upload latency)
+- [ ] Task 3.5: Test dynamic budget changes and verify graceful degradation under pressure
+- [ ] Task 3.6: Validate eviction safety for active scenes and in-flight dependencies
+
+### Milestone 4: CDN-Aware Content Versioning and Fallback
+**Outcome**: Runtime can consume versioned remote content with safe swaps and origin fallback policy.
+
+- [ ] Task 4.1: Define versioned CDN URL policy and manifest compatibility contract
+- [ ] Task 4.2: Implement stale detection using content hash/version and staged replacement
+- [ ] Task 4.3: Add fallback chain support (primary CDN -> secondary mirror -> local cache)
+- [ ] Task 4.4: Add cache-control and purge playbook checks to release process
+- [ ] Task 4.5: Validate live update path without startup regressions or frame spikes
 
 **Priority**: P0 (Enables ROM loading and asset management)
 
@@ -417,16 +470,16 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 ### Milestone 1: Browser Async Task Queue and Asset Loading
 - [ ] Task 1.1: Design task queue and job scheduler
 - [ ] Task 1.2: Implement async/await integration
-- [ ] Task 1.3: Add background asset loading via task queue
+- [ ] Task 1.3: Add priority upload/stream task queue (`critical_stream`, `normal_decode`, `background_cleanup`)
 - [ ] Task 1.4: Support task cancellation
-- [ ] Task 1.5: Test non-blocking load during gameplay
+- [ ] Task 1.5: Test non-blocking load during gameplay with bounded per-frame upload bytes
 
 ### Milestone 2: Job Scheduling for Background Loads
-- [ ] Task 2.1: Implement work-stealing or priority scheduling
+- [ ] Task 2.1: Implement priority scheduling with starvation protection and per-tier budgets
 - [ ] Task 2.2: Add time-slicing to prevent frame drops
 - [ ] Task 2.3: Support job dependencies
-- [ ] Task 2.4: Add load balancing hints
-- [ ] Task 2.5: Test frame rate stability under load
+- [ ] Task 2.4: Add load balancing hints and upload batch coalescing
+- [ ] Task 2.5: Test frame rate stability under load and queue backpressure scenarios
 
 ### Milestone 3: Runtime Task Diagnostics and Throttling
 - [ ] Task 3.1: Add task queue metrics and statistics
@@ -624,19 +677,19 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - [ ] Task 1.4: Support resource destruction hooks
 - [ ] Task 1.5: Test cleanup on scene exit
 
-### Milestone 2: Asset Lifetime Tracking and Eviction Policy
-- [ ] Task 2.1: Implement ref-counting for asset handles
-- [ ] Task 2.2: Add asset eviction callbacks
+### Milestone 2: Asset Lifetime Tracking and Residency Control
+- [ ] Task 2.1: Implement generational handles with residency markers (`last_access_frame`, `priority_tier`, `eviction_queued`)
+- [ ] Task 2.2: Add classification-aware eviction callbacks (`reason`, `bytes_freed`, `fallback_applied`)
 - [ ] Task 2.3: Support manual vs automatic lifetime
-- [ ] Task 2.4: Add lifetime diagnostics
-- [ ] Task 2.5: Test memory bounds enforcement
+- [ ] Task 2.4: Add lifetime/residency diagnostics by class and scene scope
+- [ ] Task 2.5: Test memory bounds enforcement with dynamic budget changes
 
-### Milestone 3: Memory Budget Monitoring and Diagnostics
-- [ ] Task 3.1: Add WASM memory usage tracking
-- [ ] Task 3.2: Implement memory budget alerts
-- [ ] Task 3.3: Support memory profiler integration
-- [ ] Task 3.4: Add diagnostic reports
-- [ ] Task 3.5: Test memory pressure scenarios
+### Milestone 3: Memory Budget Monitoring and Pressure Response
+- [ ] Task 3.1: Track CPU/WASM and GPU memory usage separately with sampled history
+- [ ] Task 3.2: Implement budget alerts and pressure-level state machine (`Normal`, `Constrained`, `Critical`)
+- [ ] Task 3.3: Integrate profiler views for per-class usage, residency ratio, and eviction churn
+- [ ] Task 3.4: Add pressure reports including queue depth and LOD downgrade counts
+- [ ] Task 3.5: Test pressure scenarios for graceful degradation and recovery hysteresis
 
 **Priority**: P1 (Ensures stability under constraints)
 
