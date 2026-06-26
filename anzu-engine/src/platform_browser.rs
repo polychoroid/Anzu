@@ -196,6 +196,15 @@ impl ApplicationHandler<renderer::State> for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 state.handle_key_event(&event);
             }
+            WindowEvent::MouseInput { state: button_state, button, .. } => {
+                state.handle_mouse_button_event(button, button_state);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                state.handle_mouse_wheel_event(delta);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                state.handle_cursor_moved_event(position.x as f32, position.y as f32);
+            }
             WindowEvent::Resized(size) => {
                 log_info(&format!(
                     "[RENDER] resize event: width={} height={}",

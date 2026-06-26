@@ -3,13 +3,14 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 use winit::{
-    event::{ElementState, KeyEvent},
+    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta},
     keyboard::PhysicalKey,
     window::Window,
 };
 
 use super::core::{BatchVertex, RenderCore, RenderError, RotationUniform};
 use crate::ecs::{EntityId, World};
+use crate::input::InputEvent;
 use crate::renderer::RenderRomPackage;
 use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel};
 
@@ -296,36 +297,35 @@ impl State {
             return;
         }
 
-        match key_code {
-            winit::keyboard::KeyCode::Backquote => {
-                if is_pressed {
-                    self.simulation_paused = !self.simulation_paused;
-                    log_info(&format!(
-                        "[SIM] pause toggled: paused={} fixed_tick={}",
-                        self.simulation_paused, self.fixed_tick_index
-                    ));
-                }
-            }
-            winit::keyboard::KeyCode::Period => {
-                if is_pressed {
-                    self.pending_step_ticks = self.pending_step_ticks.saturating_add(1);
-                }
-            }
-            _ => {
-                self.simulation
-                    .handle_key_event(key_code, is_pressed, event.repeat);
-            }
-        }
+        self.simulation
+            .handle_input_event(input_event_from_key_code(
+                key_code,
+                is_pressed,
+                event.repeat,
+            ));
     }
 
-    fn sync_anchor_from_simulation(&mut self) {
-        let transform = self.simulation.transform_2d();
-        if let Some(entity_transform) = self.world.transform_mut(self.anchor_entity) {
-            entity_transform.position_x = transform.position_x;
-            entity_transform.position_y = transform.position_y;
-            entity_transform.rotation_rad = transform.rotation_rad;
-            entity_transform.uniform_scale = transform.uniform_scale;
-        }
+    pub fn handle_mouse_button_event(&mut self, button: MouseButton, state: ElementState) {
+        let is_pressed = state == ElementState::Pressed;
+        self.simulation
+            .handle_input_event(input_event_from_mouse_button(button, is_pressed));
+    }
+
+    pub fn handle_mouse_wheel_event(&mut self, delta: MouseScrollDelta) {
+        let value = match delta {
+            MouseScrollDelta::LineDelta(_, y) => y,
+            MouseScrollDelta::PixelDelta(position) => position.y as f32,
+        };
+
+        self.simulation
+            .handle_input_event(input_event_from_mouse_wheel(value));
+    }
+
+    pub fn handle_cursor_moved_event(&mut self, x: f32, y: f32) {
+        self.simulation
+            .handle_input_event(input_event_from_cursor_position("x", x));
+        self.simulation
+            .handle_input_event(input_event_from_cursor_position("y", y));
     }
 
     fn run_fixed_tick(&mut self) {
@@ -348,9 +348,18 @@ impl State {
             return;
         }
 
+        self.simulation
+            .sync_anchor_from_world(&self.world, self.anchor_entity);
+        self.simulation.update(FIXED_STEP_SECONDS);
+        self.simulation
+            .write_anchor_to_world(&mut self.world, self.anchor_entity);
+
         let report = self
             .scheduler
             .update_world(&mut self.world, FIXED_STEP_SECONDS);
+
+        self.simulation
+            .sync_anchor_from_world(&self.world, self.anchor_entity);
 
         self.simulation
             .reconcile_world(&mut self.world, FIXED_STEP_SECONDS, &report);
@@ -409,9 +418,6 @@ impl State {
 
             self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(60);
         }
-
-        self.simulation.update(FIXED_STEP_SECONDS);
-        self.sync_anchor_from_simulation();
     }
 
     pub fn update(&mut self, delta_seconds: f32) {
@@ -458,5 +464,62 @@ impl State {
                 batch_vertices.len() as u32,
             )
             .map_err(RenderError::into_js_value)
+    }
+}
+
+fn input_event_from_key_code(
+    key_code: winit::keyboard::KeyCode,
+    is_pressed: bool,
+    is_repeat: bool,
+) -> InputEvent {
+    InputEvent {
+        source: "keyboard".to_owned(),
+        control: format!("{key_code:?}"),
+        value: if is_pressed { 1.0 } else { 0.0 },
+        device_index: None,
+        is_pressed,
+        is_repeat,
+    }
+}
+
+fn input_event_from_mouse_button(button: MouseButton, is_pressed: bool) -> InputEvent {
+    let control = match button {
+        MouseButton::Left => "primary_button".to_owned(),
+        MouseButton::Right => "secondary_button".to_owned(),
+        MouseButton::Middle => "middle_button".to_owned(),
+        MouseButton::Back => "back_button".to_owned(),
+        MouseButton::Forward => "forward_button".to_owned(),
+        MouseButton::Other(value) => format!("button_{value}"),
+    };
+
+    InputEvent {
+        source: "mouse".to_owned(),
+        control,
+        value: if is_pressed { 1.0 } else { 0.0 },
+        device_index: None,
+        is_pressed,
+        is_repeat: false,
+    }
+}
+
+fn input_event_from_mouse_wheel(delta_y: f32) -> InputEvent {
+    InputEvent {
+        source: "mouse".to_owned(),
+        control: "wheel_y".to_owned(),
+        value: delta_y,
+        device_index: None,
+        is_pressed: false,
+        is_repeat: false,
+    }
+}
+
+fn input_event_from_cursor_position(axis: &str, value: f32) -> InputEvent {
+    InputEvent {
+        source: "mouse".to_owned(),
+        control: format!("cursor_{axis}"),
+        value,
+        device_index: None,
+        is_pressed: false,
+        is_repeat: false,
     }
 }

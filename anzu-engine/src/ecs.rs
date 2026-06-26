@@ -15,15 +15,11 @@ pub struct Transform {
     pub velocity_x: f32,
     pub velocity_y: f32,
     pub angular_velocity: f32,
-    pub z_depth: f32,
 }
 
 #[derive(Clone, Copy, Default)]
 pub struct Mesh {
     pub vertex_bytes: &'static [u8],
-    pub vertex_count: u32,
-    pub index_bytes: &'static [u8],
-    pub index_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -36,7 +32,6 @@ pub struct MeshInstance {
 
 #[derive(Clone, Copy, Default)]
 pub struct CollisionBounds {
-    pub radius: f32,
     pub proximity_radius: f32,
 }
 
@@ -170,17 +165,13 @@ impl World {
         self.transforms.get_mut(entity_id)
     }
 
+    #[cfg(test)]
     pub fn transforms(&self) -> impl Iterator<Item = (EntityId, &Transform)> {
         self.transforms.iter()
     }
 
     pub fn transforms_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut Transform)> {
         self.transforms.iter_mut()
-    }
-
-    pub fn set_mesh(&mut self, entity_id: EntityId, mesh: Mesh) {
-        self.mesh_instances.remove(entity_id);
-        self.meshes.insert(entity_id, mesh);
     }
 
     pub fn register_mesh_asset(&mut self, asset_id: MeshAssetId, mesh: Mesh) {
@@ -191,22 +182,6 @@ impl World {
         self.meshes.remove(entity_id);
         self.mesh_instances
             .insert(entity_id, MeshInstance { asset_id });
-    }
-
-    pub fn mesh(&self, entity_id: EntityId) -> Option<&Mesh> {
-        self.meshes.get(entity_id)
-    }
-
-    pub fn mesh_mut(&mut self, entity_id: EntityId) -> Option<&mut Mesh> {
-        self.meshes.get_mut(entity_id)
-    }
-
-    pub fn meshes(&self) -> impl Iterator<Item = (EntityId, &Mesh)> {
-        self.meshes.iter()
-    }
-
-    pub fn meshes_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut Mesh)> {
-        self.meshes.iter_mut()
     }
 
     pub fn for_each_render_mesh<F>(&self, mut callback: F)
@@ -234,18 +209,11 @@ impl World {
         self.collision_bounds.get(entity_id)
     }
 
-    pub fn collision_bounds_mut(&mut self, entity_id: EntityId) -> Option<&mut CollisionBounds> {
-        self.collision_bounds.get_mut(entity_id)
-    }
-
-    pub fn collision_bounds_iter(&self) -> impl Iterator<Item = (EntityId, &CollisionBounds)> {
-        self.collision_bounds.iter()
-    }
-
     pub fn set_polygon_collider(&mut self, entity_id: EntityId, collider: PolygonCollider) {
         self.polygon_colliders.insert(entity_id, collider);
     }
 
+    #[cfg(test)]
     pub fn polygon_collider(&self, entity_id: EntityId) -> Option<&PolygonCollider> {
         self.polygon_colliders.get(entity_id)
     }
@@ -262,10 +230,6 @@ impl World {
         self.rigid_bodies.get(entity_id)
     }
 
-    pub fn rigid_body_mut(&mut self, entity_id: EntityId) -> Option<&mut RigidBody> {
-        self.rigid_bodies.get_mut(entity_id)
-    }
-
     pub fn rigid_bodies_iter(&self) -> impl Iterator<Item = (EntityId, &RigidBody)> {
         self.rigid_bodies.iter()
     }
@@ -274,12 +238,9 @@ impl World {
         self.lifecycles.insert(entity_id, lifecycle);
     }
 
+    #[cfg(test)]
     pub fn lifecycle(&self, entity_id: EntityId) -> Option<&Lifecycle> {
         self.lifecycles.get(entity_id)
-    }
-
-    pub fn lifecycle_mut(&mut self, entity_id: EntityId) -> Option<&mut Lifecycle> {
-        self.lifecycles.get_mut(entity_id)
     }
 
     pub fn lifecycles_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut Lifecycle)> {

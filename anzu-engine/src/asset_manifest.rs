@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
 use serde::Deserialize;
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::simulation::PhysicsConfig;
@@ -14,15 +13,7 @@ pub struct AssetManifest {
     #[serde(default)]
     pub rom_id: Option<String>,
     pub version: String,
-    #[serde(default)]
-    pub entry_scene: Option<String>,
     pub assets: Vec<AssetRecord>,
-    #[serde(default)]
-    pub scenes: Vec<SceneRecord>,
-    #[serde(default)]
-    pub controller_maps: Vec<ControllerMapRecord>,
-    #[serde(default)]
-    pub entity_templates: Vec<EntityTemplateRecord>,
     #[serde(default)]
     pub settings: Option<ManifestSettings>,
 }
@@ -52,54 +43,9 @@ pub struct PhysicsSettings {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssetRecord {
     pub id: String,
-    #[serde(rename = "type")]
-    pub asset_type: String,
     pub source_url: String,
     #[serde(default)]
     pub hash: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SceneRecord {
-    pub id: String,
-    pub source_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ControllerMapRecord {
-    pub id: String,
-    pub source_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct EntityTemplateRecord {
-    pub id: String,
-    #[serde(default)]
-    pub scene_id: Option<String>,
-    #[serde(default)]
-    pub controller_map_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SceneDefinition {
-    pub scene_id: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub entity_templates: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ControllerBinding {
-    pub action: String,
-    pub input: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ControllerMapDefinition {
-    pub map_id: String,
-    #[serde(default)]
-    pub bindings: Vec<ControllerBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,59 +65,6 @@ impl AssetRegistry {
 
     pub fn rom_id(&self) -> Option<&str> {
         self.manifest.rom_id.as_deref()
-    }
-
-    pub fn entry_scene(&self) -> Option<&str> {
-        self.manifest.entry_scene.as_deref()
-    }
-
-    pub fn scene_count(&self) -> usize {
-        self.manifest.scenes.len()
-    }
-
-    pub fn controller_map_count(&self) -> usize {
-        self.manifest.controller_maps.len()
-    }
-
-    pub fn entity_template_count(&self) -> usize {
-        self.manifest.entity_templates.len()
-    }
-
-    pub fn controller_maps(&self) -> &[ControllerMapRecord] {
-        &self.manifest.controller_maps
-    }
-
-    pub fn scene_source_url(&self, scene_id: &str) -> Option<&str> {
-        self.manifest
-            .scenes
-            .iter()
-            .find(|scene| scene.id == scene_id)
-            .map(|scene| scene.source_url.as_str())
-    }
-
-    pub fn hashed_asset_count(&self) -> usize {
-        self.entries_by_id
-            .values()
-            .filter(|entry| {
-                entry
-                    .hash
-                    .as_deref()
-                    .is_some_and(|hash| !hash.trim().is_empty())
-            })
-            .count()
-    }
-
-    pub fn asset_type_breakdown(&self) -> String {
-        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for entry in self.entries_by_id.values() {
-            *counts.entry(entry.asset_type.as_str()).or_insert(0) += 1;
-        }
-
-        counts
-            .into_iter()
-            .map(|(asset_type, count)| format!("{asset_type}:{count}"))
-            .collect::<Vec<_>>()
-            .join(", ")
     }
 
     pub fn physics_config(&self) -> PhysicsConfig {
@@ -210,25 +103,10 @@ pub enum ManifestLoadError {
     InvalidBody,
     InvalidJson(String),
     EmptyRomId,
-    EmptyEntryScene,
     EmptyAssetId,
     EmptySourceUrl(String),
     EmptyAssetHash(String),
     DuplicateAssetId(String),
-    EmptySceneId,
-    EmptySceneSourceUrl(String),
-    DuplicateSceneId(String),
-    EmptyControllerMapId,
-    EmptyControllerMapSourceUrl(String),
-    DuplicateControllerMapId(String),
-    EmptyEntityTemplateId,
-    DuplicateEntityTemplateId(String),
-}
-
-impl ManifestLoadError {
-    pub fn into_js_value(self) -> JsValue {
-        JsValue::from_str(&self.to_string())
-    }
 }
 
 impl std::fmt::Display for ManifestLoadError {
@@ -261,9 +139,6 @@ impl std::fmt::Display for ManifestLoadError {
             ManifestLoadError::EmptyRomId => {
                 write!(f, "Asset manifest contains an empty rom_id")
             }
-            ManifestLoadError::EmptyEntryScene => {
-                write!(f, "Asset manifest contains an empty entry_scene")
-            }
             ManifestLoadError::EmptyAssetId => {
                 write!(f, "Asset manifest contains an asset entry with an empty id")
             }
@@ -278,48 +153,6 @@ impl std::fmt::Display for ManifestLoadError {
             }
             ManifestLoadError::DuplicateAssetId(asset_id) => {
                 write!(f, "Asset manifest contains duplicate asset id '{asset_id}'")
-            }
-            ManifestLoadError::EmptySceneId => {
-                write!(f, "Asset manifest contains a scene entry with an empty id")
-            }
-            ManifestLoadError::EmptySceneSourceUrl(scene_id) => {
-                write!(
-                    f,
-                    "Asset manifest scene entry '{scene_id}' has an empty source_url"
-                )
-            }
-            ManifestLoadError::DuplicateSceneId(scene_id) => {
-                write!(f, "Asset manifest contains duplicate scene id '{scene_id}'")
-            }
-            ManifestLoadError::EmptyControllerMapId => {
-                write!(
-                    f,
-                    "Asset manifest contains a controller map entry with an empty id"
-                )
-            }
-            ManifestLoadError::EmptyControllerMapSourceUrl(map_id) => {
-                write!(
-                    f,
-                    "Asset manifest controller map entry '{map_id}' has an empty source_url"
-                )
-            }
-            ManifestLoadError::DuplicateControllerMapId(map_id) => {
-                write!(
-                    f,
-                    "Asset manifest contains duplicate controller map id '{map_id}'"
-                )
-            }
-            ManifestLoadError::EmptyEntityTemplateId => {
-                write!(
-                    f,
-                    "Asset manifest contains an entity template entry with an empty id"
-                )
-            }
-            ManifestLoadError::DuplicateEntityTemplateId(template_id) => {
-                write!(
-                    f,
-                    "Asset manifest contains duplicate entity template id '{template_id}'"
-                )
             }
         }
     }
@@ -359,14 +192,6 @@ pub async fn load_from_url(url: &str) -> Result<AssetRegistry, ManifestLoadError
         return Err(ManifestLoadError::EmptyRomId);
     }
 
-    if manifest
-        .entry_scene
-        .as_deref()
-        .is_some_and(|entry_scene| entry_scene.trim().is_empty())
-    {
-        return Err(ManifestLoadError::EmptyEntryScene);
-    }
-
     let mut entries_by_id = HashMap::with_capacity(manifest.assets.len());
     for entry in &manifest.assets {
         if entry.id.trim().is_empty() {
@@ -394,108 +219,9 @@ pub async fn load_from_url(url: &str) -> Result<AssetRegistry, ManifestLoadError
         }
     }
 
-    let mut scene_ids = HashMap::with_capacity(manifest.scenes.len());
-    for scene in &manifest.scenes {
-        if scene.id.trim().is_empty() {
-            return Err(ManifestLoadError::EmptySceneId);
-        }
-
-        if scene.source_url.trim().is_empty() {
-            return Err(ManifestLoadError::EmptySceneSourceUrl(scene.id.clone()));
-        }
-
-        if scene_ids.insert(scene.id.clone(), ()).is_some() {
-            return Err(ManifestLoadError::DuplicateSceneId(scene.id.clone()));
-        }
-    }
-
-    let mut controller_map_ids = HashMap::with_capacity(manifest.controller_maps.len());
-    for controller_map in &manifest.controller_maps {
-        if controller_map.id.trim().is_empty() {
-            return Err(ManifestLoadError::EmptyControllerMapId);
-        }
-
-        if controller_map.source_url.trim().is_empty() {
-            return Err(ManifestLoadError::EmptyControllerMapSourceUrl(
-                controller_map.id.clone(),
-            ));
-        }
-
-        if controller_map_ids
-            .insert(controller_map.id.clone(), ())
-            .is_some()
-        {
-            return Err(ManifestLoadError::DuplicateControllerMapId(
-                controller_map.id.clone(),
-            ));
-        }
-    }
-
-    let mut entity_template_ids = HashMap::with_capacity(manifest.entity_templates.len());
-    for template in &manifest.entity_templates {
-        if template.id.trim().is_empty() {
-            return Err(ManifestLoadError::EmptyEntityTemplateId);
-        }
-
-        if entity_template_ids
-            .insert(template.id.clone(), ())
-            .is_some()
-        {
-            return Err(ManifestLoadError::DuplicateEntityTemplateId(
-                template.id.clone(),
-            ));
-        }
-    }
-
-    if let Some(entry_scene) = manifest.entry_scene.as_deref() {
-        if !scene_ids.contains_key(entry_scene) {
-            return Err(ManifestLoadError::InvalidJson(format!(
-                "entry_scene '{entry_scene}' does not reference a declared scene id"
-            )));
-        }
-    }
-
-    for template in &manifest.entity_templates {
-        if let Some(scene_id) = template.scene_id.as_deref() {
-            if !scene_ids.contains_key(scene_id) {
-                return Err(ManifestLoadError::InvalidJson(format!(
-                    "entity template '{}' references unknown scene_id '{scene_id}'",
-                    template.id
-                )));
-            }
-        }
-
-        if let Some(controller_map_id) = template.controller_map_id.as_deref() {
-            if !controller_map_ids.contains_key(controller_map_id) {
-                return Err(ManifestLoadError::InvalidJson(format!(
-                    "entity template '{}' references unknown controller_map_id '{controller_map_id}'",
-                    template.id
-                )));
-            }
-        }
-    }
-
     Ok(AssetRegistry {
         manifest,
         entries_by_id,
-    })
-}
-
-pub async fn load_scene_definition(url: &str) -> Result<SceneDefinition, ManifestLoadError> {
-    let body = fetch_text_from_url(url).await?;
-    serde_json::from_str(&body).map_err(|error| {
-        ManifestLoadError::InvalidJson(format!(
-            "scene definition parse failed for '{url}': {error}"
-        ))
-    })
-}
-
-pub async fn load_controller_map_definition(
-    url: &str,
-) -> Result<ControllerMapDefinition, ManifestLoadError> {
-    let body = fetch_text_from_url(url).await?;
-    serde_json::from_str(&body).map_err(|error| {
-        ManifestLoadError::InvalidJson(format!("controller map parse failed for '{url}': {error}"))
     })
 }
 

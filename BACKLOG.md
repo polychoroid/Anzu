@@ -110,6 +110,77 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Simulation is deterministic (foundation for multiplayer)
 - Players feel responsive control
 
+### Milestone 3.5: ROM-Owned Input and Peripheral Event Layer
+**Outcome**: ROMs define their own input vocabulary and can receive keyboard, mouse, touch, gamepad, and future peripheral events through a generic engine event boundary.
+
+- [ ] Task 3.5.1: Define a ROM-facing generic input event shape that carries device/source, control identity, press/release state, and analog value data.
+- [ ] Task 3.5.2: Keep the browser adapter as a raw event forwarder that does not invent game actions or hardcode ROM input vocabularies.
+- [ ] Task 3.5.3: Let each ROM declare its own control schema and action mapping layer for keyboard and non-keyboard devices.
+- [ ] Task 3.5.4: Add one ROM example that interprets both keyboard input and a non-keyboard peripheral path without engine changes.
+- [ ] Task 3.5.5: Add regression checks to ensure new peripheral types can be introduced without modifying shared input enums.
+
+**ROM input schema v1**:
+```yaml
+input_profile:
+	profile_id: "triangle_man.default"
+	actions:
+		- action_id: "thrust_forward"
+			kind: "digital"
+		- action_id: "thrust_reverse"
+			kind: "digital"
+		- action_id: "turn_left"
+			kind: "digital"
+		- action_id: "turn_right"
+			kind: "digital"
+		- action_id: "fire"
+			kind: "digital"
+	bindings:
+		- source: "keyboard"
+			control: "KeyW"
+			action_id: "thrust_forward"
+			phase: "pressed"
+		- source: "keyboard"
+			control: "KeyS"
+			action_id: "thrust_reverse"
+			phase: "pressed"
+		- source: "keyboard"
+			control: "KeyA"
+			action_id: "turn_left"
+			phase: "pressed"
+		- source: "keyboard"
+			control: "KeyD"
+			action_id: "turn_right"
+			phase: "pressed"
+		- source: "keyboard"
+			control: "Space"
+			action_id: "fire"
+			phase: "pressed"
+		- source: "gamepad"
+			control: "south_button"
+			action_id: "fire"
+			phase: "pressed"
+			device_index: 0
+		- source: "mouse"
+			control: "primary_button"
+			action_id: "fire"
+			phase: "pressed"
+```
+
+**Schema rules**:
+- `action_id` is ROM-owned and may be any stable string; the engine does not maintain a shared action enum.
+- `source` identifies the device family (`keyboard`, `mouse`, `touch`, `gamepad`, `sensor`, `custom`).
+- `control` identifies the per-device control name or axis/button identifier as emitted by the adapter.
+- `phase` defaults to `pressed` for digital inputs and may be `released`, `moved`, `changed`, or `held` when appropriate.
+- `value` is optional for digital actions and required for analog axes or gesture-like inputs.
+- `device_index` is optional and used when a ROM wants to distinguish multiple controllers of the same source.
+- The engine should pass events through unchanged; ROMs may ignore unbound events, map one event to multiple actions, or map multiple controls to one action.
+
+**Demonstrates**:
+- ROMs own their control vocabulary
+- Keyboard is just one device source among many
+- Engine input handling stays generic and future-proof
+- New peripherals do not require changing shared action enums
+
 ### Milestone 4: Session Support & Basic Multiplayer (Shared Sessions)
 **Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.
 

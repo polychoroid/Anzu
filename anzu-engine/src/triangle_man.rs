@@ -1,12 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::f32::consts::TAU;
-
-use winit::keyboard::KeyCode;
 
 use crate::ecs::{
     CollisionBounds, EntityId, Lifecycle, Mesh, MeshAssetId, PolygonCollider, RigidBody, Transform,
     World,
 };
+use crate::input::InputEvent;
 use crate::renderer::{RenderRomPackage, RomRenderData};
 use crate::rom::RomPackage;
 use crate::simulation::{
@@ -177,6 +175,10 @@ pub struct TriangleManSpec {
     pub asteroid_spawn_interval_seconds: f32,
     pub asteroid_spawn_min_interval_seconds: f32,
     pub asteroid_spawn_accel_per_second: f32,
+    pub asteroid_spawn_max_burst: u32,
+    pub asteroid_target_count: u32,
+    pub asteroid_target_time_seconds: f32,
+    pub asteroid_mass_scale_at_target: f32,
     pub scale: f32,
 }
 
@@ -191,16 +193,89 @@ impl Default for TriangleManSpec {
             fire_cooldown_seconds: 0.12,
             bullet_speed_units_per_sec: 0.9,
             bullet_lifetime_seconds: 2.0,
-            asteroid_spawn_interval_seconds: 3.0,
+            asteroid_spawn_interval_seconds: 1.0,
             asteroid_spawn_min_interval_seconds: 0.45,
-            asteroid_spawn_accel_per_second: 0.99,
+            asteroid_spawn_accel_per_second: 2.0,
+            asteroid_spawn_max_burst: 25,
+            asteroid_target_count: 10000,
+            asteroid_target_time_seconds: 300.0,
+            asteroid_mass_scale_at_target: 8.0,
             scale: 0.1,
         }
     }
 }
 
-#[derive(Default)]
-struct InputManager {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TriangleManAction {
+    ThrustForward,
+    ThrustReverse,
+    TurnLeft,
+    TurnRight,
+    Fire,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TriangleManInputBinding {
+    source: &'static str,
+    control: &'static str,
+    action: TriangleManAction,
+}
+
+struct TriangleManInputProfile {
+    bindings: &'static [TriangleManInputBinding],
+}
+
+const TRIANGLE_MAN_INPUT_BINDINGS: [TriangleManInputBinding; 7] = [
+    TriangleManInputBinding {
+        source: "keyboard",
+        control: "KeyW",
+        action: TriangleManAction::ThrustForward,
+    },
+    TriangleManInputBinding {
+        source: "keyboard",
+        control: "KeyS",
+        action: TriangleManAction::ThrustReverse,
+    },
+    TriangleManInputBinding {
+        source: "keyboard",
+        control: "KeyA",
+        action: TriangleManAction::TurnLeft,
+    },
+    TriangleManInputBinding {
+        source: "keyboard",
+        control: "KeyD",
+        action: TriangleManAction::TurnRight,
+    },
+    TriangleManInputBinding {
+        source: "keyboard",
+        control: "Space",
+        action: TriangleManAction::Fire,
+    },
+    TriangleManInputBinding {
+        source: "gamepad",
+        control: "south_button",
+        action: TriangleManAction::Fire,
+    },
+    TriangleManInputBinding {
+        source: "mouse",
+        control: "primary_button",
+        action: TriangleManAction::Fire,
+    },
+];
+
+const TRIANGLE_MAN_INPUT_PROFILE: TriangleManInputProfile = TriangleManInputProfile {
+    bindings: &TRIANGLE_MAN_INPUT_BINDINGS,
+};
+
+#[derive(Clone, Copy, Default)]
+struct TriangleManInputFrame {
+    thrust: i8,
+    turn: i8,
+    fire: bool,
+}
+
+struct TriangleManInputManager {
+    input_profile: &'static TriangleManInputProfile,
     thrust_forward: bool,
     thrust_reverse: bool,
     turn_left: bool,
@@ -209,36 +284,50 @@ struct InputManager {
     pending_fire: bool,
 }
 
-#[derive(Clone, Copy, Default)]
-struct InputFrame {
-    thrust: i8,
-    turn: i8,
-    fire: bool,
+impl Default for TriangleManInputManager {
+    fn default() -> Self {
+        Self {
+            input_profile: &TRIANGLE_MAN_INPUT_PROFILE,
+            thrust_forward: false,
+            thrust_reverse: false,
+            turn_left: false,
+            turn_right: false,
+            fire_key_down: false,
+            pending_fire: false,
+        }
+    }
 }
 
-impl InputManager {
-    fn handle_key_event(&mut self, key_code: KeyCode, is_pressed: bool, is_repeat: bool) {
+impl TriangleManInputManager {
+    fn handle_input_event(
+        &mut self,
+        source: &str,
+        control: &str,
+        is_pressed: bool,
+        is_repeat: bool,
+    ) {
         if is_repeat && is_pressed {
             return;
         }
 
-        match key_code {
-            KeyCode::KeyW => self.thrust_forward = is_pressed,
-            KeyCode::KeyS => self.thrust_reverse = is_pressed,
-            KeyCode::KeyA => self.turn_left = is_pressed,
-            KeyCode::KeyD => self.turn_right = is_pressed,
-            KeyCode::Space => {
-                if is_pressed && !self.fire_key_down {
-                    self.pending_fire = true;
+        for action in self.input_profile.actions_for_event(source, control) {
+            match action {
+                TriangleManAction::ThrustForward => self.thrust_forward = is_pressed,
+                TriangleManAction::ThrustReverse => self.thrust_reverse = is_pressed,
+                TriangleManAction::TurnLeft => self.turn_left = is_pressed,
+                TriangleManAction::TurnRight => self.turn_right = is_pressed,
+                TriangleManAction::Fire => {
+                    if is_pressed && !self.fire_key_down {
+                        self.pending_fire = true;
+                    }
+                    self.fire_key_down = is_pressed;
                 }
-                self.fire_key_down = is_pressed;
             }
-            _ => {}
         }
     }
 
-    fn snapshot_frame(&mut self) -> InputFrame {
-        let frame = InputFrame {
+    fn snapshot_frame(&mut self) -> TriangleManInputFrame {
+        let frame = TriangleManInputFrame {
             thrust: axis_value(self.thrust_reverse, self.thrust_forward),
             turn: axis_value(self.turn_left, self.turn_right),
             fire: self.pending_fire,
@@ -246,6 +335,21 @@ impl InputManager {
 
         self.pending_fire = false;
         frame
+    }
+}
+
+impl TriangleManInputProfile {
+    fn actions_for_event(&'static self, source: &str, control: &str) -> Vec<TriangleManAction> {
+        self.bindings
+            .iter()
+            .filter_map(|binding| {
+                if binding.source == source && binding.control == control {
+                    Some(binding.action)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -314,27 +418,18 @@ impl RomPackage for TriangleManRom {
             MESH_TRIANGLE,
             Mesh {
                 vertex_bytes: bytemuck::cast_slice(&TRIANGLE_VERTICES),
-                vertex_count: TRIANGLE_VERTICES.len() as u32,
-                index_bytes: &[],
-                index_count: 0,
             },
         );
         world.register_mesh_asset(
             MESH_SQUARE,
             Mesh {
                 vertex_bytes: bytemuck::cast_slice(&SQUARE_VERTICES),
-                vertex_count: SQUARE_VERTICES.len() as u32,
-                index_bytes: &[],
-                index_count: 0,
             },
         );
         world.register_mesh_asset(
             MESH_DIAMOND,
             Mesh {
                 vertex_bytes: bytemuck::cast_slice(&DIAMOND_VERTICES),
-                vertex_count: DIAMOND_VERTICES.len() as u32,
-                index_bytes: &[],
-                index_count: 0,
             },
         );
 
@@ -376,11 +471,12 @@ pub struct TriangleManSimulation {
     velocity_x: f32,
     velocity_y: f32,
     angular_velocity: f32,
-    input_manager: InputManager,
+    input_manager: TriangleManInputManager,
     fire_cooldown_seconds: f32,
     elapsed_seconds: f32,
     asteroid_spawn_timer_seconds: f32,
     asteroid_spawn_index: usize,
+    asteroid_spawned_total: u32,
     baseline_asteroid_spawned: bool,
     fire_requested: bool,
     roles: BTreeMap<EntityId, RoleKind>,
@@ -400,11 +496,12 @@ impl TriangleManSimulation {
             velocity_x: initial.velocity_x,
             velocity_y: initial.velocity_y,
             angular_velocity: initial.angular_velocity,
-            input_manager: InputManager::default(),
+            input_manager: TriangleManInputManager::default(),
             fire_cooldown_seconds: 0.0,
             elapsed_seconds: 0.0,
             asteroid_spawn_timer_seconds: spec.asteroid_spawn_interval_seconds,
             asteroid_spawn_index: 1,
+            asteroid_spawned_total: 0,
             baseline_asteroid_spawned: false,
             fire_requested: false,
             roles,
@@ -416,11 +513,12 @@ impl TriangleManSimulation {
         world: &mut World,
         spawn_index: usize,
         scale: f32,
+        mass_scale: f32,
     ) -> EntityId {
         let preset = ASTEROID_SPAWN_PRESETS[spawn_index % ASTEROID_SPAWN_PRESETS.len()];
         let entity_id = world.spawn();
         let radius = max_radius(&SQUARE_COLLIDER, scale);
-        let mass = 2.2;
+        let mass = 2.2 * mass_scale.max(1.0);
         let moment_of_inertia = 0.5 * mass * radius * radius;
 
         world.set_transform(
@@ -433,15 +531,13 @@ impl TriangleManSimulation {
                 velocity_x: preset.2,
                 velocity_y: preset.3,
                 angular_velocity: preset.4,
-                z_depth: 0.0,
             },
         );
         world.set_mesh_instance(entity_id, MESH_SQUARE);
         world.set_collision_bounds(
             entity_id,
             CollisionBounds {
-                radius,
-                proximity_radius: radius * 1.35,
+                proximity_radius: radius * 1.15,
             },
         );
         world.set_polygon_collider(
@@ -463,6 +559,7 @@ impl TriangleManSimulation {
         );
 
         self.roles.insert(entity_id, RoleKind::Asteroid);
+        self.asteroid_spawned_total = self.asteroid_spawned_total.saturating_add(1);
         entity_id
     }
 
@@ -494,14 +591,12 @@ impl TriangleManSimulation {
                 velocity_x: inherited_velocity_x + heading_x * self.spec.bullet_speed_units_per_sec,
                 velocity_y: inherited_velocity_y + heading_y * self.spec.bullet_speed_units_per_sec,
                 angular_velocity: 0.0,
-                z_depth: 0.0,
             },
         );
         world.set_mesh_instance(entity_id, MESH_DIAMOND);
         world.set_collision_bounds(
             entity_id,
             CollisionBounds {
-                radius,
                 proximity_radius: radius * 1.2,
             },
         );
@@ -539,12 +634,77 @@ impl TriangleManSimulation {
             .copied()
             .map(RoleKind::create_role)
     }
+
+    fn asteroid_spawn_interval(&self) -> f32 {
+        let speedup =
+            1.0 + self.elapsed_seconds.max(0.0) * self.spec.asteroid_spawn_accel_per_second;
+        (self.spec.asteroid_spawn_interval_seconds / speedup)
+            .max(self.spec.asteroid_spawn_min_interval_seconds)
+    }
+
+    fn asteroid_target_spawn_total(&self) -> u32 {
+        let target_total = self.spec.asteroid_target_count.max(1);
+        let target_time = self.spec.asteroid_target_time_seconds;
+
+        if target_time <= 0.0 {
+            return target_total;
+        }
+
+        let progress = (self.elapsed_seconds.max(0.0) / target_time).clamp(0.0, 1.0);
+        let baseline = 1u32;
+        let additional_target = target_total.saturating_sub(baseline);
+        baseline + ((additional_target as f32) * progress).floor() as u32
+    }
+
+    fn asteroid_spawn_burst_count(&self) -> u32 {
+        let missing = self
+            .asteroid_target_spawn_total()
+            .saturating_sub(self.asteroid_spawned_total);
+        missing.clamp(1, self.spec.asteroid_spawn_max_burst.max(1))
+    }
+
+    fn asteroid_mass_scale(&self) -> f32 {
+        let target_time = self.spec.asteroid_target_time_seconds;
+        if target_time <= 0.0 {
+            return self.spec.asteroid_mass_scale_at_target.max(1.0);
+        }
+
+        let slope = (self.spec.asteroid_mass_scale_at_target.max(1.0) - 1.0) / target_time;
+        (1.0 + self.elapsed_seconds.max(0.0) * slope).max(1.0)
+    }
 }
 
 impl SimulationModel for TriangleManSimulation {
-    fn handle_key_event(&mut self, key_code: KeyCode, is_pressed: bool, is_repeat: bool) {
-        self.input_manager
-            .handle_key_event(key_code, is_pressed, is_repeat);
+    fn handle_input_event(&mut self, event: InputEvent) {
+        self.input_manager.handle_input_event(
+            event.source.as_str(),
+            event.control.as_str(),
+            event.is_pressed,
+            event.is_repeat,
+        );
+    }
+
+    fn sync_anchor_from_world(&mut self, world: &World, anchor_entity: EntityId) {
+        if let Some(transform) = world.transform(anchor_entity) {
+            self.position_x = transform.position_x;
+            self.position_y = transform.position_y;
+            self.angle_rad = transform.rotation_rad;
+            self.velocity_x = transform.velocity_x;
+            self.velocity_y = transform.velocity_y;
+            self.angular_velocity = transform.angular_velocity;
+        }
+    }
+
+    fn write_anchor_to_world(&self, world: &mut World, anchor_entity: EntityId) {
+        if let Some(transform) = world.transform_mut(anchor_entity) {
+            transform.position_x = self.position_x;
+            transform.position_y = self.position_y;
+            transform.rotation_rad = self.angle_rad;
+            transform.uniform_scale = self.spec.scale;
+            transform.velocity_x = self.velocity_x;
+            transform.velocity_y = self.velocity_y;
+            transform.angular_velocity = self.angular_velocity;
+        }
     }
 
     fn update(&mut self, delta_seconds: f32) {
@@ -578,10 +738,6 @@ impl SimulationModel for TriangleManSimulation {
             (1.0 - self.spec.angular_damping_per_sec * delta_seconds).clamp(0.0, 1.0);
         self.angular_velocity *= angular_drag;
 
-        self.position_x += self.velocity_x * delta_seconds;
-        self.position_y += self.velocity_y * delta_seconds;
-        self.angle_rad = (self.angle_rad + self.angular_velocity * delta_seconds).rem_euclid(TAU);
-
         self.fire_cooldown_seconds = (self.fire_cooldown_seconds - delta_seconds).max(0.0);
         self.asteroid_spawn_timer_seconds -= delta_seconds;
 
@@ -601,7 +757,8 @@ impl SimulationModel for TriangleManSimulation {
             .retain(|entity_id, _| world.transform(*entity_id).is_some());
 
         if !self.baseline_asteroid_spawned {
-            self.spawn_asteroid_entity(world, 0, 0.28);
+            let mass_scale = self.asteroid_mass_scale();
+            self.spawn_asteroid_entity(world, 0, 0.14, mass_scale);
             self.baseline_asteroid_spawned = true;
         }
 
@@ -631,13 +788,15 @@ impl SimulationModel for TriangleManSimulation {
             self.roles.remove(&entity_id);
         }
 
-        let dynamic_interval = (self.spec.asteroid_spawn_interval_seconds
-            - self.elapsed_seconds * self.spec.asteroid_spawn_accel_per_second)
-            .max(self.spec.asteroid_spawn_min_interval_seconds);
+        let dynamic_interval = self.asteroid_spawn_interval();
+        let spawn_burst = self.asteroid_spawn_burst_count();
+        let mass_scale = self.asteroid_mass_scale();
 
         while self.asteroid_spawn_timer_seconds <= 0.0 {
-            self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.24);
-            self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+            for _ in 0..spawn_burst {
+                self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.12, mass_scale);
+                self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+            }
             self.asteroid_spawn_timer_seconds += dynamic_interval;
         }
 
@@ -697,14 +856,12 @@ fn spawn_player_entity(
             velocity_x: 0.0,
             velocity_y: 0.0,
             angular_velocity: 0.0,
-            z_depth: 0.0,
         },
     );
     world.set_mesh_instance(entity_id, MESH_TRIANGLE);
     world.set_collision_bounds(
         entity_id,
         CollisionBounds {
-            radius,
             proximity_radius: radius * 1.6,
         },
     );
@@ -732,8 +889,20 @@ fn spawn_player_entity(
 #[cfg(test)]
 mod tests {
     use super::{TriangleManSimulation, TriangleManSpec};
-    use crate::ecs::{EntityId, Transform};
-    use crate::simulation::SimulationModel;
+    use crate::ecs::{EntityId, Transform, World};
+    use crate::input::InputEvent;
+    use crate::simulation::{SchedulerFrameReport, SimulationModel};
+
+    fn input_event(source: &str, control: &str, is_pressed: bool) -> InputEvent {
+        InputEvent {
+            source: source.to_owned(),
+            control: control.to_owned(),
+            value: if is_pressed { 1.0 } else { 0.0 },
+            device_index: None,
+            is_pressed,
+            is_repeat: false,
+        }
+    }
 
     #[test]
     fn same_input_sequence_stays_deterministic_across_sessions() {
@@ -762,5 +931,83 @@ mod tests {
         assert!((a.position_y - b.position_y).abs() < f32::EPSILON);
         assert!((a.rotation_rad - b.rotation_rad).abs() < f32::EPSILON);
         assert!((a.uniform_scale - b.uniform_scale).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn second_press_after_release_is_processed() {
+        let anchor: EntityId = 7;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_second_press =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_second_press =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+
+        let dt = 1.0f32 / 60.0;
+
+        with_second_press.handle_input_event(input_event("keyboard", "KeyW", true));
+        without_second_press.handle_input_event(input_event("keyboard", "KeyW", true));
+        with_second_press.update(dt);
+        without_second_press.update(dt);
+
+        with_second_press.handle_input_event(input_event("keyboard", "KeyW", false));
+        without_second_press.handle_input_event(input_event("keyboard", "KeyW", false));
+        with_second_press.update(dt);
+        without_second_press.update(dt);
+
+        with_second_press.handle_input_event(input_event("keyboard", "KeyW", true));
+        with_second_press.update(dt);
+        without_second_press.update(dt);
+
+        let a = with_second_press.transform_2d();
+        let b = without_second_press.transform_2d();
+        assert!(
+            (a.position_x - b.position_x).abs() > 1e-6
+                || (a.position_y - b.position_y).abs() > 1e-6,
+            "expected second press to change movement, but it was ignored"
+        );
+    }
+
+    #[test]
+    fn mouse_primary_binding_triggers_fire_request() {
+        let anchor: EntityId = 11;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut from_mouse =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut no_fire_control =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+
+        let mut world_mouse = World::new();
+        let mut world_control = World::new();
+        let report = SchedulerFrameReport::default();
+        let dt = 1.0f32 / 60.0;
+
+        from_mouse.handle_input_event(input_event("mouse", "primary_button", true));
+        from_mouse.update(dt);
+        no_fire_control.update(dt);
+
+        from_mouse.reconcile_world(&mut world_mouse, dt, &report);
+        no_fire_control.reconcile_world(&mut world_control, dt, &report);
+
+        let mouse_entities = world_mouse.transforms().count();
+        let control_entities = world_control.transforms().count();
+
+        assert!(
+            mouse_entities > control_entities,
+            "expected mouse fire binding to spawn an extra entity via fire action"
+        );
     }
 }

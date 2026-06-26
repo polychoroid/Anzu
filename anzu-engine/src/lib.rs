@@ -2,6 +2,7 @@
 mod asset_manifest;
 #[cfg(target_arch = "wasm32")]
 mod ecs;
+mod input;
 #[cfg(target_arch = "wasm32")]
 mod platform_browser;
 mod renderer;

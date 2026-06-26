@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::ecs::{EntityId, World};
-use winit::keyboard::KeyCode;
+use crate::input::InputEvent;
 
 #[derive(Clone, Copy, Default)]
 pub struct SimulationTransform2D {
@@ -12,7 +12,9 @@ pub struct SimulationTransform2D {
 }
 
 pub trait SimulationModel {
-    fn handle_key_event(&mut self, _key_code: KeyCode, _is_pressed: bool, _is_repeat: bool) {}
+    fn handle_input_event(&mut self, _event: InputEvent) {}
+    fn sync_anchor_from_world(&mut self, _world: &World, _anchor_entity: EntityId) {}
+    fn write_anchor_to_world(&self, _world: &mut World, _anchor_entity: EntityId) {}
     fn update(&mut self, delta_seconds: f32);
     fn transform_2d(&self) -> SimulationTransform2D;
     fn reconcile_world(
@@ -283,10 +285,14 @@ fn is_out_of_bounds(state: &BodyState, config: &PhysicsConfig) -> bool {
         max_y = max_y.max(vertex[1]);
     }
 
-    min_x < config.world_min_x
-        || max_x > config.world_max_x
-        || min_y < config.world_min_y
-        || max_y > config.world_max_y
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    let max_dimension = width.max(height).max(0.0);
+
+    max_x < config.world_min_x - max_dimension
+        || min_x > config.world_max_x + max_dimension
+        || max_y < config.world_min_y - max_dimension
+        || min_y > config.world_max_y + max_dimension
 }
 
 fn positional_correction(
@@ -566,14 +572,12 @@ mod tests {
         world.set_collision_bounds(
             entity_a,
             CollisionBounds {
-                radius: 0.6,
                 proximity_radius: 0.8,
             },
         );
         world.set_collision_bounds(
             entity_b,
             CollisionBounds {
-                radius: 0.6,
                 proximity_radius: 0.8,
             },
         );
@@ -609,7 +613,6 @@ mod tests {
         world.set_collision_bounds(
             entity,
             CollisionBounds {
-                radius: 0.6,
                 proximity_radius: 0.8,
             },
         );
