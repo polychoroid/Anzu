@@ -1,0 +1,15 @@
+{
+  "rom_id": "anzu.triangle_man",
+  "version": "1.0.0",
+  "settings": {
+    "physics": {
+      "world_min_x": -1.0,
+      "world_max_x": 1.0,
+      "world_min_y": -1.0,
+      "world_max_y": 1.0,
+      "default_restitution": 0.72,
+      "default_friction": 0.22
+    }
+  },
+  "assets": []
+}
