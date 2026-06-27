@@ -2,9 +2,13 @@
 
 Anzu is a browser-first Rust/WASM engine project focused on a deterministic runtime core, WebGPU/WebGL rendering via wgpu, and a roadmap toward data-driven assets, networking, and secure remote content delivery.
 
-Current project status:
-- Browser-hosted runtime loop is in place.
-- Rotating triangle render slice works in WASM.
+Current project status (Milestone 3 complete):
+- Browser-hosted runtime loop with fixed 60 Hz simulation tick.
+- Full ECS implementation with multi-entity rendering and physics.
+- Input system supporting keyboard, gamepad, and mouse events.
+- Deterministic simulation (input replay produces identical output).
+- Working game: Triangle Man (Asteroids-like demo with player control, shooting, and asteroid spawning).
+- Collision detection and rigid body physics with configurable restitution.
 - Manifest-based asset loading pattern is implemented.
 - Core architecture and backlog are documented in the docs set.
 
@@ -31,7 +35,12 @@ cd static
 python3 -m http.server 8000
 ```
 
-3. Open localhost:8000
+3. Open `localhost:8000` and play Triangle Man (Asteroids-like game).
+
+**Controls**:
+- **W/A/S/D** - Thrust forward/left/reverse/right
+- **Space/Mouse/Gamepad** - Fire bullets
+- **Objective** - Destroy asteroids; avoid collisions
 
 ## Documentation Index
 
@@ -44,8 +53,17 @@ python3 -m http.server 8000
 
 ## Milestones
 
-Primary runtime roadmap is tracked in `BACKLOG.md`.
-Milestone 1 (browser-hosted rotating triangle skeleton) is mostly complete, including asset manifest loading scaffolding.
+### Completed
+- **Milestone 1** (Walking Skeleton): Browser WASM engine with rotating triangle and basic render loop
+- **Milestone 2** (ECS Foundation): Multi-entity rendering, physics, collision detection, and lifecycle management
+- **Milestone 3** (Input & Determinism): Input-driven movement, deterministic simulation, and Asteroids-like game logic
+
+### In Progress / Upcoming
+Full implementation roadmap is tracked in `BACKLOG.md`:
+- Milestone 3.5: Generic input peripherals (gamepad/mouse mappings)
+- Milestone 4: Spatial broadphase optimization
+- Milestone 5: Performance profiling gates
+- Milestone 6: Multiplayer session support
 
 ## License
 
