@@ -5,26 +5,37 @@ Anzu uses a layered runtime design so gameplay evolution and rendering can scale
 
 Core layers:
 - Platform shell: Browser and window/canvas integration (winit + wasm-bindgen).
-- Runtime loop: Owns frame ordering and lifecycle (`update` then `render`).
-- Simulation state: Source of truth for gameplay state and time evolution.
+- Runtime loop: Owns frame ordering, fixed-tick orchestration, and lifecycle.
+- Simulation pipeline: Composes intent, applies transforms, runs physics, and reconciles state in explicit stages.
+- World state: Source of truth for gameplay state, transforms, and physics outcome.
 - Render extraction: Converts simulation state into GPU-ready draw parameters.
 - Renderer/GPU backend: Owns device resources and submits command buffers.
 
 Contract:
-- Simulation mutates world state.
+- ROMs own input vocabulary and scenario rules.
+- Simulation composes applied intent first, then mutates world state through the physics pipeline.
 - Rendering reads state snapshots and must not contain gameplay business rules.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
+
+Simulation flow:
+1. Input adapters produce generic input events at the platform edge.
+2. ROM simulation converts those events into intent and per-body applied forces.
+3. World state is synchronized once per tick before physics.
+4. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
+5. ROM reconciliation handles spawn/despawn and scenario-specific rules.
+6. Rendering reads the final world snapshot and never writes gameplay state.
 
 ## Rendering Pipeline
 Frame flow:
 1. Platform receives redraw event.
-2. Runtime computes `delta_time` and runs simulation update.
-3. Renderer acquires surface texture and encodes commands.
+2. Runtime accumulates fixed steps and executes the simulation pipeline.
+3. Renderer acquires surface texture and encodes commands from the final world snapshot.
 4. Renderer binds pipeline resources and submits draw calls.
 5. Surface presents frame.
 
 Current vertical slice target:
-- One rotating triangle.
+- ROM-owned entities with shared world physics.
+- Spatial broadphase before SAT narrowphase collision checks.
 - One render pipeline.
 - One vertex buffer and one uniform bind group for transform data.
 
@@ -66,16 +77,20 @@ Streaming subsystem:
 ## Performance Considerations
 Runtime performance policy:
 - Frame pacing: maintain stable pacing and avoid large dt spikes driving simulation instability.
-- Allocation strategy: no avoidable heap allocations in per-frame hot path.
+- Allocation strategy: no avoidable heap allocations in per-frame hot path; reuse scratch buffers for tick-stage composition.
 - Upload strategy: write only changed uniform/state data per frame.
 - Batching: prefer fewer render passes and predictable state changes.
+- Physics strategy: use spatial broadphase to minimize collision candidate pairs before SAT narrowphase.
+- Composition strategy: compose forces and transforms once per tick, then apply to world objects in minimal passes.
 
 Profiling gates:
 - Establish baseline metrics before adding complex systems (auth, networking, compute offload).
+- Require per-phase measurements for sync, composition, broadphase, narrowphase, reconcile, and render boundaries.
 - Require measured bottlenecks before introducing compute pipelines.
 - Keep fallback paths for browser backend variability (WebGPU/WebGL).
 
 Future extension seams:
-- Asset loading should produce content specs that instantiate simulation state.
+- Asset loading should produce content specs that instantiate ROM-facing world entities and simulation state.
+- Simulation should accept ROM-defined intent/physics metadata rather than hardcoded game-specific rules.
 - Networking should operate through transport abstractions and snapshot policies.
 - Security should enforce deny-by-default and per-request authorization checks in server-facing components.

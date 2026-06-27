@@ -7,11 +7,15 @@ Primary operational visibility currently comes from browser console logs.
 - Startup errors: canvas lookup, window creation, renderer initialization.
 - Manifest loader status: success summary or typed warning/error message.
 - Render loop failures: surfaced to console and runtime exits event loop.
+- Simulation profiling: per-phase fixed-tick summaries for sync, composition, broadphase, narrowphase, reconcile, and render boundary costs.
+- Collision scaling: candidate pair counts, collision counts, and despawn counts during stress runs.
 
 Recommended checks during runtime verification:
 - Confirm no repeated surface/device errors in console.
 - Confirm redraw/update/render loop remains active after window resize.
 - Confirm manifest fetch resolves from served static root.
+- Confirm spatial broadphase reduces collision candidate pairs relative to all-pairs scanning.
+- Confirm phase timings remain bounded under stress runs and do not concentrate in narrowphase unexpectedly.
 
 Budget and streaming checks:
 - Confirm periodic memory samples are emitted for CPU/WASM and GPU pools.
@@ -32,6 +36,7 @@ Debug workflow:
 2. Hard-refresh browser page.
 3. Inspect console messages for startup and render diagnostics.
 4. Validate static server root is `static`.
+5. Compare `pairs_checked` and phase timing logs before/after any simulation architecture change.
 
 Memory pressure workflow:
 1. Reproduce with constrained memory settings or high-content scenes.

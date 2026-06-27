@@ -12,8 +12,14 @@ This document describes the current public runtime surfaces and module responsib
 - `renderer.rs`
 	- `State::new(...)` initializes GPU resources and surface configuration.
 	- `State::resize(...)` handles surface reconfiguration.
-	- `State::update(...)` updates simulation state.
+	- `State::update(...)` advances the fixed-tick runtime and simulation pipeline.
 	- `State::render(...)` encodes and submits frame commands.
+	- Simulation hooks synchronize ROM world state before and after physics.
+
+- `simulation.rs`
+	- `SimulationModel` exposes ROM-owned input handling, anchor synchronization, per-tick update, and reconciliation hooks.
+	- `Scheduler` performs physics, including broadphase candidate selection and narrowphase collision response.
+	- `SchedulerFrameReport` returns interaction and despawn results for ROM reconciliation.
 
 - `asset_manifest.rs`
 	- `load_from_url(...)` fetches and validates manifest JSON.
@@ -22,7 +28,8 @@ This document describes the current public runtime surfaces and module responsib
 
 ## Contracts
 
-- Frame lifecycle contract: `update(delta_time)` occurs before `render()` on redraw.
+- Frame lifecycle contract: fixed-tick simulation stages run before `render()` on redraw.
+- Simulation contract: ROMs own intent composition and scenario rules; the scheduler owns shared physics execution and collision response.
 - Recoverable startup/runtime failures surface as `Result` errors and console diagnostics.
 - Manifest contract requires unique non-empty asset `id` and non-empty `source_url`.
-- Simulation state and GPU state remain isolated for predictable extension into ECS and data-driven systems.
+- World state and GPU state remain isolated for predictable extension into ECS and data-driven systems.

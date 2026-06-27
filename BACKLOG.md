@@ -181,26 +181,23 @@ input_profile:
 - Engine input handling stays generic and future-proof
 - New peripherals do not require changing shared action enums
 
-### Milestone 4: Session Support & Basic Multiplayer (Shared Sessions)
-**Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.
+### Milestone 4: Hardened Simulation Pipeline and Spatial Broadphase
+**Outcome**: A reusable tick pipeline composes world transforms and forces once per tick, profiles phase costs, and uses spatial indexing to keep collision checks efficient as entity counts grow.
 
-- [ ] Task 4.1: Define `SessionProtocol` (join, leave, broadcast, authoritative state update)
-- [ ] Task 4.2: Implement a LocalSessionHost (in-process or Node/warp dev server) for rapid testing
-- [ ] Task 4.3: Add client-side session join/leave APIs (WASM + JS glue)
-- [ ] Task 4.4: Implement authoritative position sync for player-controlled entities (server authoritative with client updates)
-- [ ] Task 4.5: Add basic latency compensation on clients (interpolation of remote entities)
-- [ ] Task 4.6: Implement simple concurrency rules for entity interactions (e.g., collision or basic 'hit' event)
-- [ ] Task 4.7: Test with multiple browser instances (2+) and verify state convergence
-- [ ] Task 4.8: Add minimal security: session tokens and scoped auth for join requests
-- [ ] Task 4.9: Document session API and example integration (how to host a session)
+- [ ] Task 4.1: Define a tick pipeline contract that composes intent, applies transforms, runs physics, and reconciles results in explicit stages.
+- [ ] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
+- [ ] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
+- [ ] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
+- [ ] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
+- [ ] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
 
 **Demonstrates**:
-- Multi-user connection lifecycle (join/leave)
-- Shared world state propagation and reconciliation
-- Latency handling patterns (interpolation) and simple authoritative model
-- Security posture for session join (token-based)
+- Minimal tick passes and data movement
+- Spatial indexing reduces collision work at scale
+- Profiling identifies waste before new systems are added
+- ROMs can plug into a hardened simulation pipeline
 
-**Priority**: P0 (Enables early multi-user testing and session validation)
+**Priority**: P0 (Foundation for scalable simulation)
 
 ### Milestone 5: Runtime Performance Baseline and Profiling Gates
 **Outcome**: Runtime has explicit performance budgets and profiling checkpoints before major architectural expansion.
@@ -216,6 +213,27 @@ input_profile:
 - Core loop remains stable as scope grows
 
 **Priority**: P0 (Protects gameplay feel and iteration speed)
+
+### Milestone 6: Session Support & Basic Multiplayer (Shared Sessions)
+**Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.
+
+- [ ] Task 6.1: Define `SessionProtocol` (join, leave, broadcast, authoritative state update)
+- [ ] Task 6.2: Implement a LocalSessionHost (in-process or Node/warp dev server) for rapid testing
+- [ ] Task 6.3: Add client-side session join/leave APIs (WASM + JS glue)
+- [ ] Task 6.4: Implement authoritative position sync for player-controlled entities (server authoritative with client updates)
+- [ ] Task 6.5: Add basic latency compensation on clients (interpolation of remote entities)
+- [ ] Task 6.6: Implement simple concurrency rules for entity interactions (e.g., collision or basic 'hit' event)
+- [ ] Task 6.7: Test with multiple browser instances (2+) and verify state convergence
+- [ ] Task 6.8: Add minimal security: session tokens and scoped auth for join requests
+- [ ] Task 6.9: Document session API and example integration (how to host a session)
+
+**Demonstrates**:
+- Multi-user connection lifecycle (join/leave)
+- Shared world state propagation and reconciliation
+- Latency handling patterns (interpolation) and simple authoritative model
+- Security posture for session join (token-based)
+
+**Priority**: P0 (Enables early multi-user testing and session validation)
 
 ---
 

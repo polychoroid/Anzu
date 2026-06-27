@@ -109,6 +109,9 @@ wasm-pack build --target web --out-dir ../static/pkg --release
 
 ## Conventions
 - **Rust style:** Follow standard Rust idioms; use `cargo fmt` and `cargo clippy` to maintain consistency.
+- **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
+- **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
+- **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
 - **WebGPU best practices:** 
   - Use wgpu v29+ API.
   - Keep shader code as embedded WGSL strings (see examples in triangle demo code).
@@ -127,6 +130,9 @@ wasm-pack build --target web --out-dir ../static/pkg --release
 - **Verification gates:**
   - New asset/streaming work must include measurable checks (startup time, frame time, memory, queue depth, eviction churn).
   - Include at least one pressure test proving graceful degradation and recovery.
+- **Simulation profiling gates:**
+  - Record per-phase fixed-tick timings before and after broadphase or pipeline changes.
+  - Keep candidate pair counts, collision counts, and frame pacing visible in logs during stress runs.
 - **Documentation expectations:**
   - Add doc comments (`///`) to public functions and types in Rust.
   - Keep README files in each module directory up-to-date with build/run instructions.
