@@ -5,7 +5,7 @@ Browser-first Rust/WASM runtime crate for Anzu.
 
 Current implementation highlights:
 - WebAssembly startup path using wasm-bindgen + winit web event loop.
-- wgpu renderer with rotating triangle demo.
+- wgpu renderer running the current Triangle Man browser runtime.
 - Frame contract: `update(delta_time)` then `render()` on redraw.
 - Asset manifest loading pattern (`manifest.json`) with typed validation errors.
 

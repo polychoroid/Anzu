@@ -16,7 +16,7 @@ Current project status (Milestone 3 complete):
 
 - `anzu-engine/` - Rust crate compiled to WebAssembly and loaded by browser shell.
 - `static/` - Browser entry page, manifest, content assets, and generated wasm/js package.
-- `docs/` - Architecture, developer, deployment, operations, and API documentation.
+- `documents/` - Architecture, developer, deployment, operations, and API documentation.
 - `BACKLOG.md` - Top-down implementation roadmap with milestones/tasks.
 
 ## Quick Start
@@ -44,17 +44,17 @@ python3 -m http.server 8000
 
 ## Documentation Index
 
-- `docs/architecture.md` - runtime and renderer layering contracts.
-- `docs/developer-guide.md` - local build, test, and development workflow.
-- `docs/deployment.md` - packaging and release checklist.
-- `docs/operations.md` - runtime diagnostics and maintenance guidance.
-- `docs/api.md` - module responsibilities and public API notes.
-- `docs/user-guide.md` - user-facing run behavior and troubleshooting.
+- `documents/architecture.md` - runtime and renderer layering contracts.
+- `documents/developer-guide.md` - local build, test, and development workflow.
+- `documents/deployment.md` - packaging and release checklist.
+- `documents/operations.md` - runtime diagnostics and maintenance guidance.
+- `documents/api.md` - module responsibilities and public API notes.
+- `documents/user-guide.md` - user-facing run behavior and troubleshooting.
 
 ## Milestones
 
 ### Completed
-- **Milestone 1** (Walking Skeleton): Browser WASM engine with rotating triangle and basic render loop
+- **Milestone 1** (Walking Skeleton): Browser WASM engine foundation with basic render loop
 - **Milestone 2** (ECS Foundation): Multi-entity rendering, physics, collision detection, and lifecycle management
 - **Milestone 3** (Input & Determinism): Input-driven movement, deterministic simulation, and Asteroids-like game logic
 

@@ -2,11 +2,11 @@
 
 ## Build and Release
 
-Primary deploy target is browser-hosted static content + wasm package.
+Primary deploy target is a browser-hosted static site that serves the compiled wasm package and JS bindings for the current Triangle Man runtime.
 
 ### Build Artifacts
-- `static/index.html` - browser entry page.
-- `static/manifest.json` - startup manifest payload.
+- `static/index.html` - browser entry page and canvas bootstrap.
+- `static/manifest.json` - startup manifest payload loaded at boot.
 - `static/pkg/*` - generated wasm/js bundle from wasm-pack.
 
 ### Release Build
@@ -25,17 +25,18 @@ python3 -m http.server 8000
 
 Open `http://localhost:8000/index.html` and verify:
 - canvas initializes
-- triangle rotates continuously
+- Triangle Man runtime starts and responds to input
+- fixed-timestep simulation keeps running after resize
 - resize does not crash rendering
 - console shows manifest load result
 
 ## Environment
 
-Current runtime is browser-first and reads configuration from static assets.
+Current runtime is browser-first, loads configuration from static assets at startup, and uses the manifest-driven browser shell.
 
-- Backend selection is handled by wgpu browser initialization.
-- WebGPU is preferred; browser WebGL fallback is available through wgpu browser backend support.
-- `manifest.json` is fetched relative to the served static root.
+- The browser shell fetches `manifest.json` relative to the served static root.
+- WebGPU is preferred; browser WebGL fallback remains available through wgpu's browser backend support.
+- The deployed experience is the fixed 60 Hz Triangle Man runtime described in the rest of the docs set.
 
 ## CI/CD
 
@@ -57,4 +58,4 @@ cargo build --lib --target wasm32-unknown-unknown --release
 wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
-3. Optional hosted smoke test in PR environments (serve `static/` and run browser check script).
+3. Optional hosted smoke test in PR environments (serve `static/` and verify canvas startup, manifest loading, resize handling, and Triangle Man input/render behavior).

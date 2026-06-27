@@ -1,7 +1,7 @@
 # User Guide
 
 ## Overview
-Anzu currently ships a browser demo runtime that initializes a WebGPU/WebGL-backed canvas and renders a continuously rotating triangle.
+Anzu currently ships a browser game runtime that initializes a WebGPU/WebGL-backed canvas, loads its manifest at startup, and runs Triangle Man.
 
 ## Getting Started
 
@@ -30,7 +30,8 @@ Open `http://localhost:8000/index.html`.
 
 Expected behavior:
 - Full-window canvas is displayed.
-- Triangle rotates smoothly over time.
+- Triangle Man starts and responds to input.
+- Simulation continues at a fixed 60 Hz tick.
 - Window resize keeps rendering active.
 - Startup attempts to load `manifest.json` and logs summary/warning in console.
 

@@ -7,7 +7,7 @@
   - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
   - `Cargo.toml` — Rust dependencies and wasm target configuration.
 - `static/` — Browser shell and static runtime assets.
-- `docs/` — Documentation set (architecture, developer, deployment, operations, user, API).
+- `documents/` — Documentation set (architecture, developer, deployment, operations, user, API).
 - `BACKLOG.md` — Top-down roadmap and task tracking.
 
 ## Local Development
@@ -30,7 +30,7 @@ Ensure you have:
 **Option A: Using `wasm-pack` (recommended)**
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir ../static/pkg
+wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
 **Option B: Using `cargo` + `wasm-bindgen` CLI**
@@ -114,7 +114,7 @@ wasm-pack build --target web --out-dir ../static/pkg --release
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
 - **WebGPU best practices:** 
   - Use wgpu v29+ API.
-  - Keep shader code as embedded WGSL strings (see examples in triangle demo code).
+  - Keep shader code as embedded WGSL strings (see the current renderer implementation).
   - Avoid deprecated or platform-specific wgpu APIs.
 - **Resource classification:**
   - Declare asset class and priority in manifest metadata (`critical`, `scaled_optional`, `reused`, `streaming`).

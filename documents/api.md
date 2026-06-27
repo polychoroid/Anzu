@@ -15,6 +15,7 @@ This document describes the current public runtime surfaces and module responsib
 	- `State::update(...)` advances the fixed-tick runtime and simulation pipeline.
 	- `State::render(...)` encodes and submits frame commands.
 	- Simulation hooks synchronize ROM world state before and after physics.
+	- Implementation lives under `src/renderer/mod.rs`, `src/renderer/core.rs`, and `src/renderer/wasm.rs`.
 
 - `simulation.rs`
 	- `SimulationModel` exposes ROM-owned input handling, anchor synchronization, per-tick update, and reconciliation hooks.
