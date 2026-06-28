@@ -21,6 +21,8 @@ web-sys = { version = "0.3.77", features = [
     "Element",
     "console",
     "Navigator",
+    "Gamepad",
+    "GamepadButton",
     "Request",
     "Response",
     "WebSocket",

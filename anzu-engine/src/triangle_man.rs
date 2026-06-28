@@ -187,11 +187,11 @@ pub struct TriangleManSpec {
 impl Default for TriangleManSpec {
     fn default() -> Self {
         Self {
-            thrust_accel_units_per_sec2: 0.15,
-            reverse_thrust_scale: 0.15,
-            angular_accel_rad_per_sec2: 9.0,
-            linear_damping_per_sec: 0.08,
-            angular_damping_per_sec: 0.22,
+            thrust_accel_units_per_sec2: 0.35,
+            reverse_thrust_scale: 0.25,
+            angular_accel_rad_per_sec2: 6.28,
+            linear_damping_per_sec: 0.15,
+            angular_damping_per_sec: 0.65,
             fire_cooldown_seconds: 0.12,
             bullet_speed_units_per_sec: 0.9,
             bullet_lifetime_seconds: 2.0,
@@ -217,51 +217,98 @@ enum TriangleManAction {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TriangleManAxisAction {
+    Thrust,
+    Turn,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TriangleManBindingKind {
+    Digital(TriangleManAction),
+    Analog {
+        axis: TriangleManAxisAction,
+        invert: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TriangleManInputBinding {
     source: &'static str,
     control: &'static str,
-    action: TriangleManAction,
+    kind: TriangleManBindingKind,
 }
 
 struct TriangleManInputProfile {
     bindings: &'static [TriangleManInputBinding],
 }
 
-const TRIANGLE_MAN_INPUT_BINDINGS: [TriangleManInputBinding; 7] = [
+const TRIANGLE_MAN_INPUT_BINDINGS: [TriangleManInputBinding; 11] = [
     TriangleManInputBinding {
         source: "keyboard",
         control: "KeyW",
-        action: TriangleManAction::ThrustForward,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::ThrustForward),
     },
     TriangleManInputBinding {
         source: "keyboard",
         control: "KeyS",
-        action: TriangleManAction::ThrustReverse,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::ThrustReverse),
     },
     TriangleManInputBinding {
         source: "keyboard",
         control: "KeyA",
-        action: TriangleManAction::TurnLeft,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::TurnLeft),
     },
     TriangleManInputBinding {
         source: "keyboard",
         control: "KeyD",
-        action: TriangleManAction::TurnRight,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::TurnRight),
     },
     TriangleManInputBinding {
         source: "keyboard",
         control: "Space",
-        action: TriangleManAction::Fire,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
     },
     TriangleManInputBinding {
         source: "gamepad",
         control: "south_button",
-        action: TriangleManAction::Fire,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
+    },
+    TriangleManInputBinding {
+        source: "gamepad",
+        control: "left_stick_x",
+        kind: TriangleManBindingKind::Analog {
+            axis: TriangleManAxisAction::Turn,
+            invert: false,
+        },
+    },
+    TriangleManInputBinding {
+        source: "gamepad",
+        control: "left_stick_y",
+        kind: TriangleManBindingKind::Analog {
+            axis: TriangleManAxisAction::Thrust,
+            invert: true,
+        },
+    },
+    TriangleManInputBinding {
+        source: "gamepad",
+        control: "left_trigger",
+        kind: TriangleManBindingKind::Analog {
+            axis: TriangleManAxisAction::Thrust,
+            invert: true,
+        },
+    },
+    TriangleManInputBinding {
+        source: "gamepad",
+        control: "right_trigger",
+        kind: TriangleManBindingKind::Analog {
+            axis: TriangleManAxisAction::Thrust,
+            invert: false,
+        },
     },
     TriangleManInputBinding {
         source: "mouse",
         control: "primary_button",
-        action: TriangleManAction::Fire,
+        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
     },
 ];
 
@@ -271,8 +318,8 @@ const TRIANGLE_MAN_INPUT_PROFILE: TriangleManInputProfile = TriangleManInputProf
 
 #[derive(Clone, Copy, Default)]
 struct TriangleManInputFrame {
-    thrust: i8,
-    turn: i8,
+    thrust: f32,
+    turn: f32,
     fire: bool,
 }
 
@@ -282,9 +329,25 @@ struct TriangleManInputManager {
     thrust_reverse: bool,
     turn_left: bool,
     turn_right: bool,
+    analog_values: BTreeMap<(&'static str, &'static str), f32>,
     fire_key_down: bool,
     pending_fire: bool,
 }
+
+fn log_input_debug(message: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(message));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        eprintln!("{}", message);
+    }
+}
+
+const TRIGGER_PRESS_THRESHOLD: f32 = 0.55;
+const TRIGGER_RELEASE_THRESHOLD: f32 = 0.45;
 
 impl Default for TriangleManInputManager {
     fn default() -> Self {
@@ -294,6 +357,7 @@ impl Default for TriangleManInputManager {
             thrust_reverse: false,
             turn_left: false,
             turn_right: false,
+            analog_values: BTreeMap::new(),
             fire_key_down: false,
             pending_fire: false,
         }
@@ -301,37 +365,109 @@ impl Default for TriangleManInputManager {
 }
 
 impl TriangleManInputManager {
-    fn handle_input_event(
-        &mut self,
-        source: &str,
-        control: &str,
-        is_pressed: bool,
-        is_repeat: bool,
-    ) {
-        if is_repeat && is_pressed {
+    fn handle_input_event(&mut self, event: &InputEvent) {
+        if event.is_repeat && event.is_pressed {
             return;
         }
 
-        for action in self.input_profile.actions_for_event(source, control) {
-            match action {
-                TriangleManAction::ThrustForward => self.thrust_forward = is_pressed,
-                TriangleManAction::ThrustReverse => self.thrust_reverse = is_pressed,
-                TriangleManAction::TurnLeft => self.turn_left = is_pressed,
-                TriangleManAction::TurnRight => self.turn_right = is_pressed,
-                TriangleManAction::Fire => {
-                    if is_pressed && !self.fire_key_down {
-                        self.pending_fire = true;
+        for binding in self.input_profile.bindings {
+            if binding.source != event.source || binding.control != event.control {
+                continue;
+            }
+
+            if event.source == "gamepad" {
+                log_input_debug(&format!(
+                    "[INPUT][TRIANGLE_MAN] matched control={} value={:.3} pressed={} repeat={}",
+                    event.control, event.value, event.is_pressed, event.is_repeat
+                ));
+            }
+
+            match binding.kind {
+                TriangleManBindingKind::Digital(action) => match action {
+                    TriangleManAction::ThrustForward => self.thrust_forward = event.is_pressed,
+                    TriangleManAction::ThrustReverse => self.thrust_reverse = event.is_pressed,
+                    TriangleManAction::TurnLeft => self.turn_left = event.is_pressed,
+                    TriangleManAction::TurnRight => self.turn_right = event.is_pressed,
+                    TriangleManAction::Fire => {
+                        if event.is_pressed && !self.fire_key_down {
+                            self.pending_fire = true;
+                        }
+                        self.fire_key_down = event.is_pressed;
                     }
-                    self.fire_key_down = is_pressed;
+                },
+                TriangleManBindingKind::Analog { axis, invert } => {
+                    let mut value = event.value.clamp(-1.0, 1.0);
+                    if invert {
+                        value = -value;
+                    }
+                    value = apply_analog_filter(
+                        binding.control,
+                        value,
+                        self.analog_values
+                            .get(&(binding.source, binding.control))
+                            .copied(),
+                    );
+
+                    if event.source == "gamepad" {
+                        log_input_debug(&format!(
+                            "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
+                            binding.control, value
+                        ));
+                    }
+
+                    self.analog_values.insert(
+                        (binding.source, binding.control),
+                        analog_axis_value(axis, value),
+                    );
                 }
             }
         }
     }
 
     fn snapshot_frame(&mut self) -> TriangleManInputFrame {
+        let digital_thrust = axis_value(self.thrust_reverse, self.thrust_forward) as f32;
+        let digital_turn = axis_value(self.turn_left, self.turn_right) as f32;
+
+        let mut analog_thrust = 0.0f32;
+        let mut analog_turn = 0.0f32;
+
+        for binding in self.input_profile.bindings {
+            let TriangleManBindingKind::Analog { axis, .. } = binding.kind else {
+                continue;
+            };
+
+            let Some(value) = self
+                .analog_values
+                .get(&(binding.source, binding.control))
+                .copied()
+            else {
+                continue;
+            };
+
+            match axis {
+                TriangleManAxisAction::Thrust => analog_thrust += value,
+                TriangleManAxisAction::Turn => analog_turn += value,
+            }
+        }
+
+        analog_thrust = analog_thrust.clamp(-1.0, 1.0);
+        analog_turn = analog_turn.clamp(-1.0, 1.0);
+
+        let thrust = if analog_thrust.abs() > digital_thrust.abs() {
+            analog_thrust
+        } else {
+            digital_thrust
+        };
+
+        let turn = if analog_turn.abs() > digital_turn.abs() {
+            analog_turn
+        } else {
+            digital_turn
+        };
+
         let frame = TriangleManInputFrame {
-            thrust: axis_value(self.thrust_reverse, self.thrust_forward),
-            turn: axis_value(self.turn_left, self.turn_right),
+            thrust,
+            turn,
             fire: self.pending_fire,
         };
 
@@ -340,18 +476,33 @@ impl TriangleManInputManager {
     }
 }
 
-impl TriangleManInputProfile {
-    fn actions_for_event(&'static self, source: &str, control: &str) -> Vec<TriangleManAction> {
-        self.bindings
-            .iter()
-            .filter_map(|binding| {
-                if binding.source == source && binding.control == control {
-                    Some(binding.action)
-                } else {
-                    None
-                }
-            })
-            .collect()
+fn analog_axis_value(_axis: TriangleManAxisAction, value: f32) -> f32 {
+    value
+}
+
+fn apply_analog_filter(control: &str, value: f32, previous: Option<f32>) -> f32 {
+    match control {
+        "left_trigger" | "right_trigger" => {
+            apply_trigger_hysteresis(value, previous.unwrap_or(0.0))
+        }
+        _ => apply_deadzone(value, 0.2),
+    }
+}
+
+fn apply_trigger_hysteresis(value: f32, previous: f32) -> f32 {
+    let magnitude = value.abs();
+    let previous_active = previous.abs() >= TRIGGER_RELEASE_THRESHOLD;
+
+    if previous_active {
+        if magnitude < TRIGGER_RELEASE_THRESHOLD {
+            0.0
+        } else {
+            value
+        }
+    } else if magnitude < TRIGGER_PRESS_THRESHOLD {
+        0.0
+    } else {
+        value
     }
 }
 
@@ -360,6 +511,14 @@ fn axis_value(negative: bool, positive: bool) -> i8 {
         (true, false) => -1,
         (false, true) => 1,
         _ => 0,
+    }
+}
+
+fn apply_deadzone(value: f32, deadzone: f32) -> f32 {
+    if value.abs() < deadzone {
+        0.0
+    } else {
+        value
     }
 }
 
@@ -678,12 +837,7 @@ impl TriangleManSimulation {
 
 impl SimulationModel for TriangleManSimulation {
     fn handle_input_event(&mut self, event: InputEvent) {
-        self.input_manager.handle_input_event(
-            event.source.as_str(),
-            event.control.as_str(),
-            event.is_pressed,
-            event.is_repeat,
-        );
+        self.input_manager.handle_input_event(&event);
     }
 
     fn sync_anchor_from_world(&mut self, world: &World, anchor_entity: EntityId) {
@@ -717,10 +871,10 @@ impl SimulationModel for TriangleManSimulation {
         self.elapsed_seconds += delta_seconds;
 
         let frame = self.input_manager.snapshot_frame();
-        let thrust_accel = if frame.thrust > 0 {
-            self.spec.thrust_accel_units_per_sec2
-        } else if frame.thrust < 0 {
-            -self.spec.thrust_accel_units_per_sec2 * self.spec.reverse_thrust_scale
+        let thrust_accel = if frame.thrust > 0.0 {
+            self.spec.thrust_accel_units_per_sec2 * frame.thrust
+        } else if frame.thrust < 0.0 {
+            self.spec.thrust_accel_units_per_sec2 * frame.thrust * self.spec.reverse_thrust_scale
         } else {
             0.0
         };
@@ -730,7 +884,7 @@ impl SimulationModel for TriangleManSimulation {
         self.velocity_x += heading_x * thrust_accel * delta_seconds;
         self.velocity_y += heading_y * thrust_accel * delta_seconds;
 
-        let angular_accel = -(frame.turn as f32) * self.spec.angular_accel_rad_per_sec2;
+        let angular_accel = -frame.turn * self.spec.angular_accel_rad_per_sec2;
         self.angular_velocity += angular_accel * delta_seconds;
 
         let linear_drag = (1.0 - self.spec.linear_damping_per_sec * delta_seconds).clamp(0.0, 1.0);
@@ -896,10 +1050,24 @@ mod tests {
     use crate::simulation::{SchedulerFrameReport, SimulationModel};
 
     fn input_event(source: &str, control: &str, is_pressed: bool) -> InputEvent {
+        input_event_with_value(
+            source,
+            control,
+            is_pressed,
+            if is_pressed { 1.0 } else { 0.0 },
+        )
+    }
+
+    fn input_event_with_value(
+        source: &str,
+        control: &str,
+        is_pressed: bool,
+        value: f32,
+    ) -> InputEvent {
         InputEvent {
             source: source.to_owned(),
             control: control.to_owned(),
-            value: if is_pressed { 1.0 } else { 0.0 },
+            value,
             device_index: None,
             is_pressed,
             is_repeat: false,
@@ -1010,6 +1178,246 @@ mod tests {
         assert!(
             mouse_entities > control_entities,
             "expected mouse fire binding to spawn an extra entity via fire action"
+        );
+    }
+
+    #[test]
+    fn right_trigger_analog_value_applies_forward_thrust() {
+        let anchor: EntityId = 17;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let dt = 1.0f32 / 60.0;
+
+        with_trigger.handle_input_event(InputEvent {
+            source: "gamepad".to_owned(),
+            control: "right_trigger".to_owned(),
+            value: 0.75,
+            device_index: Some(0),
+            is_pressed: true,
+            is_repeat: false,
+        });
+
+        with_trigger.update(dt);
+        without_trigger.update(dt);
+
+        let with_transform = with_trigger.transform_2d();
+        let without_transform = without_trigger.transform_2d();
+        assert!(with_transform.position_x > without_transform.position_x);
+    }
+
+    #[test]
+    fn left_trigger_analog_value_applies_reverse_thrust() {
+        let anchor: EntityId = 19;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let dt = 1.0f32 / 60.0;
+
+        with_trigger.handle_input_event(InputEvent {
+            source: "gamepad".to_owned(),
+            control: "left_trigger".to_owned(),
+            value: 0.75,
+            device_index: Some(0),
+            is_pressed: true,
+            is_repeat: false,
+        });
+
+        with_trigger.update(dt);
+        without_trigger.update(dt);
+
+        let with_transform = with_trigger.transform_2d();
+        let without_transform = without_trigger.transform_2d();
+        assert!(with_transform.position_x < without_transform.position_x);
+    }
+
+    #[test]
+    fn firefox_right_trigger_axis_value_applies_forward_thrust() {
+        let anchor: EntityId = 29;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let dt = 1.0f32 / 60.0;
+
+        with_trigger.handle_input_event(input_event_with_value(
+            "gamepad",
+            "right_trigger",
+            false,
+            0.0,
+        ));
+        with_trigger.handle_input_event(input_event_with_value(
+            "gamepad",
+            "right_trigger",
+            true,
+            1.0,
+        ));
+
+        with_trigger.update(dt);
+        without_trigger.update(dt);
+
+        let with_transform = with_trigger.transform_2d();
+        let without_transform = without_trigger.transform_2d();
+        assert!(with_transform.position_x > without_transform.position_x);
+    }
+
+    #[test]
+    fn firefox_left_trigger_axis_value_applies_reverse_thrust() {
+        let anchor: EntityId = 31;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_trigger =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let dt = 1.0f32 / 60.0;
+
+        with_trigger.handle_input_event(input_event_with_value(
+            "gamepad",
+            "left_trigger",
+            false,
+            0.0,
+        ));
+        with_trigger.handle_input_event(input_event_with_value(
+            "gamepad",
+            "left_trigger",
+            true,
+            1.0,
+        ));
+
+        with_trigger.update(dt);
+        without_trigger.update(dt);
+
+        let with_transform = with_trigger.transform_2d();
+        let without_transform = without_trigger.transform_2d();
+        assert!(with_transform.position_x < without_transform.position_x);
+    }
+
+    #[test]
+    fn trigger_hysteresis_requires_press_threshold_and_holds_until_release_threshold() {
+        let anchor: EntityId = 23;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let dt = 1.0f32 / 60.0;
+        let mut below_press =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut held_between_thresholds =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut control = TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+
+        below_press.handle_input_event(input_event_with_value(
+            "gamepad",
+            "right_trigger",
+            false,
+            0.50,
+        ));
+        below_press.update(dt);
+
+        held_between_thresholds.handle_input_event(input_event_with_value(
+            "gamepad",
+            "right_trigger",
+            true,
+            0.60,
+        ));
+        held_between_thresholds.update(dt);
+        held_between_thresholds.handle_input_event(input_event_with_value(
+            "gamepad",
+            "right_trigger",
+            false,
+            0.50,
+        ));
+        held_between_thresholds.update(dt);
+
+        control.update(dt);
+        control.update(dt);
+
+        let below_press_transform = below_press.transform_2d();
+        let held_transform = held_between_thresholds.transform_2d();
+        let control_transform = control.transform_2d();
+
+        assert!(
+            (below_press_transform.position_x - control_transform.position_x).abs() < 1e-6,
+            "trigger input below press threshold should be ignored"
+        );
+        assert!(
+            held_transform.position_x > control_transform.position_x,
+            "trigger should remain active between press and release thresholds"
+        );
+    }
+
+    #[test]
+    fn gamepad_left_stick_y_controls_forward_thrust() {
+        let anchor: EntityId = 12;
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let mut with_stick =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut without_stick =
+            TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+
+        let dt = 1.0f32 / 60.0;
+
+        with_stick.handle_input_event(input_event_with_value(
+            "gamepad",
+            "left_stick_y",
+            true,
+            -1.0,
+        ));
+
+        with_stick.update(dt);
+        without_stick.update(dt);
+
+        let a = with_stick.transform_2d();
+        let b = without_stick.transform_2d();
+
+        assert!(
+            (a.position_x - b.position_x).abs() > 1e-6
+                || (a.position_y - b.position_y).abs() > 1e-6,
+            "expected gamepad axis mapping to affect motion"
         );
     }
 }

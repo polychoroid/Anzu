@@ -3,7 +3,8 @@
 ## Repository Structure
 - `anzu-engine/` — Core Rust library compiled to WebAssembly for browser deployment.
   - `src/lib.rs` — wasm-bindgen startup and browser event loop wiring.
-  - `src/renderer.rs` — GPU state, rendering pipeline, resize/reconfigure behavior.
+  - `src/platform_browser.rs` — browser shell, canvas hookup, and top-level event loop integration.
+  - `src/renderer/mod.rs` / `src/renderer/wasm.rs` — GPU state, rendering pipeline, resize/reconfigure behavior, and browser input normalization.
   - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
   - `Cargo.toml` — Rust dependencies and wasm target configuration.
 - `static/` — Browser shell and static runtime assets.
@@ -112,6 +113,7 @@ wasm-pack build --target web --out-dir ../static/pkg --release
 - **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
+- **Input normalization:** Normalize browser- and device-specific gamepad quirks in `src/renderer/wasm.rs` into semantic controls such as `left_trigger` and `right_trigger`; keep raw controls like `axis_4` available only as optional escape hatches for specialized hardware.
 - **WebGPU best practices:** 
   - Use wgpu v29+ API.
   - Keep shader code as embedded WGSL strings (see the current renderer implementation).

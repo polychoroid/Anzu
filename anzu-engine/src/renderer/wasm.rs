@@ -1,6 +1,8 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 use winit::{
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta},
@@ -16,6 +18,13 @@ use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, Simulati
 
 const FIXED_STEP_SECONDS: f32 = 1.0 / 60.0;
 const MAX_FIXED_STEPS_PER_FRAME: u32 = 8;
+const INPUT_LOG_INTERVAL_FRAMES: u64 = 120;
+
+struct GamepadPollStats {
+    visible_gamepads: usize,
+    slot_count: u32,
+    document_has_focus: bool,
+}
 
 fn log_info(message: &str) {
     web_sys::console::log_1(&JsValue::from_str(message));
@@ -45,6 +54,10 @@ pub struct State {
     game_over: bool,
     simulation_paused: bool,
     pending_step_ticks: u32,
+    logged_gamepad_devices: BTreeSet<u32>,
+    gamepad_button_states: BTreeMap<(u32, usize), bool>,
+    gamepad_button_values: BTreeMap<(u32, usize), f32>,
+    gamepad_axis_values: BTreeMap<(u32, usize), f32>,
     simulation: Box<dyn SimulationModel>,
     render_core: RenderCore,
 }
@@ -256,6 +269,20 @@ impl State {
         let render_core = RenderCore::new(device, queue, config, simulation.as_ref(), render_data);
         log_info("[RENDER] render core initialized");
 
+        let get_gamepads_available = web_sys::window()
+            .and_then(|browser_window| {
+                js_sys::Reflect::has(
+                    &browser_window.navigator().into(),
+                    &JsValue::from_str("getGamepads"),
+                )
+                .ok()
+            })
+            .unwrap_or(false);
+        log_info(&format!(
+            "[INPUT][GAMEPAD] API probe getGamepads_available={}",
+            get_gamepads_available
+        ));
+
         Ok(Self {
             window,
             surface,
@@ -270,6 +297,10 @@ impl State {
             game_over: false,
             simulation_paused: false,
             pending_step_ticks: 0,
+            logged_gamepad_devices: BTreeSet::new(),
+            gamepad_button_states: BTreeMap::new(),
+            gamepad_button_values: BTreeMap::new(),
+            gamepad_axis_values: BTreeMap::new(),
             simulation,
             render_core,
         })
@@ -297,6 +328,11 @@ impl State {
             return;
         }
 
+        log_info(&format!(
+            "[INPUT][KEYBOARD] control={:?} pressed={} repeat={}",
+            key_code, is_pressed, event.repeat
+        ));
+
         self.simulation
             .handle_input_event(input_event_from_key_code(
                 key_code,
@@ -307,6 +343,10 @@ impl State {
 
     pub fn handle_mouse_button_event(&mut self, button: MouseButton, state: ElementState) {
         let is_pressed = state == ElementState::Pressed;
+        log_info(&format!(
+            "[INPUT][MOUSE] button={:?} pressed={}",
+            button, is_pressed
+        ));
         self.simulation
             .handle_input_event(input_event_from_mouse_button(button, is_pressed));
     }
@@ -420,8 +460,174 @@ impl State {
         }
     }
 
+    fn poll_gamepads(&mut self) -> GamepadPollStats {
+        let Some(window) = web_sys::window() else {
+            return GamepadPollStats {
+                visible_gamepads: 0,
+                slot_count: 0,
+                document_has_focus: false,
+            };
+        };
+
+        let document_has_focus = window
+            .document()
+            .and_then(|document| document.has_focus().ok())
+            .unwrap_or(true);
+
+        let Ok(gamepads) = window.navigator().get_gamepads() else {
+            log_warn("[INPUT][GAMEPAD] navigator.getGamepads() failed");
+            return GamepadPollStats {
+                visible_gamepads: 0,
+                slot_count: 0,
+                document_has_focus,
+            };
+        };
+
+        let mut seen_button_keys = BTreeMap::new();
+        let mut seen_axis_keys = BTreeMap::new();
+        let mut visible_gamepads = 0usize;
+        let slot_count = gamepads.length();
+
+        for gamepad_value in gamepads.iter() {
+            if gamepad_value.is_null() || gamepad_value.is_undefined() {
+                continue;
+            }
+
+            let Ok(gamepad) = gamepad_value.dyn_into::<web_sys::Gamepad>() else {
+                continue;
+            };
+
+            visible_gamepads = visible_gamepads.saturating_add(1);
+            let device_index = gamepad.index() as u32;
+
+            if self.logged_gamepad_devices.insert(device_index) {
+                log_info(&format!(
+                    "[INPUT][GAMEPAD] detected index={} id='{}' buttons={} axes={}",
+                    device_index,
+                    gamepad.id(),
+                    gamepad.buttons().length(),
+                    gamepad.axes().length()
+                ));
+            }
+
+            let buttons = gamepad.buttons();
+            for (button_index, button_value) in buttons.iter().enumerate() {
+                let Ok(button) = button_value.dyn_into::<web_sys::GamepadButton>() else {
+                    continue;
+                };
+
+                let key = (device_index, button_index);
+                seen_button_keys.insert(key, true);
+
+                let is_pressed = button.pressed();
+                let value = button.value() as f32;
+                let previous_pressed = self
+                    .gamepad_button_states
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(false);
+                let previous_value = self.gamepad_button_values.get(&key).copied().unwrap_or(0.0);
+
+                if previous_pressed != is_pressed || (previous_value - value).abs() >= 0.01 {
+                    log_info(&format!(
+                        "[INPUT][GAMEPAD] dispatch button index={} control={} value={:.3} pressed={}",
+                        device_index,
+                        gamepad_button_control(button_index),
+                        value,
+                        is_pressed
+                    ));
+                    self.simulation.handle_input_event(InputEvent {
+                        source: "gamepad".to_owned(),
+                        control: gamepad_button_control(button_index),
+                        value,
+                        device_index: Some(device_index),
+                        is_pressed,
+                        is_repeat: false,
+                    });
+                }
+
+                self.gamepad_button_states.insert(key, is_pressed);
+                self.gamepad_button_values.insert(key, value);
+            }
+
+            let axes = gamepad.axes();
+            for (axis_index, axis_value) in axes.iter().enumerate() {
+                let Some(mut value) = axis_value.as_f64().map(|v| v as f32) else {
+                    continue;
+                };
+
+                value = value.clamp(-1.0, 1.0);
+                let key = (device_index, axis_index);
+                seen_axis_keys.insert(key, true);
+
+                let previous = self.gamepad_axis_values.get(&key).copied().unwrap_or(0.0);
+                if (previous - value).abs() >= 0.01 {
+                    log_info(&format!(
+                        "[INPUT][GAMEPAD] dispatch axis index={} control={} value={:.3} pressed={}",
+                        device_index,
+                        gamepad_axis_control(axis_index),
+                        value,
+                        value.abs() >= 0.5
+                    ));
+                    self.simulation.handle_input_event(InputEvent {
+                        source: "gamepad".to_owned(),
+                        control: gamepad_axis_control(axis_index),
+                        value,
+                        device_index: Some(device_index),
+                        is_pressed: value.abs() >= 0.5,
+                        is_repeat: false,
+                    });
+
+                    if let Some((control, normalized_value)) =
+                        gamepad_axis_semantic_alias(axis_index, value)
+                    {
+                        log_info(&format!(
+                            "[INPUT][GAMEPAD] dispatch axis alias index={} control={} value={:.3} pressed={}",
+                            device_index,
+                            control,
+                            normalized_value,
+                            normalized_value >= 0.5,
+                        ));
+                        self.simulation.handle_input_event(InputEvent {
+                            source: "gamepad".to_owned(),
+                            control: control.to_owned(),
+                            value: normalized_value,
+                            device_index: Some(device_index),
+                            is_pressed: normalized_value >= 0.5,
+                            is_repeat: false,
+                        });
+                    }
+                }
+
+                self.gamepad_axis_values.insert(key, value);
+            }
+        }
+
+        self.gamepad_button_states
+            .retain(|key, _| seen_button_keys.contains_key(key));
+        self.gamepad_button_values
+            .retain(|key, _| seen_button_keys.contains_key(key));
+        self.gamepad_axis_values
+            .retain(|key, _| seen_axis_keys.contains_key(key));
+        self.logged_gamepad_devices.retain(|device_index| {
+            seen_button_keys
+                .keys()
+                .any(|(seen_index, _)| seen_index == device_index)
+                || seen_axis_keys
+                    .keys()
+                    .any(|(seen_index, _)| seen_index == device_index)
+        });
+
+        GamepadPollStats {
+            visible_gamepads,
+            slot_count,
+            document_has_focus,
+        }
+    }
+
     pub fn update(&mut self, delta_seconds: f32) {
         self.frame_index = self.frame_index.saturating_add(1);
+        let gamepad_stats = self.poll_gamepads();
         let clamped_delta_seconds = delta_seconds.clamp(0.0, 0.25);
         self.fixed_time_accumulator_seconds += clamped_delta_seconds;
 
@@ -450,6 +656,37 @@ impl State {
                 self.simulation_paused,
                 self.pending_step_ticks
             ));
+        }
+
+        if self.frame_index % INPUT_LOG_INTERVAL_FRAMES == 0 {
+            log_info(&format!(
+                "[INPUT] heartbeat frame={} visible_gamepads={} gamepad_slots={} document_has_focus={} tracked_gamepads={} tracked_buttons={} tracked_axes={}",
+                self.frame_index,
+                gamepad_stats.visible_gamepads,
+                gamepad_stats.slot_count,
+                gamepad_stats.document_has_focus,
+                self.logged_gamepad_devices.len(),
+                self.gamepad_button_states.len(),
+                self.gamepad_axis_values.len()
+            ));
+
+            if !gamepad_stats.document_has_focus {
+                log_warn(
+                    "[INPUT][GAMEPAD] document is not focused; gamepad exposure is often blocked until focus is regained",
+                );
+            }
+
+            if gamepad_stats.slot_count > 0 && gamepad_stats.visible_gamepads == 0 {
+                log_warn(
+                    "[INPUT][GAMEPAD] browser reports gamepad slots but all entries are null (permission policy, gesture exposure, or browser/device support issue)",
+                );
+            }
+
+            if gamepad_stats.visible_gamepads == 0 {
+                log_warn(
+                    "[INPUT][GAMEPAD] no visible gamepads from browser API; this can mean no device, no gamepad user gesture yet, or a stale wasm bundle",
+                );
+            }
         }
     }
 
@@ -521,5 +758,83 @@ fn input_event_from_cursor_position(axis: &str, value: f32) -> InputEvent {
         device_index: None,
         is_pressed: false,
         is_repeat: false,
+    }
+}
+
+fn gamepad_button_control(button_index: usize) -> String {
+    match button_index {
+        0 => "south_button".to_owned(),
+        1 => "east_button".to_owned(),
+        2 => "west_button".to_owned(),
+        3 => "north_button".to_owned(),
+        4 => "left_shoulder".to_owned(),
+        5 => "right_shoulder".to_owned(),
+        6 => "left_trigger".to_owned(),
+        7 => "right_trigger".to_owned(),
+        8 => "select_button".to_owned(),
+        9 => "start_button".to_owned(),
+        10 => "left_stick_button".to_owned(),
+        11 => "right_stick_button".to_owned(),
+        12 => "dpad_up".to_owned(),
+        13 => "dpad_down".to_owned(),
+        14 => "dpad_left".to_owned(),
+        15 => "dpad_right".to_owned(),
+        16 => "home_button".to_owned(),
+        _ => format!("button_{button_index}"),
+    }
+}
+
+fn gamepad_axis_control(axis_index: usize) -> String {
+    match axis_index {
+        0 => "left_stick_x".to_owned(),
+        1 => "left_stick_y".to_owned(),
+        2 => "right_stick_x".to_owned(),
+        3 => "right_stick_y".to_owned(),
+        _ => format!("axis_{axis_index}"),
+    }
+}
+
+fn gamepad_axis_semantic_alias(axis_index: usize, value: f32) -> Option<(&'static str, f32)> {
+    match axis_index {
+        4 => Some(("left_trigger", normalize_gamepad_trigger_axis(value))),
+        5 => Some(("right_trigger", normalize_gamepad_trigger_axis(value))),
+        _ => None,
+    }
+}
+
+fn normalize_gamepad_trigger_axis(value: f32) -> f32 {
+    ((value.clamp(-1.0, 1.0) + 1.0) * 0.5).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        gamepad_axis_control, gamepad_axis_semantic_alias, normalize_gamepad_trigger_axis,
+    };
+
+    #[test]
+    fn trigger_axes_keep_raw_axis_names() {
+        assert_eq!(gamepad_axis_control(4), "axis_4");
+        assert_eq!(gamepad_axis_control(5), "axis_5");
+    }
+
+    #[test]
+    fn firefox_trigger_axes_emit_semantic_aliases() {
+        assert_eq!(
+            gamepad_axis_semantic_alias(4, 1.0),
+            Some(("left_trigger", 1.0))
+        );
+        assert_eq!(
+            gamepad_axis_semantic_alias(5, 1.0),
+            Some(("right_trigger", 1.0))
+        );
+        assert_eq!(gamepad_axis_semantic_alias(3, 0.5), None);
+    }
+
+    #[test]
+    fn trigger_axis_normalization_maps_firefox_range_to_button_range() {
+        assert!((normalize_gamepad_trigger_axis(-1.0) - 0.0).abs() < f32::EPSILON);
+        assert!((normalize_gamepad_trigger_axis(0.0) - 0.5).abs() < f32::EPSILON);
+        assert!((normalize_gamepad_trigger_axis(1.0) - 1.0).abs() < f32::EPSILON);
     }
 }

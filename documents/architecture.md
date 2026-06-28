@@ -13,17 +13,19 @@ Core layers:
 
 Contract:
 - ROMs own input vocabulary and scenario rules.
+- Browser/device input quirks are normalized before ROM mapping so ordinary ROMs bind to semantic controls instead of raw browser axis indices.
 - Simulation composes applied intent first, then mutates world state through the physics pipeline.
 - Rendering reads state snapshots and must not contain gameplay business rules.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
 
 Simulation flow:
 1. Input adapters produce generic input events at the platform edge.
-2. ROM simulation converts those events into intent and per-body applied forces.
-3. World state is synchronized once per tick before physics.
-4. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
-5. ROM reconciliation handles spawn/despawn and scenario-specific rules.
-6. Rendering reads the final world snapshot and never writes gameplay state.
+2. Browser input normalization translates raw controls into semantic controls where possible while preserving raw escape hatches for specialized hardware.
+3. ROM simulation converts those events into intent and per-body applied forces.
+4. World state is synchronized once per tick before physics.
+5. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
+6. ROM reconciliation handles spawn/despawn and scenario-specific rules.
+7. Rendering reads the final world snapshot and never writes gameplay state.
 
 ## Rendering Pipeline
 Frame flow:
