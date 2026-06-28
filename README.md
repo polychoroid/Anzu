@@ -1,5 +1,7 @@
 # Anzu
 
+[Live Demo]('https://polychoroid.github.io/Anzu/')
+
 Anzu is a browser-first Rust/WASM engine project focused on a deterministic runtime core, WebGPU/WebGL rendering via wgpu, and a roadmap toward data-driven assets, networking, and secure remote content delivery.
 
 Current project status (Milestone 3 complete):
