@@ -25,6 +25,7 @@ This document describes the current public runtime surfaces and module responsib
 	- `SimulationModel` exposes ROM-owned input handling, anchor synchronization, per-tick update, and reconciliation hooks.
 	- `Scheduler` performs physics, including broadphase candidate selection and narrowphase collision response.
 	- `SchedulerFrameReport` returns interaction and despawn results for ROM reconciliation.
+	- Sensor/hitbox rigid bodies emit collision events but skip impulse resolution.
 
 - `asset_manifest.rs`
 	- `load_from_url(...)` fetches and validates manifest JSON.
@@ -40,3 +41,4 @@ This document describes the current public runtime surfaces and module responsib
 - Manifest contract requires unique non-empty asset `id` and non-empty `source_url`.
 - World state and GPU state remain isolated for predictable extension into ECS and data-driven systems.
 - Material contract: visual differences should flow through `MaterialDefinition` parameters and `material_id` assignment rather than geometry-format churn.
+- Collision outcome contract: role-pair policy selection determines hitbox vs solid behavior and despawn/fragment replacement decisions during reconciliation.

@@ -12,6 +12,9 @@ Current implementation highlights:
 - Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
 - Per-material uniform parameters with dynamic buffer offsets.
 - PBR-lite fragment shading controls (emissive + metallic/roughness/specular parameters).
+- Role-pair collision policy table in Triangle Man drives solid vs hitbox outcomes.
+- Bullet hitbox impacts can despawn and replace asteroids with four fragment entities.
+- Fragment edge-spawn regression tests are present for near-boundary survival behavior.
 
 Structure
 - `src/lib.rs` - browser startup, event loop integration, redraw/update/render scheduling.

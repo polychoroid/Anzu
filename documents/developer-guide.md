@@ -108,6 +108,7 @@ wasm-pack build --target web --out-dir ../static/pkg --release
   cd anzu-engine && cargo test
   ```
 - Browser-specific tests require a browser test harness (not yet integrated; see Milestone 2).
+- Triangle Man includes regression tests for fragment independence and near-edge fragment survival behavior.
 
 ## Conventions
 - **Rust style:** Follow standard Rust idioms; use `cargo fmt` and `cargo clippy` to maintain consistency.
@@ -123,6 +124,10 @@ wasm-pack build --target web --out-dir ../static/pkg --release
   - Prefer material parameters and registry data over adding effect-specific fields to shared vertex structs.
   - Keep per-entity visual differences in `MaterialDefinition`/`material_id`, not in ECS shape/component proliferation.
   - Add new blend or shading behavior by extending material pipeline routing before introducing new render-only entity pathways.
+- **Collision policy conventions:**
+  - Keep role-pair outcome behavior in the editable policy table rather than hardcoded role trait branches.
+  - Treat bullet interactions as hitbox events when physical impulse transfer is intentionally disabled.
+  - When adding fragment replacement behavior, include regression coverage for world-boundary spawn behavior.
 - **Resource classification:**
   - Declare asset class and priority in manifest metadata (`critical`, `scaled_optional`, `reused`, `streaming`).
   - Treat missing classification metadata as a validation error.

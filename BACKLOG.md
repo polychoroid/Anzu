@@ -202,17 +202,19 @@ input_profile:
 ### Milestone 4.5: Declarative Collision Outcomes and Fragmentation Rules
 **Outcome**: Collision handling moves from role-specific hardcoded branches to a data-driven outcome model supporting damage, despawn/replace behavior, and physically consistent fragment spawning.
 
-- [ ] Task 4.5.1: Define collision outcome schema (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`) keyed by role/tag pairs.
+- [x] Task 4.5.1: Define collision outcome schema (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`) keyed by role/tag pairs.
 - [ ] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
-- [ ] Task 4.5.3: Add despawn-and-replace flow allowing collision outcomes to spawn one or more fragment entities.
+- [x] Task 4.5.3: Add despawn-and-replace flow allowing collision outcomes to spawn one or more fragment entities.
 - [ ] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
-- [ ] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
+- [x] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
 - [ ] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
+- [x] Task 4.5.7: Add edge-case regression coverage for fragment spawn near world bounds and clamp fragment spawn positions to avoid first-tick out-of-bounds culling.
 
 **Demonstrates**:
 - Collision behavior is configurable and scalable beyond hardcoded per-role logic
 - Damage/despawn/fragment rules remain deterministic under fixed-timestep replay
 - Fragmentation respects core physics invariants instead of producing arbitrary motion
+- Fragment entities are independently simulated and survive edge-adjacent spawning scenarios
 
 **Priority**: P0 (Closes gameplay collision-action gap)
 

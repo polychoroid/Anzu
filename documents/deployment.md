@@ -30,6 +30,7 @@ Open `http://localhost:8000/index.html` and verify:
 - resize does not crash rendering
 - console shows manifest load result
 - material-driven blend behavior is visible (opaque asteroids, alpha player edges, additive bullet glow)
+- bullet hits on asteroids produce four fragments and those fragments do not disappear immediately when impact happens near screen bounds
 
 ## Environment
 

@@ -52,6 +52,7 @@ pub struct RigidBody {
     pub friction: f32,
     pub moment_of_inertia: f32,
     pub inverse_moment_of_inertia: f32,
+    pub is_sensor: bool,
 }
 
 impl Default for RigidBody {
@@ -63,6 +64,7 @@ impl Default for RigidBody {
             friction: 0.12,
             moment_of_inertia: 1.0,
             inverse_moment_of_inertia: 1.0,
+            is_sensor: false,
         }
     }
 }

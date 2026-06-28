@@ -24,7 +24,7 @@ Simulation flow:
 3. ROM simulation converts those events into intent and per-body applied forces.
 4. World state is synchronized once per tick before physics.
 5. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
-6. ROM reconciliation handles spawn/despawn and scenario-specific rules.
+6. ROM reconciliation handles policy-driven spawn/despawn and scenario-specific rules (including fragment replacement).
 7. Rendering reads the final world snapshot and never writes gameplay state.
 
 ## Rendering Pipeline
@@ -40,6 +40,8 @@ Current vertical slice target:
 - Spatial broadphase before SAT narrowphase collision checks.
 - Material-driven render path with per-batch pipeline selection.
 - One vertex buffer and one uniform bind group for transform data.
+- Role-pair collision policy routing for solid-body vs hitbox outcomes.
+- Bullet-triggered asteroid fragment replacement with independent child entities.
 
 Current rendering/material state:
 - Entity mesh instances carry `material_id` values.

@@ -80,7 +80,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Bullet light: illuminates nearby geometry based on world-space distance
     let light_dist = distance(in.world_pos, in.light_pos);
     let LIGHT_RADIUS = 0.35;
-    let light_strength = 1.0 - smoothstep(0.0, LIGHT_RADIUS, light_dist);
+    let light_strength = pow(1.0 - smoothstep(0.0, LIGHT_RADIUS, light_dist), 1.2);
 
     let glow_brightness = 1.3;
     let base_color = in.color * u_material.base_color_tint;
@@ -99,11 +99,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let shininess = mix(96.0, 6.0, roughness);
 
     let diffuse = n_dot_l * (1.0 - metallic * 0.85);
-    let specular = pow(n_dot_h, shininess) * specular_strength * (0.6 + metallic * 0.7);
+    let specular =
+        pow(n_dot_h, shininess) * specular_strength * (0.15 + metallic * 0.35 + light_strength * 0.9);
 
-    let emissive = u_material.emissive_strength * (0.35 + light_strength * 0.65);
+    let ambient_floor = 0.09;
+    let bullet_fill = light_strength * 0.9;
+    let emissive = u_material.emissive_strength * light_strength;
     let lit_color = clamp(
-        base_color * glow_brightness * (0.2 + diffuse * 0.8)
+        base_color * glow_brightness * (ambient_floor + diffuse * 0.2 + bullet_fill)
             + vec3<f32>(specular + emissive),
         vec3<f32>(0.0),
         vec3<f32>(3.0),
@@ -169,42 +172,42 @@ pub const TRIANGLE_VERTICES: [Vertex; 3] = [
 pub const SQUARE_VERTICES: [Vertex; 6] = [
     Vertex {
         position: [-0.35, -0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [1.0, 0.0, 0.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.35, -0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [0.0, 1.0, 0.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.35, 0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [0.0, 0.0, 1.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-0.35, -0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [1.0, 0.0, 0.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 1.0, 0.0],
     },
     Vertex {
         position: [0.35, 0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [0.0, 1.0, 0.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 1.0, 0.0],
     },
     Vertex {
         position: [-0.35, 0.35],
-        color: [1.0, 0.8, 0.2],
+        color: [0.22, 0.22, 0.24],
         barycentric: [0.0, 0.0, 1.0],
         light_pos: [0.0, 0.0],
         edge_mask: [1.0, 1.0, 0.0],
@@ -282,17 +285,17 @@ const TRIANGLE_MATERIALS: [MaterialDefinition; 3] = [
     MaterialDefinition {
         material_id: MATERIAL_ASTEROID,
         blend_mode: MaterialBlendMode::Opaque,
-        base_color_tint: [0.5, 0.5, 0.46],
+        base_color_tint: [0.03, 0.03, 0.035],
         emissive_strength: 0.15,
-        metallic: 0.9,
-        roughness: 0.8,
-        specular_strength: 0.6,
+        metallic: 0.0,
+        roughness: 0.98,
+        specular_strength: 0.15,
     },
     MaterialDefinition {
         material_id: MATERIAL_BULLET,
         blend_mode: MaterialBlendMode::Additive,
         base_color_tint: [1.0, 0.95, 1.0],
-        emissive_strength: 0.85,
+        emissive_strength: 25.0,
         metallic: 0.9,
         roughness: 0.15,
         specular_strength: 1.0,
@@ -311,6 +314,14 @@ const ASTEROID_SPAWN_PRESETS: [(f32, f32, f32, f32, f32); 8] = [
     (0.95, 0.90, -0.44, 0.12, 0.32),
     (0.95, 0.15, -0.46, 0.06, -0.28),
 ];
+
+const FRAGMENT_MIN_PARENT_SCALE: f32 = 0.06;
+const FRAGMENT_CHILD_SCALE_FACTOR: f32 = 0.58;
+const FRAGMENT_TANGENT_SPEED: f32 = 0.16;
+const WORLD_MIN_X: f32 = -1.0;
+const WORLD_MAX_X: f32 = 1.0;
+const WORLD_MIN_Y: f32 = -1.0;
+const WORLD_MAX_Y: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub struct TriangleManSpec {
@@ -336,8 +347,8 @@ impl Default for TriangleManSpec {
     fn default() -> Self {
         Self {
             thrust_accel_units_per_sec2: 0.35,
-            reverse_thrust_scale: 0.25,
-            angular_accel_rad_per_sec2: 6.28,
+            reverse_thrust_scale: 0.45,
+            angular_accel_rad_per_sec2: 5.0,
             linear_damping_per_sec: 0.15,
             angular_damping_per_sec: 0.65,
             fire_cooldown_seconds: 0.12,
@@ -345,12 +356,12 @@ impl Default for TriangleManSpec {
             bullet_lifetime_seconds: 2.0,
             asteroid_spawn_interval_seconds: 1.0,
             asteroid_spawn_min_interval_seconds: 0.45,
-            asteroid_spawn_accel_per_second: 2.0,
-            asteroid_spawn_max_burst: 25,
-            asteroid_target_count: 1000,
+            asteroid_spawn_accel_per_second: 10.0,
+            asteroid_spawn_max_burst: 50,
+            asteroid_target_count: 600,
             asteroid_target_time_seconds: 300.0,
-            asteroid_mass_scale_at_target: 8.0,
-            scale: 0.1,
+            asteroid_mass_scale_at_target: 100.0,
+            scale: 0.05,
         }
     }
 }
@@ -670,37 +681,6 @@ fn apply_deadzone(value: f32, deadzone: f32) -> f32 {
     }
 }
 
-trait GameplayRole {
-    fn despawn_on_collision_with(&self, _other: &dyn GameplayRole) -> bool {
-        false
-    }
-
-    fn is_bullet(&self) -> bool {
-        false
-    }
-}
-
-// Todo: These roles make a little sense , but what would make better sense would being able to have a more general collision action
-// to provide more control over what happens when objects collide. Do we subtract hit points? Despawn and spawn in fragments?
-// mass and momentum needs to be conserved with fragments.
-
-struct PlayerRole;
-struct AsteroidRole;
-struct BulletRole;
-
-impl GameplayRole for PlayerRole {}
-impl GameplayRole for AsteroidRole {}
-
-impl GameplayRole for BulletRole {
-    fn despawn_on_collision_with(&self, other: &dyn GameplayRole) -> bool {
-        !other.is_bullet()
-    }
-
-    fn is_bullet(&self) -> bool {
-        true
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RoleKind {
     Player,
@@ -708,13 +688,96 @@ enum RoleKind {
     Bullet,
 }
 
-impl RoleKind {
-    fn create_role(self) -> Box<dyn GameplayRole> {
-        match self {
-            RoleKind::Player => Box::new(PlayerRole),
-            RoleKind::Asteroid => Box::new(AsteroidRole),
-            RoleKind::Bullet => Box::new(BulletRole),
-        }
+#[derive(Clone, Copy, Debug)]
+enum CollisionMode {
+    Solid,
+    Hitbox,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RolePairPolicy {
+    a: RoleKind,
+    b: RoleKind,
+    mode: CollisionMode,
+    despawn_a_on_collision: bool,
+    despawn_b_on_collision: bool,
+}
+
+// Editable role-pair policy table.
+// Keep one entry per unordered pair (A,B) to avoid ambiguous behavior.
+// `Hitbox` means collision events fire, but physics impulse resolution is skipped.
+// Despawn flags are interpreted in declared (a,b) order and remapped when looked up as (b,a).
+const ROLE_PAIR_POLICIES: [RolePairPolicy; 6] = [
+    RolePairPolicy {
+        a: RoleKind::Player,
+        b: RoleKind::Player,
+        mode: CollisionMode::Solid,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: false,
+    },
+    RolePairPolicy {
+        a: RoleKind::Player,
+        b: RoleKind::Asteroid,
+        mode: CollisionMode::Solid,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: false,
+    },
+    RolePairPolicy {
+        a: RoleKind::Player,
+        b: RoleKind::Bullet,
+        mode: CollisionMode::Hitbox,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: true,
+    },
+    RolePairPolicy {
+        a: RoleKind::Asteroid,
+        b: RoleKind::Asteroid,
+        mode: CollisionMode::Solid,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: false,
+    },
+    RolePairPolicy {
+        a: RoleKind::Asteroid,
+        b: RoleKind::Bullet,
+        mode: CollisionMode::Hitbox,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: true,
+    },
+    RolePairPolicy {
+        a: RoleKind::Bullet,
+        b: RoleKind::Bullet,
+        mode: CollisionMode::Hitbox,
+        despawn_a_on_collision: false,
+        despawn_b_on_collision: false,
+    },
+];
+
+fn role_pair_policy(a: RoleKind, b: RoleKind) -> Option<RolePairPolicy> {
+    ROLE_PAIR_POLICIES
+        .iter()
+        .copied()
+        .find(|policy| (policy.a == a && policy.b == b) || (policy.a == b && policy.b == a))
+}
+
+fn policy_collision_mode_for(role: RoleKind) -> CollisionMode {
+    if ROLE_PAIR_POLICIES.iter().any(|policy| {
+        (policy.a == role || policy.b == role) && matches!(policy.mode, CollisionMode::Hitbox)
+    }) {
+        CollisionMode::Hitbox
+    } else {
+        CollisionMode::Solid
+    }
+}
+
+fn despawn_flags_for_pair(
+    policy: RolePairPolicy,
+    role_a: RoleKind,
+    role_b: RoleKind,
+) -> (bool, bool) {
+    if policy.a == role_a && policy.b == role_b {
+        (policy.despawn_a_on_collision, policy.despawn_b_on_collision)
+    } else {
+        (policy.despawn_b_on_collision, policy.despawn_a_on_collision)
     }
 }
 
@@ -869,6 +932,7 @@ impl TriangleManSimulation {
                 friction: 0.06,
                 moment_of_inertia,
                 inverse_moment_of_inertia: 1.0 / moment_of_inertia,
+                is_sensor: false,
             },
         );
 
@@ -887,7 +951,7 @@ impl TriangleManSimulation {
         inherited_velocity_y: f32,
     ) -> EntityId {
         let entity_id = world.spawn();
-        let scale = 0.06;
+        let scale = 0.03;
         let radius = max_radius(&DIAMOND_COLLIDER, scale);
         let heading_x = angle_rad.cos();
         let heading_y = angle_rad.sin();
@@ -929,6 +993,10 @@ impl TriangleManSimulation {
                 friction: 0.01,
                 moment_of_inertia,
                 inverse_moment_of_inertia: 1.0 / moment_of_inertia,
+                is_sensor: matches!(
+                    policy_collision_mode_for(RoleKind::Bullet),
+                    CollisionMode::Hitbox
+                ),
             },
         );
         world.set_lifecycle(
@@ -942,11 +1010,116 @@ impl TriangleManSimulation {
         entity_id
     }
 
-    fn role_for_entity(&self, entity_id: EntityId) -> Option<Box<dyn GameplayRole>> {
-        self.roles
-            .get(&entity_id)
-            .copied()
-            .map(RoleKind::create_role)
+    fn role_for_entity(&self, entity_id: EntityId) -> Option<RoleKind> {
+        self.roles.get(&entity_id).copied()
+    }
+
+    fn spawn_asteroid_fragments_on_impact(
+        &mut self,
+        world: &mut World,
+        asteroid_entity: EntityId,
+        bullet_entity: EntityId,
+    ) {
+        let Some(asteroid_transform) = world.transform(asteroid_entity).copied() else {
+            return;
+        };
+        let Some(bullet_transform) = world.transform(bullet_entity).copied() else {
+            return;
+        };
+        let Some(asteroid_body) = world.rigid_body(asteroid_entity).copied() else {
+            return;
+        };
+        let bullet_body = world.rigid_body(bullet_entity).copied().unwrap_or_default();
+
+        if asteroid_transform.uniform_scale <= FRAGMENT_MIN_PARENT_SCALE {
+            return;
+        }
+
+        let parent_scale = asteroid_transform.uniform_scale;
+        let child_scale = parent_scale * FRAGMENT_CHILD_SCALE_FACTOR;
+        let child_radius = max_radius(&SQUARE_COLLIDER, child_scale);
+        let split_offset = (child_radius * 0.9).max(0.02);
+
+        let asteroid_mass = asteroid_body.mass.max(0.1);
+        let bullet_mass = bullet_body.mass.max(0.01);
+        let child_mass = (asteroid_mass * 0.25).max(0.03);
+        let child_moment = 0.5 * child_mass * child_radius * child_radius;
+
+        // Fragments receive linear momentum from the bullet only.
+        let base_velocity_x = (bullet_transform.velocity_x * bullet_mass) / asteroid_mass;
+        let base_velocity_y = (bullet_transform.velocity_y * bullet_mass) / asteroid_mass;
+
+        let mut impact_dir_x = bullet_transform.velocity_x;
+        let mut impact_dir_y = bullet_transform.velocity_y;
+        let impact_len = (impact_dir_x * impact_dir_x + impact_dir_y * impact_dir_y).sqrt();
+        if impact_len <= 1e-5 {
+            impact_dir_x = bullet_transform.position_x - asteroid_transform.position_x;
+            impact_dir_y = bullet_transform.position_y - asteroid_transform.position_y;
+        }
+        normalize_or_fallback(&mut impact_dir_x, &mut impact_dir_y, 1.0, 0.0);
+
+        let tangent_x = -impact_dir_y;
+        let tangent_y = impact_dir_x;
+
+        for (impact_side, tangent_side) in [
+            (1.0f32, 1.0f32),
+            (1.0f32, -1.0f32),
+            (-1.0f32, 1.0f32),
+            (-1.0f32, -1.0f32),
+        ] {
+            let entity_id = world.spawn();
+            let dir_x = impact_dir_x * impact_side + tangent_x * tangent_side;
+            let dir_y = impact_dir_y * impact_side + tangent_y * tangent_side;
+            let angular_side = impact_side * tangent_side;
+            let mut fragment_position_x = asteroid_transform.position_x + dir_x * split_offset;
+            let mut fragment_position_y = asteroid_transform.position_y + dir_y * split_offset;
+            clamp_position_to_world(
+                &mut fragment_position_x,
+                &mut fragment_position_y,
+                child_radius,
+            );
+            world.set_transform(
+                entity_id,
+                Transform {
+                    position_x: fragment_position_x,
+                    position_y: fragment_position_y,
+                    rotation_rad: asteroid_transform.rotation_rad + 0.12 * angular_side,
+                    uniform_scale: child_scale,
+                    velocity_x: base_velocity_x + dir_x * FRAGMENT_TANGENT_SPEED,
+                    velocity_y: base_velocity_y + dir_y * FRAGMENT_TANGENT_SPEED,
+                    angular_velocity: 1.1 * angular_side,
+                },
+            );
+            world.set_mesh_instance_with_material(entity_id, MESH_SQUARE, MATERIAL_ASTEROID);
+            world.set_collision_bounds(
+                entity_id,
+                CollisionBounds {
+                    proximity_radius: child_radius * 1.15,
+                },
+            );
+            world.set_polygon_collider(
+                entity_id,
+                PolygonCollider {
+                    local_vertices: &SQUARE_COLLIDER,
+                },
+            );
+            world.set_rigid_body(
+                entity_id,
+                RigidBody {
+                    mass: child_mass,
+                    inverse_mass: 1.0 / child_mass,
+                    restitution: asteroid_body.restitution.clamp(0.1, 1.0),
+                    friction: asteroid_body.friction.clamp(0.0, 1.0),
+                    moment_of_inertia: child_moment,
+                    inverse_moment_of_inertia: 1.0 / child_moment,
+                    is_sensor: false,
+                },
+            );
+            world.set_lifecycle(entity_id, Lifecycle { ttl_seconds: 6.0 });
+
+            self.roles.insert(entity_id, RoleKind::Asteroid);
+            self.asteroid_spawned_total = self.asteroid_spawned_total.saturating_add(1);
+        }
     }
 
     fn asteroid_spawn_interval(&self) -> f32 {
@@ -1071,7 +1244,8 @@ impl SimulationModel for TriangleManSimulation {
             self.baseline_asteroid_spawned = true;
         }
 
-        let mut bullets_to_despawn = BTreeSet::new();
+        let mut entities_to_despawn = BTreeSet::new();
+        let mut asteroid_fragment_hits: BTreeMap<EntityId, EntityId> = BTreeMap::new();
         for event in &frame_report.interaction_events {
             if event.kind != InteractionEventKind::Collision {
                 continue;
@@ -1084,15 +1258,36 @@ impl SimulationModel for TriangleManSimulation {
                 continue;
             };
 
-            if role_a.despawn_on_collision_with(role_b.as_ref()) {
-                bullets_to_despawn.insert(event.entity_a);
+            let Some(policy) = role_pair_policy(role_a, role_b) else {
+                continue;
+            };
+
+            if role_a == RoleKind::Asteroid && role_b == RoleKind::Bullet {
+                asteroid_fragment_hits
+                    .entry(event.entity_a)
+                    .or_insert(event.entity_b);
+            } else if role_a == RoleKind::Bullet && role_b == RoleKind::Asteroid {
+                asteroid_fragment_hits
+                    .entry(event.entity_b)
+                    .or_insert(event.entity_a);
             }
-            if role_b.despawn_on_collision_with(role_a.as_ref()) {
-                bullets_to_despawn.insert(event.entity_b);
+
+            let (despawn_a, despawn_b) = despawn_flags_for_pair(policy, role_a, role_b);
+            if despawn_a {
+                entities_to_despawn.insert(event.entity_a);
+            }
+            if despawn_b {
+                entities_to_despawn.insert(event.entity_b);
             }
         }
 
-        for entity_id in bullets_to_despawn {
+        for (asteroid_entity, bullet_entity) in asteroid_fragment_hits {
+            self.spawn_asteroid_fragments_on_impact(world, asteroid_entity, bullet_entity);
+            entities_to_despawn.insert(asteroid_entity);
+            entities_to_despawn.insert(bullet_entity);
+        }
+
+        for entity_id in entities_to_despawn {
             world.despawn(entity_id);
             self.roles.remove(&entity_id);
         }
@@ -1144,6 +1339,23 @@ fn max_radius(collider: &'static [[f32; 2]], scale: f32) -> f32 {
         * scale
 }
 
+fn normalize_or_fallback(x: &mut f32, y: &mut f32, fallback_x: f32, fallback_y: f32) {
+    let len = (*x * *x + *y * *y).sqrt();
+    if len <= 1e-6 {
+        *x = fallback_x;
+        *y = fallback_y;
+        return;
+    }
+
+    *x /= len;
+    *y /= len;
+}
+
+fn clamp_position_to_world(position_x: &mut f32, position_y: &mut f32, radius: f32) {
+    *position_x = position_x.clamp(WORLD_MIN_X + radius, WORLD_MAX_X - radius);
+    *position_y = position_y.clamp(WORLD_MIN_Y + radius, WORLD_MAX_Y - radius);
+}
+
 fn spawn_player_entity(
     world: &mut World,
     scale: f32,
@@ -1189,6 +1401,7 @@ fn spawn_player_entity(
             friction: 0.12,
             moment_of_inertia,
             inverse_moment_of_inertia: 1.0 / moment_of_inertia,
+            is_sensor: false,
         },
     );
 
@@ -1200,7 +1413,9 @@ mod tests {
     use super::{TriangleManSimulation, TriangleManSpec};
     use crate::ecs::{EntityId, Transform, World};
     use crate::input::InputEvent;
-    use crate::simulation::{SchedulerFrameReport, SimulationModel};
+    use crate::simulation::{
+        InteractionEvent, InteractionEventKind, Scheduler, SchedulerFrameReport, SimulationModel,
+    };
 
     fn input_event(source: &str, control: &str, is_pressed: bool) -> InputEvent {
         input_event_with_value(
@@ -1225,6 +1440,21 @@ mod tests {
             is_pressed,
             is_repeat: false,
         }
+    }
+
+    fn seeded_simulation_with_anchor(anchor: EntityId) -> (TriangleManSimulation, World) {
+        let initial = Transform {
+            position_x: 0.0,
+            position_y: 0.0,
+            rotation_rad: 0.0,
+            uniform_scale: 0.1,
+            ..Default::default()
+        };
+
+        let simulation = TriangleManSimulation::new(anchor, TriangleManSpec::default(), initial);
+        let mut world = World::new();
+        world.set_transform(anchor, initial);
+        (simulation, world)
     }
 
     #[test]
@@ -1571,6 +1801,88 @@ mod tests {
             (a.position_x - b.position_x).abs() > 1e-6
                 || (a.position_y - b.position_y).abs() > 1e-6,
             "expected gamepad axis mapping to affect motion"
+        );
+    }
+
+    #[test]
+    fn asteroid_fragment_spawn_creates_independent_entities_with_components() {
+        let anchor: EntityId = 101;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let bullet = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+        let report = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &report);
+
+        let fragment_entities: Vec<EntityId> = world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .collect();
+
+        assert_eq!(fragment_entities.len(), 4);
+        for entity_id in fragment_entities {
+            assert!(simulation.role_for_entity(entity_id).is_some());
+            assert!(world.polygon_collider(entity_id).is_some());
+            assert!(world.rigid_body(entity_id).is_some());
+            assert!(world.lifecycle(entity_id).is_some());
+        }
+    }
+
+    #[test]
+    fn fragments_spawned_near_world_edge_survive_initial_scheduler_tick() {
+        let anchor: EntityId = 202;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let bullet = simulation.spawn_bullet_entity(&mut world, 1.06, 0.0, 0.0, 0.0, 0.0);
+
+        if let Some(transform) = world.transform_mut(asteroid) {
+            transform.position_x = 1.10;
+            transform.position_y = 0.0;
+            transform.velocity_x = 0.0;
+            transform.velocity_y = 0.0;
+        }
+        if let Some(transform) = world.transform_mut(bullet) {
+            transform.position_x = 1.08;
+            transform.position_y = 0.0;
+            transform.velocity_x = 0.9;
+            transform.velocity_y = 0.0;
+        }
+
+        let report = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &report);
+
+        let mut scheduler = Scheduler::default();
+        scheduler.update_world(&mut world, 1.0 / 60.0);
+
+        let fragment_count = world
+            .transforms()
+            .filter(|(entity_id, _)| *entity_id != anchor)
+            .count();
+
+        assert_eq!(
+            fragment_count, 4,
+            "fragments should survive the first scheduler tick near the world edge"
         );
     }
 }

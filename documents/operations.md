@@ -10,6 +10,7 @@ Primary operational visibility currently comes from browser console logs.
 - Material/render diagnostics: per-batch material routing and blend-mode behavior can be validated visually and through render warnings.
 - Simulation profiling: per-phase fixed-tick summaries for sync, composition, broadphase, narrowphase, reconcile, and render boundary costs.
 - Collision scaling: candidate pair counts, collision counts, and despawn counts during stress runs.
+- Fragmentation diagnostics: fragment spawn counts and first-tick despawn behavior near world bounds.
 
 Recommended checks during runtime verification:
 - Confirm no repeated surface/device errors in console.
@@ -19,6 +20,7 @@ Recommended checks during runtime verification:
 - Confirm additive/alpha/opaque material passes appear as expected (no global blend regression).
 - Confirm spatial broadphase reduces collision candidate pairs relative to all-pairs scanning.
 - Confirm phase timings remain bounded under stress runs and do not concentrate in narrowphase unexpectedly.
+- Confirm bullet->asteroid collisions produce expected fragment count and fragment entities persist at least one tick near boundaries.
 
 Budget and streaming checks:
 - Confirm periodic memory samples are emitted for CPU/WASM and GPU pools.

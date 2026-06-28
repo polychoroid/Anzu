@@ -35,6 +35,8 @@ Expected behavior:
 - Window resize keeps rendering active.
 - Startup attempts to load `manifest.json` and logs summary/warning in console.
 - Materials drive visible rendering differences: asteroid shells (opaque), player edges (alpha), and bright additive bullet glow.
+- Bullet hits on asteroids replace them with four smaller fragments.
+- Fragment behavior remains stable near screen bounds (no immediate edge-pop despawn on spawn).
 
 ## Troubleshooting
 

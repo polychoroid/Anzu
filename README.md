@@ -13,6 +13,9 @@ Current project status (Milestone 3 complete):
 - Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
 - Per-material uniform parameters (`base_color_tint`, `emissive_strength`, `metallic`, `roughness`, `specular_strength`).
 - PBR-lite directional shading pass integrated into current WGSL fragment stage.
+- Role-pair collision policy table supports configurable solid vs hitbox interactions.
+- Bullet hitbox collisions can replace asteroids with four independent fragment entities.
+- Edge-case fragment spawn near world bounds is covered by regression tests and spawn clamping.
 - Manifest-based asset loading pattern is implemented.
 - Core architecture and backlog are documented in the docs set.
 
@@ -69,6 +72,7 @@ python3 -m http.server 8000
 Full implementation roadmap is tracked in `BACKLOG.md`:
 - Milestone 3.5: Input/peripheral boundary polish and specialized hardware escape hatches
 - Milestone 4: Spatial broadphase optimization
+- Milestone 4.5: Collision outcome policy + fragmentation flow (in progress; schema/fragment replacement/tests landed)
 - Milestone 5: Performance profiling gates
 - Milestones 5.5-5.7: Extensible materials, parameterized shading, and composite multi-pass rendering
 - Milestone 6: Multiplayer session support

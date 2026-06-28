@@ -85,6 +85,7 @@ struct BodyState {
     restitution: f32,
     friction: f32,
     inverse_moment_of_inertia: f32,
+    is_sensor: bool,
     polygon_vertices: &'static [[f32; 2]],
 }
 
@@ -164,6 +165,7 @@ impl Scheduler {
                     self.physics_config.default_friction.clamp(0.0, 1.0)
                 },
                 inverse_moment_of_inertia: rigid_body.inverse_moment_of_inertia.max(0.0),
+                is_sensor: rigid_body.is_sensor,
                 polygon_vertices: collider.local_vertices,
             });
         }
@@ -216,6 +218,10 @@ impl Scheduler {
                     entity_b,
                     kind: InteractionEventKind::Collision,
                 });
+
+                if state_a.is_sensor || state_b.is_sensor {
+                    continue;
+                }
 
                 positional_correction(
                     state_a,
