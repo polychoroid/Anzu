@@ -14,6 +14,9 @@ This document describes the current public runtime surfaces and module responsib
 	- `State::resize(...)` handles surface reconfiguration.
 	- `State::update(...)` advances the fixed-tick runtime and simulation pipeline.
 	- `State::render(...)` encodes and submits frame commands.
+	- Draw extraction groups geometry into material-aware batches carrying `(material_id, vertex_offset, vertex_count)`.
+	- Render core resolves `MaterialDefinition` and selects blend-aware pipeline per draw batch.
+	- Per-material uniforms are updated through dynamic uniform buffer offsets.
 	- Browser-side gamepad polling and semantic control normalization live in `src/renderer/wasm.rs`.
 	- Simulation hooks synchronize ROM world state before and after physics.
 	- Implementation lives under `src/renderer/mod.rs`, `src/renderer/core.rs`, and `src/renderer/wasm.rs`.
@@ -36,3 +39,4 @@ This document describes the current public runtime surfaces and module responsib
 - Recoverable startup/runtime failures surface as `Result` errors and console diagnostics.
 - Manifest contract requires unique non-empty asset `id` and non-empty `source_url`.
 - World state and GPU state remain isolated for predictable extension into ECS and data-driven systems.
+- Material contract: visual differences should flow through `MaterialDefinition` parameters and `material_id` assignment rather than geometry-format churn.

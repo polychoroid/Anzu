@@ -10,7 +10,7 @@ use winit::{
     window::Window,
 };
 
-use super::core::{BatchVertex, RenderCore, RenderError, RotationUniform};
+use super::core::{BatchVertex, DrawBatch, RenderCore, RenderError, RotationUniform};
 use crate::ecs::{EntityId, World};
 use crate::input::InputEvent;
 use crate::renderer::RenderRomPackage;
@@ -97,11 +97,11 @@ impl State {
         )
     }
 
-    fn build_batch_vertices(&self) -> Vec<BatchVertex> {
+    fn build_batch_vertices(&self) -> (Vec<BatchVertex>, Vec<DrawBatch>) {
         // First pass: collect world-space positions of all bullet entities.
         // Bullets are identified by having a Lifecycle component (only they have TTL).
         let mut bullet_positions: Vec<[f32; 2]> = Vec::new();
-        self.world.for_each_render_mesh(|entity_id, _mesh| {
+        self.world.for_each_render_mesh(|entity_id, _mesh, _material_id| {
             if self.world.lifecycle(entity_id).is_some() {
                 if let Some(t) = self.world.transform(entity_id) {
                     bullet_positions.push([t.position_x, t.position_y]);
@@ -124,8 +124,10 @@ impl State {
         };
 
         let mut batch = Vec::new();
+        let mut draw_batches = Vec::new();
 
-        self.world.for_each_render_mesh(|entity_id, mesh| {
+        self.world
+            .for_each_render_mesh(|entity_id, mesh, material_id| {
             let Some(transform) = self.world.transform(entity_id) else {
                 return;
             };
@@ -141,6 +143,7 @@ impl State {
 
             let c = transform.rotation_rad.cos();
             let s = transform.rotation_rad.sin();
+            let batch_start = batch.len() as u32;
 
             batch.extend(vertices.iter().map(|vertex| {
                 let x = vertex.position[0] * transform.uniform_scale;
@@ -157,9 +160,16 @@ impl State {
                     edge_mask: vertex.edge_mask,
                 }
             }));
+
+            let batch_end = batch.len() as u32;
+            draw_batches.push(DrawBatch {
+                material_id,
+                vertex_offset: batch_start,
+                vertex_count: batch_end.saturating_sub(batch_start),
+            });
         });
 
-        batch
+        (batch, draw_batches)
     }
 
     pub async fn new(
@@ -716,14 +726,14 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), JsValue> {
-        let batch_vertices = self.build_batch_vertices();
+        let (batch_vertices, draw_batches) = self.build_batch_vertices();
         let uniform = RotationUniform::identity();
         self.render_core
             .render(
                 &self.surface,
                 uniform,
                 bytemuck::cast_slice(&batch_vertices),
-                batch_vertices.len() as u32,
+                &draw_batches,
             )
             .map_err(RenderError::into_js_value)
     }

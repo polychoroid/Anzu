@@ -7,6 +7,7 @@ Primary operational visibility currently comes from browser console logs.
 - Startup errors: canvas lookup, window creation, renderer initialization.
 - Manifest loader status: success summary or typed warning/error message.
 - Render loop failures: surfaced to console and runtime exits event loop.
+- Material/render diagnostics: per-batch material routing and blend-mode behavior can be validated visually and through render warnings.
 - Simulation profiling: per-phase fixed-tick summaries for sync, composition, broadphase, narrowphase, reconcile, and render boundary costs.
 - Collision scaling: candidate pair counts, collision counts, and despawn counts during stress runs.
 
@@ -14,6 +15,8 @@ Recommended checks during runtime verification:
 - Confirm no repeated surface/device errors in console.
 - Confirm redraw/update/render loop remains active after window resize.
 - Confirm manifest fetch resolves from served static root.
+- Confirm material fallback behavior is stable when unknown material IDs are encountered.
+- Confirm additive/alpha/opaque material passes appear as expected (no global blend regression).
 - Confirm spatial broadphase reduces collision candidate pairs relative to all-pairs scanning.
 - Confirm phase timings remain bounded under stress runs and do not concentrate in narrowphase unexpectedly.
 

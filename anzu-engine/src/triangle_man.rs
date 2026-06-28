@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ecs::{
-    CollisionBounds, EntityId, Lifecycle, Mesh, MeshAssetId, PolygonCollider, RigidBody, Transform,
-    World,
+    CollisionBounds, EntityId, Lifecycle, MaterialId, Mesh, MeshAssetId, PolygonCollider,
+    RigidBody, Transform, World,
 };
 use crate::input::InputEvent;
-use crate::renderer::{RenderRomPackage, RomRenderData};
+use crate::renderer::{MaterialBlendMode, MaterialDefinition, RenderRomPackage, RomRenderData};
 use crate::rom::RomPackage;
 use crate::simulation::{
     InteractionEventKind, SchedulerFrameReport, SimulationModel, SimulationTransform2D,
@@ -20,6 +20,15 @@ struct RotationUniform {
 
 @group(0) @binding(0)
 var<uniform> u_rotation: RotationUniform;
+
+struct MaterialUniform {
+    base_color_tint: vec3<f32>,
+    emissive_strength: f32,
+    shading_params: vec4<f32>,
+};
+
+@group(0) @binding(1)
+var<uniform> u_material: MaterialUniform;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -74,7 +83,31 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_strength = 1.0 - smoothstep(0.0, LIGHT_RADIUS, light_dist);
 
     let glow_brightness = 1.3;
-    let lit_color = clamp(in.color * glow_brightness + light_strength * 0.6, vec3<f32>(0.0), vec3<f32>(2.0));
+    let base_color = in.color * u_material.base_color_tint;
+    let metallic = clamp(u_material.shading_params.x, 0.0, 1.0);
+    let roughness = clamp(u_material.shading_params.y, 0.04, 1.0);
+    let specular_strength = clamp(u_material.shading_params.z, 0.0, 2.0);
+
+    // Simple directional lighting for a mini-principled look.
+    let N = vec3<f32>(0.0, 0.0, 1.0);
+    let L = normalize(vec3<f32>(-0.35, 0.55, 0.75));
+    let V = vec3<f32>(0.0, 0.0, 1.0);
+    let H = normalize(L + V);
+
+    let n_dot_l = max(dot(N, L), 0.0);
+    let n_dot_h = max(dot(N, H), 0.0);
+    let shininess = mix(96.0, 6.0, roughness);
+
+    let diffuse = n_dot_l * (1.0 - metallic * 0.85);
+    let specular = pow(n_dot_h, shininess) * specular_strength * (0.6 + metallic * 0.7);
+
+    let emissive = u_material.emissive_strength * (0.35 + light_strength * 0.65);
+    let lit_color = clamp(
+        base_color * glow_brightness * (0.2 + diffuse * 0.8)
+            + vec3<f32>(specular + emissive),
+        vec3<f32>(0.0),
+        vec3<f32>(3.0),
+    );
     let alpha = clamp(base_alpha + light_strength * 0.4, 0.0, 1.0);
 
     return vec4<f32>(lit_color, alpha);
@@ -231,6 +264,40 @@ pub const DIAMOND_COLLIDER: [[f32; 2]; 4] = [[0.0, 0.45], [0.3, 0.0], [0.0, -0.4
 const MESH_TRIANGLE: MeshAssetId = MeshAssetId(1);
 const MESH_SQUARE: MeshAssetId = MeshAssetId(2);
 const MESH_DIAMOND: MeshAssetId = MeshAssetId(3);
+
+const MATERIAL_PLAYER: MaterialId = MaterialId(1);
+const MATERIAL_ASTEROID: MaterialId = MaterialId(2);
+const MATERIAL_BULLET: MaterialId = MaterialId(3);
+
+const TRIANGLE_MATERIALS: [MaterialDefinition; 3] = [
+    MaterialDefinition {
+        material_id: MATERIAL_PLAYER,
+        blend_mode: MaterialBlendMode::Alpha,
+        base_color_tint: [1.0, 1.0, 1.0],
+        emissive_strength: 0.15,
+        metallic: 0.05,
+        roughness: 0.35,
+        specular_strength: 0.7,
+    },
+    MaterialDefinition {
+        material_id: MATERIAL_ASTEROID,
+        blend_mode: MaterialBlendMode::Opaque,
+        base_color_tint: [0.5, 0.5, 0.46],
+        emissive_strength: 0.15,
+        metallic: 0.9,
+        roughness: 0.8,
+        specular_strength: 0.6,
+    },
+    MaterialDefinition {
+        material_id: MATERIAL_BULLET,
+        blend_mode: MaterialBlendMode::Additive,
+        base_color_tint: [1.0, 0.95, 1.0],
+        emissive_strength: 0.85,
+        metallic: 0.9,
+        roughness: 0.15,
+        specular_strength: 1.0,
+    },
+];
 
 const ASTEROID_SPAWN_PRESETS: [(f32, f32, f32, f32, f32); 8] = [
     // All spawn from right edge, moving left with vertical jitter
@@ -613,6 +680,10 @@ trait GameplayRole {
     }
 }
 
+// Todo: These roles make a little sense , but what would make better sense would being able to have a more general collision action
+// to provide more control over what happens when objects collide. Do we subtract hit points? Despawn and spawn in fragments?
+// mass and momentum needs to be conserved with fragments.
+
 struct PlayerRole;
 struct AsteroidRole;
 struct BulletRole;
@@ -700,6 +771,7 @@ impl RenderRomPackage for TriangleManRom {
             vertex_layout: Vertex::desc(),
             vertex_bytes: bytemuck::cast_slice(&TRIANGLE_VERTICES),
             vertex_count: TRIANGLE_VERTICES.len() as u32,
+            materials: &TRIANGLE_MATERIALS,
         }
     }
 }
@@ -775,7 +847,7 @@ impl TriangleManSimulation {
                 angular_velocity: preset.4,
             },
         );
-        world.set_mesh_instance(entity_id, MESH_SQUARE);
+        world.set_mesh_instance_with_material(entity_id, MESH_SQUARE, MATERIAL_ASTEROID);
         world.set_collision_bounds(
             entity_id,
             CollisionBounds {
@@ -835,7 +907,7 @@ impl TriangleManSimulation {
                 angular_velocity: 0.0,
             },
         );
-        world.set_mesh_instance(entity_id, MESH_DIAMOND);
+        world.set_mesh_instance_with_material(entity_id, MESH_DIAMOND, MATERIAL_BULLET);
         world.set_collision_bounds(
             entity_id,
             CollisionBounds {
@@ -1095,7 +1167,7 @@ fn spawn_player_entity(
             angular_velocity: 0.0,
         },
     );
-    world.set_mesh_instance(entity_id, MESH_TRIANGLE);
+    world.set_mesh_instance_with_material(entity_id, MESH_TRIANGLE, MATERIAL_PLAYER);
     world.set_collision_bounds(
         entity_id,
         CollisionBounds {

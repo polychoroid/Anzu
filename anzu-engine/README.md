@@ -8,13 +8,17 @@ Current implementation highlights:
 - wgpu renderer running the current Triangle Man browser runtime.
 - Frame contract: `update(delta_time)` then `render()` on redraw.
 - Asset manifest loading pattern (`manifest.json`) with typed validation errors.
+- Material registry and per-entity material assignment through `material_id`.
+- Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
+- Per-material uniform parameters with dynamic buffer offsets.
+- PBR-lite fragment shading controls (emissive + metallic/roughness/specular parameters).
 
 Structure
 - `src/lib.rs` - browser startup, event loop integration, redraw/update/render scheduling.
 - `src/platform_browser.rs` - browser shell integration and top-level window/canvas lifecycle.
 - `src/renderer/mod.rs` - renderer module entry points.
 - `src/renderer/wasm.rs` - browser renderer state, frame loop hooks, and browser input normalization.
-- `src/renderer/core.rs` - GPU pipelines and render core implementation.
+- `src/renderer/core.rs` - GPU pipelines, material registry, and per-batch material uniform binding.
 - `src/asset_manifest.rs` - async fetch/parse/validate manifest loader.
 - `../static/index.html` - browser shell + canvas bootstrap.
 - `../static/manifest.json` - sample manifest used by startup loader.

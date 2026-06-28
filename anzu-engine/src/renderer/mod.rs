@@ -8,4 +8,4 @@ mod wasm;
 pub use wasm::State;
 
 #[cfg(target_arch = "wasm32")]
-pub use core::{RenderRomPackage, RomRenderData};
+pub use core::{MaterialBlendMode, MaterialDefinition, RenderRomPackage, RomRenderData};

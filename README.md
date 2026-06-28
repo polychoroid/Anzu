@@ -9,6 +9,10 @@ Current project status (Milestone 3 complete):
 - Deterministic simulation (input replay produces identical output).
 - Working game: Triangle Man (Asteroids-like demo with player control, shooting, and asteroid spawning).
 - Collision detection and rigid body physics with configurable restitution.
+- Material system foundation with per-entity `material_id` routing.
+- Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
+- Per-material uniform parameters (`base_color_tint`, `emissive_strength`, `metallic`, `roughness`, `specular_strength`).
+- PBR-lite directional shading pass integrated into current WGSL fragment stage.
 - Manifest-based asset loading pattern is implemented.
 - Core architecture and backlog are documented in the docs set.
 
@@ -66,6 +70,7 @@ Full implementation roadmap is tracked in `BACKLOG.md`:
 - Milestone 3.5: Input/peripheral boundary polish and specialized hardware escape hatches
 - Milestone 4: Spatial broadphase optimization
 - Milestone 5: Performance profiling gates
+- Milestones 5.5-5.7: Extensible materials, parameterized shading, and composite multi-pass rendering
 - Milestone 6: Multiplayer session support
 
 ## License

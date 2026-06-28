@@ -38,8 +38,16 @@ Frame flow:
 Current vertical slice target:
 - ROM-owned entities with shared world physics.
 - Spatial broadphase before SAT narrowphase collision checks.
-- One render pipeline.
+- Material-driven render path with per-batch pipeline selection.
 - One vertex buffer and one uniform bind group for transform data.
+
+Current rendering/material state:
+- Entity mesh instances carry `material_id` values.
+- Render extraction emits draw batches with material ranges.
+- Renderer resolves material definitions from a registry with deterministic fallback.
+- Pipeline selection is blend-aware (`Opaque`, `Alpha`, `Additive`) per draw batch.
+- Per-material uniforms are bound via dynamic offsets for parameterized shading.
+- Current shading model is PBR-lite (directional diffuse/specular + emissive), not full Disney BRDF.
 
 Near-term rendering rules:
 - Keep per-frame dynamic data in uniform buffers.

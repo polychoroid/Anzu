@@ -25,9 +25,13 @@ pub struct Mesh {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct MeshAssetId(pub u16);
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct MaterialId(pub u16);
+
 #[derive(Clone, Copy, Default)]
 pub struct MeshInstance {
     pub asset_id: MeshAssetId,
+    pub material_id: MaterialId,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -178,25 +182,30 @@ impl World {
         self.mesh_assets.insert(asset_id, mesh);
     }
 
-    pub fn set_mesh_instance(&mut self, entity_id: EntityId, asset_id: MeshAssetId) {
+    pub fn set_mesh_instance_with_material(
+        &mut self,
+        entity_id: EntityId,
+        asset_id: MeshAssetId,
+        material_id: MaterialId,
+    ) {
         self.meshes.remove(entity_id);
         self.mesh_instances
-            .insert(entity_id, MeshInstance { asset_id });
+            .insert(entity_id, MeshInstance { asset_id, material_id });
     }
 
     pub fn for_each_render_mesh<F>(&self, mut callback: F)
     where
-        F: FnMut(EntityId, &Mesh),
+        F: FnMut(EntityId, &Mesh, MaterialId),
     {
         for (entity_id, instance) in self.mesh_instances.iter() {
             if let Some(mesh) = self.mesh_assets.get(&instance.asset_id) {
-                callback(entity_id, mesh);
+                callback(entity_id, mesh, instance.material_id);
             }
         }
 
         for (entity_id, mesh) in self.meshes.iter() {
             if self.mesh_instances.get(entity_id).is_none() {
-                callback(entity_id, mesh);
+                callback(entity_id, mesh, MaterialId::default());
             }
         }
     }

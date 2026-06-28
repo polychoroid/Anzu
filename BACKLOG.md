@@ -199,6 +199,23 @@ input_profile:
 
 **Priority**: P0 (Foundation for scalable simulation)
 
+### Milestone 4.5: Declarative Collision Outcomes and Fragmentation Rules
+**Outcome**: Collision handling moves from role-specific hardcoded branches to a data-driven outcome model supporting damage, despawn/replace behavior, and physically consistent fragment spawning.
+
+- [ ] Task 4.5.1: Define collision outcome schema (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`) keyed by role/tag pairs.
+- [ ] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
+- [ ] Task 4.5.3: Add despawn-and-replace flow allowing collision outcomes to spawn one or more fragment entities.
+- [ ] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
+- [ ] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
+- [ ] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
+
+**Demonstrates**:
+- Collision behavior is configurable and scalable beyond hardcoded per-role logic
+- Damage/despawn/fragment rules remain deterministic under fixed-timestep replay
+- Fragmentation respects core physics invariants instead of producing arbitrary motion
+
+**Priority**: P0 (Closes gameplay collision-action gap)
+
 ### Milestone 5: Runtime Performance Baseline and Profiling Gates
 **Outcome**: Runtime has explicit performance budgets and profiling checkpoints before major architectural expansion.
 
@@ -213,6 +230,54 @@ input_profile:
 - Core loop remains stable as scope grows
 
 **Priority**: P0 (Protects gameplay feel and iteration speed)
+
+### Milestone 5.5: Material Definition and Registry Foundation
+**Outcome**: Materials are defined as data and bound by ID so visual changes do not require vertex-structure changes.
+
+- [x] Task 5.5.1: Define material definition shape (`material_id`, `blend_mode`, default parameters, fallback behavior)
+- [x] Task 5.5.2: Implement renderer-side `MaterialRegistry` with deterministic fallback material resolution
+- [x] Task 5.5.3: Bind entities to materials via `material_id` in the render path without changing geometry payload formats
+- [x] Task 5.5.4: Route per-draw material lookup through render batches instead of hardcoded global blend state
+- [ ] Task 5.5.5: Add acceptance checks proving entities can share geometry while rendering with different materials
+
+**Demonstrates**:
+- Material ownership is data-driven instead of hardcoded in geometry structs
+- New visual styles can be introduced without renderer-wide vertex layout edits
+- Missing/invalid materials degrade gracefully through deterministic fallback
+
+**Priority**: P0 (Breaks geometry/effect coupling)
+
+### Milestone 5.6: Material Parameters and Blend-Aware Pipelines
+**Outcome**: Materials expose typed parameters and render through blend-aware pipelines selected per draw batch.
+
+- [x] Task 5.6.1: Add typed material parameters (`base_color_tint`, `emissive_strength`, `metallic`, `roughness`, `specular_strength`)
+- [x] Task 5.6.2: Implement per-batch material uniform packing with dynamic uniform buffer offsets
+- [x] Task 5.6.3: Build and select blend-aware pipelines (`Opaque`, `Alpha`, `Additive`) from material definitions
+- [x] Task 5.6.4: Emit and consume draw batches that carry material IDs and vertex ranges
+- [ ] Task 5.6.5: Add profiling checks for material batch count, pipeline switches, and uniform upload cost
+
+**Demonstrates**:
+- Per-object visual controls vary without geometry duplication
+- Blend behavior is material-driven instead of globally fixed
+- PBR-lite shading knobs are available as material data, not shader constants
+
+**Priority**: P0 (Enables scalable visual variety)
+
+### Milestone 5.7: Composite Materials and Multi-Pass Composition
+**Outcome**: Layered materials (base + emissive/outline/post) are composed via explicit passes without modifying core ECS or vertex types.
+
+- [ ] Task 5.7.1: Define a compact composite material model supporting 2-3 chained passes
+- [ ] Task 5.7.2: Implement deterministic render-graph pass ordering with explicit dependencies
+- [ ] Task 5.7.3: Add emissive extraction + blur + add path for CRT-style glow/bloom
+- [ ] Task 5.7.4: Bound intermediate targets and add quality fallback under memory/frame pressure
+- [ ] Task 5.7.5: Add validation proving composite effects toggle per material without entity-structure changes
+
+**Demonstrates**:
+- Composite looks are achieved through pass composition, not vertex format growth
+- Effect layering remains opt-in and bounded by runtime budgets
+- Materials become a durable extension seam for ROM-specific rendering styles
+
+**Priority**: P1 (Unlocks extensible visual effects)
 
 ### Milestone 6: Session Support & Basic Multiplayer (Shared Sessions)
 **Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.

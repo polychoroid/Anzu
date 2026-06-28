@@ -4,7 +4,8 @@
 - `anzu-engine/` — Core Rust library compiled to WebAssembly for browser deployment.
   - `src/lib.rs` — wasm-bindgen startup and browser event loop wiring.
   - `src/platform_browser.rs` — browser shell, canvas hookup, and top-level event loop integration.
-  - `src/renderer/mod.rs` / `src/renderer/wasm.rs` — GPU state, rendering pipeline, resize/reconfigure behavior, and browser input normalization.
+  - `src/renderer/mod.rs` / `src/renderer/wasm.rs` — GPU state, material-aware draw extraction, resize/reconfigure behavior, and browser input normalization.
+  - `src/renderer/core.rs` — render pipelines, material registry, blend-mode routing, and per-material uniform updates.
   - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
   - `Cargo.toml` — Rust dependencies and wasm target configuration.
 - `static/` — Browser shell and static runtime assets.
@@ -118,6 +119,10 @@ wasm-pack build --target web --out-dir ../static/pkg --release
   - Use wgpu v29+ API.
   - Keep shader code as embedded WGSL strings (see the current renderer implementation).
   - Avoid deprecated or platform-specific wgpu APIs.
+- **Material system conventions:**
+  - Prefer material parameters and registry data over adding effect-specific fields to shared vertex structs.
+  - Keep per-entity visual differences in `MaterialDefinition`/`material_id`, not in ECS shape/component proliferation.
+  - Add new blend or shading behavior by extending material pipeline routing before introducing new render-only entity pathways.
 - **Resource classification:**
   - Declare asset class and priority in manifest metadata (`critical`, `scaled_optional`, `reused`, `streaming`).
   - Treat missing classification metadata as a validation error.

@@ -34,6 +34,7 @@ Expected behavior:
 - Simulation continues at a fixed 60 Hz tick.
 - Window resize keeps rendering active.
 - Startup attempts to load `manifest.json` and logs summary/warning in console.
+- Materials drive visible rendering differences: asteroid shells (opaque), player edges (alpha), and bright additive bullet glow.
 
 ## Troubleshooting
 
