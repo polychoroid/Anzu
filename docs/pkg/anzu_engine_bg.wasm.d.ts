@@ -1,6 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const is_game_over: () => number;
+export const reset_game: () => void;
 export const start: () => void;
 export const wasm_bindgen__convert__closures_____invoke__haaff0793f63e339b: (a: number, b: number, c: any) => [number, number];
 export const wasm_bindgen__convert__closures_____invoke__hf3618bd195581a8d: (a: number, b: number, c: any, d: any) => void;

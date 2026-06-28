@@ -1,6 +1,10 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export function is_game_over(): boolean;
+
+export function reset_game(): void;
+
 /**
  * Start called by wasm-bindgen when the module is initialized in the browser.
  */
@@ -10,6 +14,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly is_game_over: () => number;
+    readonly reset_game: () => void;
     readonly start: () => void;
     readonly wasm_bindgen__convert__closures_____invoke__haaff0793f63e339b: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__hf3618bd195581a8d: (a: number, b: number, c: any, d: any) => void;

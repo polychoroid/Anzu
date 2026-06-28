@@ -43,6 +43,8 @@ impl RenderError {
 pub struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
+    rom: Box<dyn RenderRomPackage>,
+    physics_config: PhysicsConfig,
     world: World,
     anchor_entity: EntityId,
     scheduler: Scheduler,
@@ -101,13 +103,14 @@ impl State {
         // First pass: collect world-space positions of all bullet entities.
         // Bullets are identified by having a Lifecycle component (only they have TTL).
         let mut bullet_positions: Vec<[f32; 2]> = Vec::new();
-        self.world.for_each_render_mesh(|entity_id, _mesh, _material_id| {
-            if self.world.lifecycle(entity_id).is_some() {
-                if let Some(t) = self.world.transform(entity_id) {
-                    bullet_positions.push([t.position_x, t.position_y]);
+        self.world
+            .for_each_render_mesh(|entity_id, _mesh, _material_id| {
+                if self.world.lifecycle(entity_id).is_some() {
+                    if let Some(t) = self.world.transform(entity_id) {
+                        bullet_positions.push([t.position_x, t.position_y]);
+                    }
                 }
-            }
-        });
+            });
 
         // Returns the world-space position of the nearest bullet, or a far-off
         // sentinel ([10.0, 10.0]) when no bullets exist so light_strength → 0.
@@ -128,46 +131,46 @@ impl State {
 
         self.world
             .for_each_render_mesh(|entity_id, mesh, material_id| {
-            let Some(transform) = self.world.transform(entity_id) else {
-                return;
-            };
+                let Some(transform) = self.world.transform(entity_id) else {
+                    return;
+                };
 
-            let Ok(vertices) = bytemuck::try_cast_slice::<u8, BatchVertex>(mesh.vertex_bytes)
-            else {
-                log_warn(&format!(
-                    "[RENDER] skipped mesh for entity={} due to incompatible vertex payload",
-                    entity_id
-                ));
-                return;
-            };
+                let Ok(vertices) = bytemuck::try_cast_slice::<u8, BatchVertex>(mesh.vertex_bytes)
+                else {
+                    log_warn(&format!(
+                        "[RENDER] skipped mesh for entity={} due to incompatible vertex payload",
+                        entity_id
+                    ));
+                    return;
+                };
 
-            let c = transform.rotation_rad.cos();
-            let s = transform.rotation_rad.sin();
-            let batch_start = batch.len() as u32;
+                let c = transform.rotation_rad.cos();
+                let s = transform.rotation_rad.sin();
+                let batch_start = batch.len() as u32;
 
-            batch.extend(vertices.iter().map(|vertex| {
-                let x = vertex.position[0] * transform.uniform_scale;
-                let y = vertex.position[1] * transform.uniform_scale;
+                batch.extend(vertices.iter().map(|vertex| {
+                    let x = vertex.position[0] * transform.uniform_scale;
+                    let y = vertex.position[1] * transform.uniform_scale;
 
-                let world_x = c * x - s * y + transform.position_x;
-                let world_y = s * x + c * y + transform.position_y;
+                    let world_x = c * x - s * y + transform.position_x;
+                    let world_y = s * x + c * y + transform.position_y;
 
-                BatchVertex {
-                    position: [world_x, world_y],
-                    color: vertex.color,
-                    barycentric: vertex.barycentric,
-                    light_pos: nearest_bullet(world_x, world_y),
-                    edge_mask: vertex.edge_mask,
-                }
-            }));
+                    BatchVertex {
+                        position: [world_x, world_y],
+                        color: vertex.color,
+                        barycentric: vertex.barycentric,
+                        light_pos: nearest_bullet(world_x, world_y),
+                        edge_mask: vertex.edge_mask,
+                    }
+                }));
 
-            let batch_end = batch.len() as u32;
-            draw_batches.push(DrawBatch {
-                material_id,
-                vertex_offset: batch_start,
-                vertex_count: batch_end.saturating_sub(batch_start),
+                let batch_end = batch.len() as u32;
+                draw_batches.push(DrawBatch {
+                    material_id,
+                    vertex_offset: batch_start,
+                    vertex_count: batch_end.saturating_sub(batch_start),
+                });
             });
-        });
 
         (batch, draw_batches)
     }
@@ -321,6 +324,8 @@ impl State {
         Ok(Self {
             window,
             surface,
+            rom,
+            physics_config,
             world,
             anchor_entity,
             scheduler: Scheduler::new(physics_config),
@@ -339,6 +344,39 @@ impl State {
             simulation,
             render_core,
         })
+    }
+
+    pub fn is_game_over(&self) -> bool {
+        self.game_over
+    }
+
+    pub fn reset_game(&mut self) {
+        log_info("[GAME] reset requested: rebuilding world and simulation state");
+
+        self.world = World::new();
+        self.anchor_entity = self.rom.bootstrap_world(&mut self.world);
+        self.simulation = self.rom.create_simulation(&self.world, self.anchor_entity);
+        self.simulation.update(0.0);
+
+        self.scheduler = Scheduler::new(self.physics_config);
+        self.frame_index = 0;
+        self.fixed_tick_index = 0;
+        self.next_scheduler_log_frame = 0;
+        self.fixed_time_accumulator_seconds = 0.0;
+        self.fixed_step_clamp_count = 0;
+        self.game_over = false;
+        self.simulation_paused = false;
+        self.pending_step_ticks = 0;
+
+        self.logged_gamepad_devices.clear();
+        self.gamepad_button_states.clear();
+        self.gamepad_button_values.clear();
+        self.gamepad_axis_values.clear();
+
+        log_info(&format!(
+            "[GAME] reset complete: new anchor entity {}",
+            self.anchor_entity
+        ));
     }
 
     pub fn window(&self) -> &Window {

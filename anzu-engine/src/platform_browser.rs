@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use js_sys::Date;
@@ -13,6 +14,41 @@ use winit::{
 use crate::{asset_manifest, renderer};
 
 const FRAME_LOG_INTERVAL: u64 = 120;
+
+#[derive(Default)]
+struct UiBridgeState {
+    game_over: bool,
+    reset_requested: bool,
+}
+
+thread_local! {
+    static UI_BRIDGE_STATE: RefCell<UiBridgeState> = RefCell::new(UiBridgeState::default());
+}
+
+pub fn game_is_over() -> bool {
+    UI_BRIDGE_STATE.with(|bridge| bridge.borrow().game_over)
+}
+
+pub fn request_game_reset() {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge.borrow_mut().reset_requested = true;
+    });
+}
+
+fn publish_game_over(game_over: bool) {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge.borrow_mut().game_over = game_over;
+    });
+}
+
+fn take_reset_request() -> bool {
+    UI_BRIDGE_STATE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        let requested = bridge.reset_requested;
+        bridge.reset_requested = false;
+        requested
+    })
+}
 
 fn log_info(message: &str) {
     web_sys::console::log_1(&JsValue::from_str(message));
@@ -169,6 +205,7 @@ impl ApplicationHandler<renderer::State> for App {
     #[allow(unused_mut)]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: renderer::State) {
         log_info("[APP] user event received: renderer state installed");
+        publish_game_over(false);
         event.window().request_redraw();
         event.resize(
             event.window().inner_size().width,
@@ -196,7 +233,11 @@ impl ApplicationHandler<renderer::State> for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 state.handle_key_event(&event);
             }
-            WindowEvent::MouseInput { state: button_state, button, .. } => {
+            WindowEvent::MouseInput {
+                state: button_state,
+                button,
+                ..
+            } => {
                 state.handle_mouse_button_event(button, button_state);
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -223,6 +264,10 @@ impl ApplicationHandler<renderer::State> for App {
                 self.frame_delta_accumulator_seconds += f64::from(delta_seconds);
 
                 state.update(delta_seconds);
+                if take_reset_request() {
+                    state.reset_game();
+                }
+                publish_game_over(state.is_game_over());
 
                 if let Err(error) = state.render() {
                     self.render_error_count = self.render_error_count.saturating_add(1);

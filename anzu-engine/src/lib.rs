@@ -34,3 +34,24 @@ pub fn start() -> Result<(), JsValue> {
 
     Ok(())
 }
+
+#[wasm_bindgen]
+pub fn is_game_over() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return platform_browser::game_is_over();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+#[wasm_bindgen]
+pub fn reset_game() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        platform_browser::request_game_reset();
+    }
+}
