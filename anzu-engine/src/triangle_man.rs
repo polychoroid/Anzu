@@ -24,11 +24,18 @@ var<uniform> u_rotation: RotationUniform;
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec3<f32>,
+    @location(2) barycentric: vec3<f32>,
+    @location(3) light_pos: vec2<f32>,
+    @location(4) edge_mask: vec3<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec3<f32>,
+    @location(1) barycentric: vec3<f32>,
+    @location(2) world_pos: vec2<f32>,
+    @location(3) light_pos: vec2<f32>,
+    @location(4) edge_mask: vec3<f32>,
 };
 
 @vertex
@@ -44,12 +51,33 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4<f32>(translated, 0.0, 1.0);
     out.color = in.color;
+    out.barycentric = in.barycentric;
+    out.world_pos = translated;
+    out.light_pos = in.light_pos;
+    out.edge_mask = in.edge_mask;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    // Edge glow from barycentric coordinates with per-edge masking.
+    // This allows us to hide internal triangulation diagonals.
+    let EDGE_WIDTH = 0.15;
+    let edge_x = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.x)) * in.edge_mask.x;
+    let edge_y = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.y)) * in.edge_mask.y;
+    let edge_z = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.z)) * in.edge_mask.z;
+    let base_alpha = max(edge_x, max(edge_y, edge_z));
+
+    // Bullet light: illuminates nearby geometry based on world-space distance
+    let light_dist = distance(in.world_pos, in.light_pos);
+    let LIGHT_RADIUS = 0.35;
+    let light_strength = 1.0 - smoothstep(0.0, LIGHT_RADIUS, light_dist);
+
+    let glow_brightness = 1.3;
+    let lit_color = clamp(in.color * glow_brightness + light_strength * 0.6, vec3<f32>(0.0), vec3<f32>(2.0));
+    let alpha = clamp(base_alpha + light_strength * 0.4, 0.0, 1.0);
+
+    return vec4<f32>(lit_color, alpha);
 }
 "#;
 
@@ -58,11 +86,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 pub struct Vertex {
     pub position: [f32; 2],
     pub color: [f32; 3],
+    pub barycentric: [f32; 3],
+    pub light_pos: [f32; 2],
+    pub edge_mask: [f32; 3],
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3];
+    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        0 => Float32x2,
+        1 => Float32x3,
+        2 => Float32x3,
+        3 => Float32x2,
+        4 => Float32x3
+    ];
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -77,14 +113,23 @@ pub const TRIANGLE_VERTICES: [Vertex; 3] = [
     Vertex {
         position: [0.6, 0.0],
         color: [1.0, 0.2, 0.2],
+        barycentric: [1.0, 0.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 1.0],
     },
     Vertex {
         position: [-0.3, 0.5],
         color: [0.2, 1.0, 0.2],
+        barycentric: [0.0, 1.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 1.0],
     },
     Vertex {
         position: [-0.3, -0.5],
         color: [0.2, 0.4, 1.0],
+        barycentric: [0.0, 0.0, 1.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 1.0],
     },
 ];
 
@@ -92,26 +137,44 @@ pub const SQUARE_VERTICES: [Vertex; 6] = [
     Vertex {
         position: [-0.35, -0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [1.0, 0.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.35, -0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [0.0, 1.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.35, 0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [0.0, 0.0, 1.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-0.35, -0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [1.0, 0.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 0.0],
     },
     Vertex {
         position: [0.35, 0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [0.0, 1.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 0.0],
     },
     Vertex {
         position: [-0.35, 0.35],
         color: [1.0, 0.8, 0.2],
+        barycentric: [0.0, 0.0, 1.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 1.0, 0.0],
     },
 ];
 
@@ -119,26 +182,44 @@ pub const DIAMOND_VERTICES: [Vertex; 6] = [
     Vertex {
         position: [0.0, 0.45],
         color: [0.8, 0.3, 1.0],
+        barycentric: [1.0, 0.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.3, 0.0],
         color: [0.8, 0.3, 1.0],
+        barycentric: [0.0, 1.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.0, -0.45],
         color: [0.8, 0.3, 1.0],
+        barycentric: [0.0, 0.0, 1.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.0, 0.45],
         color: [0.8, 0.3, 1.0],
+        barycentric: [1.0, 0.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.0, -0.45],
         color: [0.8, 0.3, 1.0],
+        barycentric: [0.0, 0.0, 1.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-0.3, 0.0],
         color: [0.8, 0.3, 1.0],
+        barycentric: [0.0, 1.0, 0.0],
+        light_pos: [0.0, 0.0],
+        edge_mask: [1.0, 0.0, 1.0],
     },
 ];
 

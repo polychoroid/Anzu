@@ -238,7 +238,6 @@ impl World {
         self.lifecycles.insert(entity_id, lifecycle);
     }
 
-    #[cfg(test)]
     pub fn lifecycle(&self, entity_id: EntityId) -> Option<&Lifecycle> {
         self.lifecycles.get(entity_id)
     }

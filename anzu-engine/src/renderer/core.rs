@@ -8,6 +8,9 @@ use crate::simulation::SimulationModel;
 pub struct BatchVertex {
     pub position: [f32; 2],
     pub color: [f32; 3],
+    pub barycentric: [f32; 3],
+    pub light_pos: [f32; 2],
+    pub edge_mask: [f32; 3],
 }
 
 pub struct RomRenderData {
@@ -157,7 +160,7 @@ impl RenderCore {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -219,13 +222,13 @@ impl RenderCore {
         );
 
         if !vertex_bytes.is_empty() {
-            self.vertex_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("ROM Vertex Buffer (Dynamic Batch)"),
-                    contents: vertex_bytes,
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+            self.vertex_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("ROM Vertex Buffer (Dynamic Batch)"),
+                        contents: vertex_bytes,
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
         }
         self.vertex_count = vertex_count;
 
@@ -264,9 +267,9 @@ impl RenderCore {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,

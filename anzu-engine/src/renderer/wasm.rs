@@ -98,6 +98,31 @@ impl State {
     }
 
     fn build_batch_vertices(&self) -> Vec<BatchVertex> {
+        // First pass: collect world-space positions of all bullet entities.
+        // Bullets are identified by having a Lifecycle component (only they have TTL).
+        let mut bullet_positions: Vec<[f32; 2]> = Vec::new();
+        self.world.for_each_render_mesh(|entity_id, _mesh| {
+            if self.world.lifecycle(entity_id).is_some() {
+                if let Some(t) = self.world.transform(entity_id) {
+                    bullet_positions.push([t.position_x, t.position_y]);
+                }
+            }
+        });
+
+        // Returns the world-space position of the nearest bullet, or a far-off
+        // sentinel ([10.0, 10.0]) when no bullets exist so light_strength → 0.
+        let nearest_bullet = |px: f32, py: f32| -> [f32; 2] {
+            bullet_positions
+                .iter()
+                .copied()
+                .min_by(|a, b| {
+                    let da = (a[0] - px).powi(2) + (a[1] - py).powi(2);
+                    let db = (b[0] - px).powi(2) + (b[1] - py).powi(2);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap_or([10.0, 10.0])
+        };
+
         let mut batch = Vec::new();
 
         self.world.for_each_render_mesh(|entity_id, mesh| {
@@ -121,15 +146,15 @@ impl State {
                 let x = vertex.position[0] * transform.uniform_scale;
                 let y = vertex.position[1] * transform.uniform_scale;
 
-                let rotated_x = c * x - s * y;
-                let rotated_y = s * x + c * y;
+                let world_x = c * x - s * y + transform.position_x;
+                let world_y = s * x + c * y + transform.position_y;
 
                 BatchVertex {
-                    position: [
-                        rotated_x + transform.position_x,
-                        rotated_y + transform.position_y,
-                    ],
+                    position: [world_x, world_y],
                     color: vertex.color,
+                    barycentric: vertex.barycentric,
+                    light_pos: nearest_bullet(world_x, world_y),
+                    edge_mask: vertex.edge_mask,
                 }
             }));
         });
