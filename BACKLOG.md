@@ -113,11 +113,11 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 ### Milestone 3.5: ROM-Owned Input and Peripheral Event Layer
 **Outcome**: ROMs define their own input vocabulary and can receive keyboard, mouse, touch, gamepad, and future peripheral events through a generic engine event boundary.
 
-- [ ] Task 3.5.1: Define a ROM-facing generic input event shape that carries device/source, control identity, press/release state, and analog value data.
-- [ ] Task 3.5.2: Keep the browser adapter as a raw event forwarder that does not invent game actions or hardcode ROM input vocabularies.
-- [ ] Task 3.5.3: Let each ROM declare its own control schema and action mapping layer for keyboard and non-keyboard devices.
-- [ ] Task 3.5.4: Add one ROM example that interprets both keyboard input and a non-keyboard peripheral path without engine changes.
-- [ ] Task 3.5.5: Add regression checks to ensure new peripheral types can be introduced without modifying shared input enums.
+- [x] Task 3.5.1: Define a ROM-facing generic input event shape that carries device/source, control identity, press/release state, and analog value data.
+- [x] Task 3.5.2: Keep the browser adapter as a raw event forwarder that does not invent game actions or hardcode ROM input vocabularies.
+- [x] Task 3.5.3: Let each ROM declare its own control schema and action mapping layer for keyboard and non-keyboard devices.
+- [x] Task 3.5.4: Add one ROM example that interprets both keyboard input and a non-keyboard peripheral path without engine changes.
+- [x] Task 3.5.5: Add regression checks to ensure new peripheral types can be introduced without modifying shared input enums.
 
 **ROM input schema v1**:
 ```yaml
