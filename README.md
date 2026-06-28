@@ -5,7 +5,7 @@ Anzu is a browser-first Rust/WASM engine project focused on a deterministic runt
 Current project status (Milestone 3 complete):
 - Browser-hosted runtime loop with fixed 60 Hz simulation tick.
 - Full ECS implementation with multi-entity rendering and physics.
-- Input system supporting keyboard and mouse events (gamepad support is planned).
+- Input system supporting keyboard, mouse, and gamepad events.
 - Deterministic simulation (input replay produces identical output).
 - Working game: Triangle Man (Asteroids-like demo with player control, shooting, and asteroid spawning).
 - Collision detection and rigid body physics with configurable restitution.
@@ -39,7 +39,10 @@ python3 -m http.server 8000
 
 **Controls**:
 - **W/A/S/D** - Thrust forward/left/reverse/right
-- **Space/Mouse** - Fire bullets
+- **Space/Mouse Left** - Fire bullets
+- **Gamepad Left Stick X/Y** - Turn and thrust
+- **Gamepad Triggers** - Reverse/forward thrust (browser-normalized semantic controls)
+- **Gamepad South Button** - Fire bullets
 - **Objective** - Destroy asteroids; avoid collisions
 
 ## Documentation Index
@@ -60,7 +63,7 @@ python3 -m http.server 8000
 
 ### In Progress / Upcoming
 Full implementation roadmap is tracked in `BACKLOG.md`:
-- Milestone 3.5: Generic input peripherals (gamepad/mouse mappings)
+- Milestone 3.5: Input/peripheral boundary polish and specialized hardware escape hatches
 - Milestone 4: Spatial broadphase optimization
 - Milestone 5: Performance profiling gates
 - Milestone 6: Multiplayer session support

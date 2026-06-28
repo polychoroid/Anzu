@@ -1,45 +1,32 @@
-Anzu Engine
-===========
+Anzu Static Runtime
+===================
 
-Browser-first Rust/WASM runtime crate for Anzu.
+This folder contains browser-hosted runtime assets for Anzu.
 
-Current implementation highlights:
-- WebAssembly startup path using wasm-bindgen + winit web event loop.
-- wgpu renderer running the current Triangle Man browser runtime.
-- Frame contract: `update(delta_time)` then `render()` on redraw.
-- Asset manifest loading pattern (`manifest.json`) with typed validation errors.
-
-Structure
-- `src/lib.rs` - browser startup, event loop integration, redraw/update/render scheduling.
-- `src/renderer.rs` - GPU state creation, resize handling, frame rendering.
-- `src/asset_manifest.rs` - async fetch/parse/validate manifest loader.
-- `../static/index.html` - browser shell + canvas bootstrap.
-- `../static/manifest.json` - sample manifest used by startup loader.
+Contents
+- `index.html` - browser shell that loads the generated wasm/js package and displays runtime diagnostics.
+- `manifest.json` - runtime manifest consumed by the engine startup path.
+- `pkg/` - generated output from `wasm-pack` or `wasm-bindgen` (JavaScript glue + wasm binary).
 
 Build and run
 
-1. Build the wasm package:
+1. Build the engine package from the crate directory:
 
 ```bash
+cd ../anzu-engine
 wasm-pack build --target web --out-dir ../static/pkg --release
 ```
 
-2. Serve static assets:
+2. Serve this `static/` directory:
 
 ```bash
-python3 -m http.server --directory ../static 8000
+python3 -m http.server 8000
 ```
 
 3. Open:
 - http://localhost:8000/index.html
 
-Alternative lower-level build:
-
-```bash
-cargo build --lib --release --target wasm32-unknown-unknown
-wasm-bindgen \
-	--target web \
-	--out-dir ../static/pkg \
-	target/wasm32-unknown-unknown/release/anzu_engine.wasm
-```
+Notes
+- If browser behavior seems inconsistent (focus, gamepad exposure, permission policy), use the in-page diagnostics panel in `index.html`.
+- `pkg/` contents are generated artifacts and may be replaced on rebuild.
 

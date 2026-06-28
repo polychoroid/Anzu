@@ -11,10 +11,18 @@ Current implementation highlights:
 
 Structure
 - `src/lib.rs` - browser startup, event loop integration, redraw/update/render scheduling.
-- `src/renderer.rs` - GPU state creation, resize handling, frame rendering.
+- `src/platform_browser.rs` - browser shell integration and top-level window/canvas lifecycle.
+- `src/renderer/mod.rs` - renderer module entry points.
+- `src/renderer/wasm.rs` - browser renderer state, frame loop hooks, and browser input normalization.
+- `src/renderer/core.rs` - GPU pipelines and render core implementation.
 - `src/asset_manifest.rs` - async fetch/parse/validate manifest loader.
 - `../static/index.html` - browser shell + canvas bootstrap.
 - `../static/manifest.json` - sample manifest used by startup loader.
+
+Input model
+- Browser adapters produce generic input events.
+- Browser-specific gamepad quirks are normalized in `src/renderer/wasm.rs` to semantic controls where possible (for example trigger aliases).
+- ROM code consumes semantic controls by default; raw controls remain available as optional escape hatches for specialized hardware.
 
 Build and run
 
