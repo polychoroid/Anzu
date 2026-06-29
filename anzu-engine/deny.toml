@@ -1,0 +1,27 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[[licenses.exceptions]]
+allow = ["OpenSSL"]
+name = "ring"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"

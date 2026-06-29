@@ -58,3 +58,17 @@ wasm-bindgen \
 	target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 
+License compliance check
+
+Install `cargo-deny`:
+
+```bash
+cargo install cargo-deny
+```
+
+Run dependency license checks:
+
+```bash
+cargo deny --config deny.toml check licenses
+```
+

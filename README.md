@@ -62,6 +62,7 @@ python3 -m http.server 8000
 - `documents/operations.md` - runtime diagnostics and maintenance guidance.
 - `documents/api.md` - module responsibilities and public API notes.
 - `documents/user-guide.md` - user-facing run behavior and troubleshooting.
+- `documents/runtime-execution-recommendations.md` - implementation recommendations and restart checklist for Milestone 4 runtime pipeline work.
 
 ## Milestones
 
@@ -79,6 +80,22 @@ Full implementation roadmap is tracked in `BACKLOG.md`:
 - Milestones 5.5-5.7: Extensible materials, parameterized shading, and composite multi-pass rendering
 - Milestone 6: Multiplayer session support
 
+## Special Thanks To
+
+- [Microsoft GameInput (GDK) guidance](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-overview)
+- [Microsoft Direct3D 12 programming guidance](https://learn.microsoft.com/en-us/windows/win32/direct3d12/direct3d-12-graphics)
+- [Microsoft PIX on Windows (profiling and diagnostics)](https://devblogs.microsoft.com/pix/)
+- [Rust Style Guide](https://doc.rust-lang.org/style-guide/)
+- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
+- [wgpu crate documentation](https://docs.rs/wgpu/latest/wgpu/)
+- [Vulkan Specification (Khronos)](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html)
+- [Vulkan Guide (Khronos)](https://github.khronos.org/Vulkan-Site/guide/latest/)
+- [Bevy main scheduling model reference](https://github.com/bevyengine/bevy/blob/main/crates/bevy_app/src/main_schedule.rs)
+- [Fyrox executor/runtime loop reference](https://github.com/FyroxEngine/Fyrox/blob/master/fyrox-impl/src/engine/executor.rs)
+- [Godot main loop/runtime reference](https://github.com/godotengine/godot/blob/master/main/main.cpp)
+
 ## License
 
 Engine crate is licensed under MIT; see `anzu-engine/LICENSE`.
+
+Third-party dependency/license notices are tracked in `THIRD_PARTY_NOTICES.md`.
