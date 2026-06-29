@@ -23,8 +23,8 @@ Structure
 - `src/renderer/wasm.rs` - browser renderer state, frame loop hooks, and browser input normalization.
 - `src/renderer/core.rs` - GPU pipelines, material registry, and per-batch material uniform binding.
 - `src/asset_manifest.rs` - async fetch/parse/validate manifest loader.
-- `../static/index.html` - browser shell + canvas bootstrap.
-- `../static/manifest.json` - sample manifest used by startup loader.
+- `../docs/index.html` - browser shell + canvas bootstrap.
+- `../docs/manifest.json` - sample manifest used by startup loader.
 
 Input model
 - Browser adapters produce generic input events.
@@ -36,13 +36,13 @@ Build and run
 1. Build the wasm package:
 
 ```bash
-wasm-pack build --target web --out-dir ../static/pkg --release
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
 2. Serve static assets:
 
 ```bash
-python3 -m http.server --directory ../static 8000
+python3 -m http.server --directory ../docs 8000
 ```
 
 3. Open:
@@ -54,7 +54,7 @@ Alternative lower-level build:
 cargo build --lib --release --target wasm32-unknown-unknown
 wasm-bindgen \
 	--target web \
-	--out-dir ../static/pkg \
+	--out-dir ../docs/pkg \
 	target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 
