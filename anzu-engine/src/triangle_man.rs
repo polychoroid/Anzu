@@ -285,7 +285,7 @@ const TRIANGLE_MATERIALS: [MaterialDefinition; 3] = [
     MaterialDefinition {
         material_id: MATERIAL_ASTEROID,
         blend_mode: MaterialBlendMode::Opaque,
-        base_color_tint: [0.3, 0.3, 0.15],
+        base_color_tint: [0.4, 0.4, 0.25],
         emissive_strength: 0.15,
         metallic: 0.5,
         roughness: 0.98,
@@ -358,10 +358,10 @@ impl Default for TriangleManSpec {
             asteroid_spawn_min_interval_seconds: 0.45,
             asteroid_spawn_accel_per_second: 10.0,
             asteroid_spawn_max_burst: 50,
-            asteroid_target_count: 600,
+            asteroid_target_count: 1600,
             asteroid_target_time_seconds: 300.0,
-            asteroid_mass_scale_at_target: 100.0,
-            scale: 0.05,
+            asteroid_mass_scale_at_target: 5000.0,
+            scale: 0.045,
         }
     }
 }
