@@ -13,6 +13,31 @@ Primary targets:
 - Broadphase-first collision pipeline
 - Profiling gates for each stage
 
+## Attribution
+
+This plan is informed by both current Anzu implementation details and external engineering guidance.
+
+Internal references:
+
+- `BACKLOG.md` (Milestone 4 and profiling requirements)
+- `documents/architecture.md` (runtime/render separation and phase framing)
+- `anzu-engine/src/simulation.rs` (current scheduler behavior and collision path)
+- `anzu-engine/src/platform_browser.rs` (frame boundary: update then render)
+
+External references:
+
+- Rust Style Guide: <https://doc.rust-lang.org/style-guide/>
+- Rust API Guidelines: <https://rust-lang.github.io/api-guidelines/>
+- Microsoft GameInput guidance: <https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-overview>
+- Direct3D 12 graphics guidance: <https://learn.microsoft.com/en-us/windows/win32/direct3d12/direct3d-12-graphics>
+- PIX on Windows profiling guidance: <https://devblogs.microsoft.com/pix/>
+- wgpu API reference: <https://docs.rs/wgpu/latest/wgpu/>
+- Vulkan Specification: <https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html>
+- Vulkan Guide: <https://github.khronos.org/Vulkan-Site/guide/latest/>
+- Bevy scheduling reference: <https://github.com/bevyengine/bevy/blob/main/crates/bevy_app/src/main_schedule.rs>
+- Fyrox executor/runtime loop reference: <https://github.com/FyroxEngine/Fyrox/blob/master/fyrox-impl/src/engine/executor.rs>
+- Godot main loop reference: <https://github.com/godotengine/godot/blob/master/main/main.cpp>
+
 ## Current Baseline (Observed)
 
 Current scheduler behavior in `anzu-engine/src/simulation.rs` is:

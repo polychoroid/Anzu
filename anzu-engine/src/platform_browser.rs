@@ -6,7 +6,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys},
     window::Window,
 };
@@ -94,6 +94,7 @@ impl App {
 
 impl ApplicationHandler<renderer::State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::Poll);
         log_info("[APP] resumed: starting browser bootstrap");
         let mut window_attributes = Window::default_attributes();
 
@@ -263,6 +264,14 @@ impl ApplicationHandler<renderer::State> for App {
                 self.frame_count = self.frame_count.saturating_add(1);
                 self.frame_delta_accumulator_seconds += f64::from(delta_seconds);
 
+                if self.frame_count <= 3 || self.frame_count % FRAME_LOG_INTERVAL == 0 {
+                    log_info(&format!(
+                        "[FRAME] redraw heartbeat frame={} dt_ms={:.3}",
+                        self.frame_count,
+                        delta_seconds * 1000.0
+                    ));
+                }
+
                 state.update(delta_seconds);
                 if take_reset_request() {
                     state.reset_game();
@@ -288,11 +297,12 @@ impl ApplicationHandler<renderer::State> for App {
                         0.0
                     };
                     log_info(&format!(
-                        "[FRAME] summary frames={} avg_dt_ms={:.3} fps={:.2} render_errors={}",
+                        "[FRAME] summary frames={} avg_dt_ms={:.3} fps={:.2} render_errors={} game_over={}",
                         FRAME_LOG_INTERVAL,
                         avg_dt_seconds * 1000.0,
                         fps,
-                        self.render_error_count
+                        self.render_error_count,
+                        state.is_game_over()
                     ));
                     self.frame_delta_accumulator_seconds = 0.0;
                 }
@@ -300,6 +310,12 @@ impl ApplicationHandler<renderer::State> for App {
                 state.window().request_redraw();
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            state.window().request_redraw();
         }
     }
 }

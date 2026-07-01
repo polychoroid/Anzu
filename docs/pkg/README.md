@@ -54,7 +54,7 @@ Alternative lower-level build:
 cargo build --lib --release --target wasm32-unknown-unknown
 wasm-bindgen \
 	--target web \
-	--out-dir ../static/pkg \
+	--out-dir ../docs/pkg \
 	target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 

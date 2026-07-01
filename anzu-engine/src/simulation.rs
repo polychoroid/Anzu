@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use web_time::Instant;
 
 use crate::ecs::{EntityId, World};
 use crate::input::InputEvent;
@@ -68,6 +69,19 @@ pub struct SchedulerFrameReport {
     pub interaction_events: Vec<InteractionEvent>,
     pub despawned_entities: Vec<EntityId>,
     pub interaction_pairs_checked: u32,
+    pub body_count: u32,
+    pub candidate_pair_count: u32,
+    pub narrowphase_checks: u32,
+    pub collisions_resolved: u32,
+    pub proximity_enter_count: u32,
+    pub proximity_exit_count: u32,
+    pub sync_ns: u64,
+    pub compose_ns: u64,
+    pub broadphase_ns: u64,
+    pub narrowphase_ns: u64,
+    pub resolve_ns: u64,
+    pub reconcile_ns: u64,
+    pub publish_ns: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -118,12 +132,15 @@ impl Scheduler {
             return report;
         }
 
+        let compose_stage_start = Instant::now();
         for (_, transform) in world.transforms_mut() {
             transform.position_x += transform.velocity_x * delta_seconds;
             transform.position_y += transform.velocity_y * delta_seconds;
             transform.rotation_rad += transform.angular_velocity * delta_seconds;
         }
+        report.compose_ns = elapsed_ns_nonzero(compose_stage_start);
 
+        let sync_stage_start = Instant::now();
         let mut entities: Vec<BodyState> = Vec::new();
         for (entity_id, collider) in world.polygon_colliders_iter() {
             if collider.local_vertices.len() < 3 {
@@ -179,12 +196,16 @@ impl Scheduler {
                 true
             }
         });
+        report.body_count = saturating_u32(entities.len());
+        report.sync_ns = elapsed_ns_nonzero(sync_stage_start);
 
         let mut current_proximity_pairs = BTreeSet::new();
         for i in 0..entities.len() {
             for j in (i + 1)..entities.len() {
+                let broadphase_start = Instant::now();
                 report.interaction_pairs_checked =
                     report.interaction_pairs_checked.saturating_add(1);
+                report.candidate_pair_count = report.candidate_pair_count.saturating_add(1);
 
                 let entity_a = entities[i].entity_id;
                 let entity_b = entities[j].entity_id;
@@ -206,12 +227,25 @@ impl Scheduler {
                             entity_b: pair.1,
                             kind: InteractionEventKind::ProximityEnter,
                         });
+                        report.proximity_enter_count =
+                            report.proximity_enter_count.saturating_add(1);
                     }
                 }
+                report.broadphase_ns = report
+                    .broadphase_ns
+                    .saturating_add(elapsed_ns_nonzero(broadphase_start));
 
+                let narrowphase_start = Instant::now();
+                report.narrowphase_checks = report.narrowphase_checks.saturating_add(1);
                 let Some(manifold) = sat_polygon_collision(state_a, state_b) else {
+                    report.narrowphase_ns = report
+                        .narrowphase_ns
+                        .saturating_add(elapsed_ns_nonzero(narrowphase_start));
                     continue;
                 };
+                report.narrowphase_ns = report
+                    .narrowphase_ns
+                    .saturating_add(elapsed_ns_nonzero(narrowphase_start));
 
                 report.interaction_events.push(InteractionEvent {
                     entity_a,
@@ -223,6 +257,7 @@ impl Scheduler {
                     continue;
                 }
 
+                let resolve_start = Instant::now();
                 positional_correction(
                     state_a,
                     state_b,
@@ -231,9 +266,14 @@ impl Scheduler {
                     manifold.penetration,
                 );
                 apply_contact_impulse(state_a, state_b, manifold);
+                report.resolve_ns = report
+                    .resolve_ns
+                    .saturating_add(elapsed_ns_nonzero(resolve_start));
+                report.collisions_resolved = report.collisions_resolved.saturating_add(1);
             }
         }
 
+        let reconcile_stage_start = Instant::now();
         for pair in &self.previous_proximity_pairs {
             if !current_proximity_pairs.contains(pair) {
                 report.interaction_events.push(InteractionEvent {
@@ -241,10 +281,15 @@ impl Scheduler {
                     entity_b: pair.1,
                     kind: InteractionEventKind::ProximityExit,
                 });
+                report.proximity_exit_count = report.proximity_exit_count.saturating_add(1);
             }
         }
         self.previous_proximity_pairs = current_proximity_pairs;
+        report.reconcile_ns = report
+            .reconcile_ns
+            .saturating_add(elapsed_ns_nonzero(reconcile_stage_start));
 
+        let publish_stage_start = Instant::now();
         for body in &entities {
             if let Some(transform) = world.transform_mut(body.entity_id) {
                 transform.position_x = body.position_x;
@@ -254,7 +299,9 @@ impl Scheduler {
                 transform.angular_velocity = body.angular_velocity;
             }
         }
+        report.publish_ns = elapsed_ns_nonzero(publish_stage_start);
 
+        let reconcile_stage_start = Instant::now();
         let mut despawn_ids: BTreeSet<EntityId> = out_of_bounds_entities.into_iter().collect();
         for (entity_id, lifecycle) in world.lifecycles_mut() {
             lifecycle.ttl_seconds -= delta_seconds;
@@ -272,8 +319,30 @@ impl Scheduler {
             world.despawn(entity_id);
             report.despawned_entities.push(entity_id);
         }
+        report.reconcile_ns = report
+            .reconcile_ns
+            .saturating_add(elapsed_ns_nonzero(reconcile_stage_start));
 
         report
+    }
+}
+
+fn elapsed_ns_nonzero(start: Instant) -> u64 {
+    let elapsed = start.elapsed().as_nanos();
+    if elapsed == 0 {
+        1
+    } else if elapsed > u64::MAX as u128 {
+        u64::MAX
+    } else {
+        elapsed as u64
+    }
+}
+
+fn saturating_u32(value: usize) -> u32 {
+    if value > u32::MAX as usize {
+        u32::MAX
+    } else {
+        value as u32
     }
 }
 
@@ -340,6 +409,9 @@ fn apply_contact_impulse(
     let rvx = vel_b_x - vel_a_x;
     let rvy = vel_b_y - vel_a_y;
     let vel_along_normal = rvx * nx + rvy * ny;
+    if !vel_along_normal.is_finite() {
+        return;
+    }
     if vel_along_normal >= 0.0 {
         return;
     }
@@ -351,6 +423,9 @@ fn apply_contact_impulse(
         + state_b.inverse_mass
         + ra_cross_n * ra_cross_n * state_a.inverse_moment_of_inertia
         + rb_cross_n * rb_cross_n * state_b.inverse_moment_of_inertia;
+    if !inv_mass_sum.is_finite() {
+        return;
+    }
     if inv_mass_sum <= 1e-6 {
         return;
     }
@@ -373,6 +448,9 @@ fn apply_contact_impulse(
     let tangent_x_raw = rvx - vel_along_normal * nx;
     let tangent_y_raw = rvy - vel_along_normal * ny;
     let tangent_len_sq = tangent_x_raw * tangent_x_raw + tangent_y_raw * tangent_y_raw;
+    if !tangent_len_sq.is_finite() {
+        return;
+    }
     if tangent_len_sq <= 1e-8 {
         return;
     }
@@ -388,13 +466,28 @@ fn apply_contact_impulse(
         + state_b.inverse_mass
         + ra_cross_t * ra_cross_t * state_a.inverse_moment_of_inertia
         + rb_cross_t * rb_cross_t * state_b.inverse_moment_of_inertia;
+    if !inv_mass_t.is_finite() {
+        return;
+    }
     if inv_mass_t <= 1e-6 {
         return;
     }
 
     let jt_unclamped = -vel_tangent / inv_mass_t;
     let mu = (state_a.friction * state_b.friction).sqrt();
-    let jt = jt_unclamped.clamp(-jn * mu, jn * mu);
+    if !jt_unclamped.is_finite() || !mu.is_finite() || !jn.is_finite() {
+        return;
+    }
+    let min_jt = -jn * mu;
+    let max_jt = jn * mu;
+    if !min_jt.is_finite() || !max_jt.is_finite() {
+        return;
+    }
+    let jt = if min_jt <= max_jt {
+        jt_unclamped.clamp(min_jt, max_jt)
+    } else {
+        jt_unclamped.clamp(max_jt, min_jt)
+    };
     let friction_x = jt * tx;
     let friction_y = jt * ty;
 
@@ -594,14 +687,18 @@ mod tests {
         let mut scheduler = Scheduler::default();
         let report = scheduler.update_world(&mut world, 1.0 / 60.0);
 
-        assert!(report
-            .interaction_events
-            .iter()
-            .any(|event| event.kind == InteractionEventKind::Collision));
-        assert!(report
-            .interaction_events
-            .iter()
-            .any(|event| event.kind == InteractionEventKind::ProximityEnter));
+        assert!(
+            report
+                .interaction_events
+                .iter()
+                .any(|event| event.kind == InteractionEventKind::Collision)
+        );
+        assert!(
+            report
+                .interaction_events
+                .iter()
+                .any(|event| event.kind == InteractionEventKind::ProximityEnter)
+        );
     }
 
     #[test]
@@ -634,5 +731,75 @@ mod tests {
         assert!(world.collision_bounds(entity).is_none());
         assert!(world.rigid_body(entity).is_none());
         assert!(world.lifecycle(entity).is_none());
+    }
+
+    #[test]
+    fn scheduler_report_includes_stage_timings_and_counters() {
+        let mut world = World::new();
+        let entity_a = world.spawn();
+        let entity_b = world.spawn();
+
+        world.set_transform(
+            entity_a,
+            Transform {
+                position_x: -0.2,
+                position_y: 0.0,
+                velocity_x: 0.0,
+                velocity_y: 0.0,
+                ..Default::default()
+            },
+        );
+        world.set_transform(
+            entity_b,
+            Transform {
+                position_x: 0.2,
+                position_y: 0.0,
+                velocity_x: 0.0,
+                velocity_y: 0.0,
+                ..Default::default()
+            },
+        );
+
+        world.set_polygon_collider(
+            entity_a,
+            PolygonCollider {
+                local_vertices: &TRIANGLE_POLY,
+            },
+        );
+        world.set_polygon_collider(
+            entity_b,
+            PolygonCollider {
+                local_vertices: &TRIANGLE_POLY,
+            },
+        );
+        world.set_collision_bounds(
+            entity_a,
+            CollisionBounds {
+                proximity_radius: 0.8,
+            },
+        );
+        world.set_collision_bounds(
+            entity_b,
+            CollisionBounds {
+                proximity_radius: 0.8,
+            },
+        );
+        world.set_rigid_body(entity_a, RigidBody::default());
+        world.set_rigid_body(entity_b, RigidBody::default());
+
+        let mut scheduler = Scheduler::default();
+        let report = scheduler.update_world(&mut world, 1.0 / 60.0);
+
+        assert!(report.sync_ns > 0);
+        assert!(report.compose_ns > 0);
+        assert!(report.broadphase_ns > 0);
+        assert!(report.narrowphase_ns > 0);
+        assert!(report.resolve_ns > 0);
+        assert!(report.reconcile_ns > 0);
+        assert!(report.publish_ns > 0);
+
+        assert_eq!(report.body_count, 2);
+        assert!(report.candidate_pair_count >= 1);
+        assert!(report.narrowphase_checks >= 1);
     }
 }
