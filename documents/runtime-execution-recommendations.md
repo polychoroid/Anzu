@@ -188,6 +188,19 @@ These boundaries make profiling and future backend behavior (WebGPU/WebGL fallba
 
 ## Stepwise Implementation Plan
 
+### Status Update (2026-07-01)
+
+- Slice A is complete: stage report shape and per-phase scheduler timings/counters are emitted.
+- Slice B is complete: compose/publish boundaries are explicit and reconcile work is split into early and late internal blocks while preserving behavior.
+- Slice C is complete: uniform-grid broadphase candidate generation replaces the all-pairs scan, candidate pairs are canonically sorted and deduplicated, and the scheduler reports broadphase/narrowphase work separately.
+- Validation evidence:
+   - `cargo check` passed in `anzu-engine`.
+   - `cargo check --target wasm32-unknown-unknown` passed in `anzu-engine`.
+   - `cargo test simulation::tests:: -- --nocapture` passed (4/4).
+   - `cargo test triangle_man::tests:: -- --nocapture` passed (11/11).
+
+Current next slice: Slice D (narrowphase/resolve split and follow-on collision policy hardening).
+
 ### Slice A: Stage API and Report Shape
 
 - Add a stage contract type and expand `SchedulerFrameReport` with phase timings and counters.
@@ -220,6 +233,14 @@ Acceptance:
 - Candidate count is lower than all-pairs under stress scenes.
 - Narrowphase results match previous baseline for same seeds.
 - Broadphase postprocess (dedupe + ordering) timing is reported separately and does not dominate narrowphase at target densities.
+
+Status: complete.
+
+Observed behavior:
+
+- Candidate generation is deterministic through canonical pair ordering and stable dedupe.
+- Stage timing now exposes broadphase and narrowphase separately in the scheduler report and runtime SIM logs.
+- Stress scenes now show the expected live-body growth until gameplay collisions and despawns reach equilibrium.
 
 ### Slice C.5: Data Movement Reduction (Conditional)
 
@@ -268,13 +289,13 @@ Acceptance:
 cd /workspaces/Anzu/anzu-engine
 cargo check
 cargo check --target wasm32-unknown-unknown
-cargo test --target wasm32-unknown-unknown --no-run
-wasm-pack build --target web --out-dir ../static/pkg --release
+cargo test simulation::tests:: -- --nocapture
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-2. Implement Slice A only (stage report scaffolding).
-3. Add one regression test asserting stage timing fields are emitted.
-4. Commit as isolated change before broadphase work.
+2. Implement Slice C only (uniform-grid broadphase + deterministic candidate feed).
+3. Add regression coverage for deterministic candidate ordering and stable interaction outcomes.
+4. Commit as isolated change before narrowphase/resolve restructuring.
 
 ## Suggested Commit Sequence
 

@@ -184,12 +184,14 @@ input_profile:
 ### Milestone 4: Hardened Simulation Pipeline and Spatial Broadphase
 **Outcome**: A reusable tick pipeline composes world transforms and forces once per tick, profiles phase costs, and uses spatial indexing to keep collision checks efficient as entity counts grow.
 
-- [ ] Task 4.1: Define a tick pipeline contract that composes intent, applies transforms, runs physics, and reconciles results in explicit stages.
-- [ ] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
-- [ ] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
-- [ ] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
+- [x] Task 4.1: Define a tick pipeline contract that composes intent, applies transforms, runs physics, and reconciles results in explicit stages.
+- [x] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
+- [x] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
+- [x] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
 - [ ] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
-- [ ] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
+- [x] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
+
+Progress note (2026-07-01): Slice A, Slice B, and Slice C are implemented in the scheduler with explicit stage timing/counter reporting, clarified compose/publish/reconcile boundaries, and a uniform-grid broadphase candidate feed. Validation included native + wasm `cargo check`, `cargo test simulation::tests:: -- --nocapture`, and `cargo test triangle_man::tests:: -- --nocapture`.
 
 **Demonstrates**:
 - Minimal tick passes and data movement
@@ -209,6 +211,8 @@ input_profile:
 - [x] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
 - [ ] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
 - [x] Task 4.5.7: Add edge-case regression coverage for fragment spawn near world bounds and clamp fragment spawn positions to avoid first-tick out-of-bounds culling.
+
+Status note: the live-body stress logs now show the broadphase ramp reaching a gameplay steady state rather than being pinned to the old low-30s plateau.
 
 **Demonstrates**:
 - Collision behavior is configurable and scalable beyond hardcoded per-role logic

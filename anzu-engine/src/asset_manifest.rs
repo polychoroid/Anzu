@@ -38,6 +38,8 @@ pub struct PhysicsSettings {
     pub default_restitution: Option<f32>,
     #[serde(default)]
     pub default_friction: Option<f32>,
+    #[serde(default)]
+    pub broadphase_cell_size: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,11 +78,21 @@ impl AssetRegistry {
             return defaults;
         };
 
+        let configured_cell_size = physics
+            .broadphase_cell_size
+            .unwrap_or(defaults.broadphase_cell_size);
+
         PhysicsConfig {
             world_min_x: physics.world_min_x.unwrap_or(defaults.world_min_x),
             world_max_x: physics.world_max_x.unwrap_or(defaults.world_max_x),
             world_min_y: physics.world_min_y.unwrap_or(defaults.world_min_y),
             world_max_y: physics.world_max_y.unwrap_or(defaults.world_max_y),
+            broadphase_cell_size: if configured_cell_size.is_finite() && configured_cell_size > 0.0
+            {
+                configured_cell_size
+            } else {
+                defaults.broadphase_cell_size
+            },
             default_restitution: physics
                 .default_restitution
                 .unwrap_or(defaults.default_restitution)

@@ -337,6 +337,7 @@ pub struct TriangleManSpec {
     pub asteroid_spawn_min_interval_seconds: f32,
     pub asteroid_spawn_accel_per_second: f32,
     pub asteroid_spawn_max_burst: u32,
+    pub asteroid_initial_count: u32,
     pub asteroid_target_count: u32,
     pub asteroid_target_time_seconds: f32,
     pub asteroid_mass_scale_at_target: f32,
@@ -357,9 +358,10 @@ impl Default for TriangleManSpec {
             asteroid_spawn_interval_seconds: 1.0,
             asteroid_spawn_min_interval_seconds: 0.45,
             asteroid_spawn_accel_per_second: 10.0,
-            asteroid_spawn_max_burst: 50,
-            asteroid_target_count: 1600,
-            asteroid_target_time_seconds: 300.0,
+            asteroid_spawn_max_burst: 16,
+            asteroid_initial_count: 2,
+            asteroid_target_count: 1200,
+            asteroid_target_time_seconds: 180.0,
             asteroid_mass_scale_at_target: 5000.0,
             scale: 0.045,
         }
@@ -674,11 +676,7 @@ fn axis_value(negative: bool, positive: bool) -> i8 {
 }
 
 fn apply_deadzone(value: f32, deadzone: f32) -> f32 {
-    if value.abs() < deadzone {
-        0.0
-    } else {
-        value
-    }
+    if value.abs() < deadzone { 0.0 } else { value }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1118,7 +1116,6 @@ impl TriangleManSimulation {
             world.set_lifecycle(entity_id, Lifecycle { ttl_seconds: 6.0 });
 
             self.roles.insert(entity_id, RoleKind::Asteroid);
-            self.asteroid_spawned_total = self.asteroid_spawned_total.saturating_add(1);
         }
     }
 
@@ -1130,7 +1127,8 @@ impl TriangleManSimulation {
     }
 
     fn asteroid_target_spawn_total(&self) -> u32 {
-        let target_total = self.spec.asteroid_target_count.max(1);
+        let baseline = self.spec.asteroid_initial_count.max(1);
+        let target_total = self.spec.asteroid_target_count.max(baseline);
         let target_time = self.spec.asteroid_target_time_seconds;
 
         if target_time <= 0.0 {
@@ -1138,15 +1136,22 @@ impl TriangleManSimulation {
         }
 
         let progress = (self.elapsed_seconds.max(0.0) / target_time).clamp(0.0, 1.0);
-        let baseline = 1u32;
         let additional_target = target_total.saturating_sub(baseline);
         baseline + ((additional_target as f32) * progress).floor() as u32
     }
 
     fn asteroid_spawn_burst_count(&self) -> u32 {
+        let live_count = self
+            .roles
+            .values()
+            .filter(|role| **role == RoleKind::Asteroid)
+            .count() as u32;
         let missing = self
             .asteroid_target_spawn_total()
-            .saturating_sub(self.asteroid_spawned_total);
+            .saturating_sub(live_count);
+        if missing == 0 {
+            return 0;
+        }
         missing.clamp(1, self.spec.asteroid_spawn_max_burst.max(1))
     }
 
@@ -1240,7 +1245,11 @@ impl SimulationModel for TriangleManSimulation {
 
         if !self.baseline_asteroid_spawned {
             let mass_scale = self.asteroid_mass_scale();
-            self.spawn_asteroid_entity(world, 0, 0.14, mass_scale);
+            let baseline_count = self.spec.asteroid_initial_count.max(1);
+            for index in 0..baseline_count {
+                self.spawn_asteroid_entity(world, index as usize, 0.14, mass_scale);
+            }
+            self.asteroid_spawn_index = baseline_count as usize;
             self.baseline_asteroid_spawned = true;
         }
 
@@ -1297,9 +1306,11 @@ impl SimulationModel for TriangleManSimulation {
         let mass_scale = self.asteroid_mass_scale();
 
         while self.asteroid_spawn_timer_seconds <= 0.0 {
-            for _ in 0..spawn_burst {
-                self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.12, mass_scale);
-                self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+            if spawn_burst > 0 {
+                for _ in 0..spawn_burst {
+                    self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.12, mass_scale);
+                    self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+                }
             }
             self.asteroid_spawn_timer_seconds += dynamic_interval;
         }
@@ -1457,6 +1468,16 @@ mod tests {
         (simulation, world)
     }
 
+    fn snapshot_anchor_transform(
+        simulation: &TriangleManSimulation,
+        anchor: EntityId,
+    ) -> Transform {
+        let mut world = World::new();
+        world.set_transform(anchor, Transform::default());
+        simulation.write_anchor_to_world(&mut world, anchor);
+        world.transform(anchor).copied().unwrap_or_default()
+    }
+
     #[test]
     fn same_input_sequence_stays_deterministic_across_sessions() {
         let anchor: EntityId = 42;
@@ -1518,11 +1539,11 @@ mod tests {
         with_second_press.update(dt);
         without_second_press.update(dt);
 
-        let a = with_second_press.transform_2d();
-        let b = without_second_press.transform_2d();
+        let a = snapshot_anchor_transform(&with_second_press, anchor);
+        let b = snapshot_anchor_transform(&without_second_press, anchor);
         assert!(
-            (a.position_x - b.position_x).abs() > 1e-6
-                || (a.position_y - b.position_y).abs() > 1e-6,
+            (a.velocity_x - b.velocity_x).abs() > 1e-6
+                || (a.velocity_y - b.velocity_y).abs() > 1e-6,
             "expected second press to change movement, but it was ignored"
         );
     }
@@ -1593,9 +1614,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x > without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x > without_transform.velocity_x);
     }
 
     #[test]
@@ -1627,9 +1648,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x < without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x < without_transform.velocity_x);
     }
 
     #[test]
@@ -1665,9 +1686,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x > without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x > without_transform.velocity_x);
     }
 
     #[test]
@@ -1703,9 +1724,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x < without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x < without_transform.velocity_x);
     }
 
     #[test]
@@ -1752,16 +1773,16 @@ mod tests {
         control.update(dt);
         control.update(dt);
 
-        let below_press_transform = below_press.transform_2d();
-        let held_transform = held_between_thresholds.transform_2d();
-        let control_transform = control.transform_2d();
+        let below_press_transform = snapshot_anchor_transform(&below_press, anchor);
+        let held_transform = snapshot_anchor_transform(&held_between_thresholds, anchor);
+        let control_transform = snapshot_anchor_transform(&control, anchor);
 
         assert!(
-            (below_press_transform.position_x - control_transform.position_x).abs() < 1e-6,
+            (below_press_transform.velocity_x - control_transform.velocity_x).abs() < 1e-6,
             "trigger input below press threshold should be ignored"
         );
         assert!(
-            held_transform.position_x > control_transform.position_x,
+            held_transform.velocity_x > control_transform.velocity_x,
             "trigger should remain active between press and release thresholds"
         );
     }
@@ -1794,12 +1815,12 @@ mod tests {
         with_stick.update(dt);
         without_stick.update(dt);
 
-        let a = with_stick.transform_2d();
-        let b = without_stick.transform_2d();
+        let a = snapshot_anchor_transform(&with_stick, anchor);
+        let b = snapshot_anchor_transform(&without_stick, anchor);
 
         assert!(
-            (a.position_x - b.position_x).abs() > 1e-6
-                || (a.position_y - b.position_y).abs() > 1e-6,
+            (a.velocity_x - b.velocity_x).abs() > 1e-6
+                || (a.velocity_y - b.velocity_y).abs() > 1e-6,
             "expected gamepad axis mapping to affect motion"
         );
     }
@@ -1837,6 +1858,21 @@ mod tests {
             assert!(world.rigid_body(entity_id).is_some());
             assert!(world.lifecycle(entity_id).is_some());
         }
+    }
+
+    #[test]
+    fn asteroid_spawn_burst_refills_live_count_after_losses() {
+        let anchor: EntityId = 303;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let _first = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let _second = simulation.spawn_asteroid_entity(&mut world, 1, 0.14, 1.0);
+
+        simulation.elapsed_seconds = 1.0;
+        simulation.asteroid_spawned_total = 100;
+
+        assert_eq!(simulation.asteroid_spawn_burst_count(), 6);
     }
 
     #[test]
