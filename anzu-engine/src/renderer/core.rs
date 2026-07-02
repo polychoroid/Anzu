@@ -97,10 +97,15 @@ impl MaterialRegistry {
             .copied()
             .unwrap_or(self.fallback)
     }
+
+    fn fallback_definition(&self) -> MaterialDefinition {
+        self.fallback
+    }
 }
 
 pub struct RomRenderData {
     pub shader_source_wgsl: &'static str,
+    pub webgl_shader_source_wgsl: Option<&'static str>,
     pub vertex_layout: wgpu::VertexBufferLayout<'static>,
     pub vertex_bytes: &'static [u8],
     pub vertex_count: u32,
@@ -108,7 +113,7 @@ pub struct RomRenderData {
 }
 
 pub trait RenderRomPackage: RomPackage {
-    fn render_data(&self) -> RomRenderData;
+    fn render_data(&self, webgl_compat: bool) -> RomRenderData;
 }
 
 #[repr(C)]
@@ -177,11 +182,12 @@ pub struct RenderCore {
     alpha_pipeline: wgpu::RenderPipeline,
     additive_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    vertex_buffer_capacity_bytes: u64,
     vertex_count: u32,
     rotation_uniform_buffer: wgpu::Buffer,
     material_uniform_buffer: wgpu::Buffer,
-    globals_bind_group: wgpu::BindGroup,
-    material_uniform_stride: u32,
+    fallback_material_bind_group: wgpu::BindGroup,
+    material_bind_groups: BTreeMap<MaterialId, wgpu::BindGroup>,
     material_registry: MaterialRegistry,
 }
 
@@ -285,7 +291,7 @@ impl RenderCore {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: true,
+                            has_dynamic_offset: false,
                             min_binding_size: NonZeroU64::new(
                                 std::mem::size_of::<MaterialUniform>() as u64,
                             ),
@@ -295,40 +301,76 @@ impl RenderCore {
                 ],
             });
 
+        let material_registry = MaterialRegistry::from_defs(render_data.materials);
         let material_uniform_alignment = device.limits().min_uniform_buffer_offset_alignment.max(1);
         let material_uniform_size = std::mem::size_of::<MaterialUniform>() as u32;
         let material_uniform_stride =
             material_uniform_size.div_ceil(material_uniform_alignment) * material_uniform_alignment;
-        let max_material_batches = 4096u64;
-        let material_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let material_slot_count = render_data.materials.len() + 1;
+        let mut material_uniform_bytes =
+            vec![0u8; material_uniform_stride as usize * material_slot_count];
+
+        for (index, definition) in render_data.materials.iter().copied().enumerate() {
+            let uniform = MaterialUniform::from_definition(definition);
+            let src = bytemuck::bytes_of(&uniform);
+            let dst_offset = index * material_uniform_stride as usize;
+            let dst = &mut material_uniform_bytes[dst_offset..dst_offset + src.len()];
+            dst.copy_from_slice(src);
+        }
+
+        let fallback_definition = material_registry.fallback_definition();
+        let fallback_uniform = MaterialUniform::from_definition(fallback_definition);
+        let fallback_offset = render_data.materials.len() * material_uniform_stride as usize;
+        let fallback_src = bytemuck::bytes_of(&fallback_uniform);
+        let fallback_dst =
+            &mut material_uniform_bytes[fallback_offset..fallback_offset + fallback_src.len()];
+        fallback_dst.copy_from_slice(fallback_src);
+
+        let material_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Material Uniform Buffer"),
-            size: material_uniform_stride as u64 * max_material_batches,
+            contents: &material_uniform_bytes,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
         });
 
-        let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Model Globals Bind Group"),
-            layout: &rotation_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: rotation_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &material_uniform_buffer,
-                        offset: 0,
-                        size: NonZeroU64::new(std::mem::size_of::<MaterialUniform>() as u64),
-                    }),
-                },
-            ],
-        });
+        let create_material_bind_group = |offset: u64| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Model Material Bind Group"),
+                layout: &rotation_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: rotation_uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &material_uniform_buffer,
+                            offset,
+                            size: NonZeroU64::new(std::mem::size_of::<MaterialUniform>() as u64),
+                        }),
+                    },
+                ],
+            })
+        };
+
+        let mut material_bind_groups = BTreeMap::new();
+        for (index, definition) in render_data.materials.iter().enumerate() {
+            material_bind_groups.insert(
+                definition.material_id,
+                create_material_bind_group(index as u64 * material_uniform_stride as u64),
+            );
+        }
+
+        let fallback_material_bind_group =
+            create_material_bind_group(fallback_offset as u64);
+
+        let shader_source = render_data
+            .webgl_shader_source_wgsl
+            .unwrap_or(render_data.shader_source_wgsl);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ROM Shader"),
-            source: wgpu::ShaderSource::Wgsl(render_data.shader_source_wgsl.into()),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
         let render_pipeline_layout =
@@ -368,8 +410,9 @@ impl RenderCore {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ROM Vertex Buffer"),
             contents: render_data.vertex_bytes,
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let vertex_buffer_capacity_bytes = render_data.vertex_bytes.len() as u64;
 
         Self {
             device,
@@ -379,12 +422,13 @@ impl RenderCore {
             alpha_pipeline,
             additive_pipeline,
             vertex_buffer,
+            vertex_buffer_capacity_bytes,
             vertex_count: render_data.vertex_count,
             rotation_uniform_buffer,
             material_uniform_buffer,
-            globals_bind_group,
-            material_uniform_stride,
-            material_registry: MaterialRegistry::from_defs(render_data.materials),
+            fallback_material_bind_group,
+            material_bind_groups,
+            material_registry,
         }
     }
 
@@ -408,34 +452,25 @@ impl RenderCore {
         );
 
         if !vertex_bytes.is_empty() {
-            self.vertex_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("ROM Vertex Buffer (Dynamic Batch)"),
-                        contents: vertex_bytes,
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+            let required_capacity = vertex_bytes.len() as u64;
+            if required_capacity > self.vertex_buffer_capacity_bytes {
+                let grown_capacity = required_capacity.next_power_of_two();
+                self.vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("ROM Vertex Buffer (Dynamic Batch)"),
+                    size: grown_capacity,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                self.vertex_buffer_capacity_bytes = grown_capacity;
+            }
+            self.queue
+                .write_buffer(&self.vertex_buffer, 0, vertex_bytes);
         }
         self.vertex_count = draw_batches
             .iter()
             .map(|batch| batch.vertex_offset.saturating_add(batch.vertex_count))
             .max()
             .unwrap_or(0);
-
-        let mut material_uniform_bytes =
-            vec![0u8; self.material_uniform_stride as usize * draw_batches.len()];
-        for (index, batch) in draw_batches.iter().enumerate() {
-            let definition = self.material_registry.resolve(batch.material_id);
-            let uniform = MaterialUniform::from_definition(definition);
-            let src = bytemuck::bytes_of(&uniform);
-            let dst_offset = index * self.material_uniform_stride as usize;
-            let dst = &mut material_uniform_bytes[dst_offset..dst_offset + src.len()];
-            dst.copy_from_slice(src);
-        }
-        if !material_uniform_bytes.is_empty() {
-            self.queue
-                .write_buffer(&self.material_uniform_buffer, 0, &material_uniform_bytes);
-        }
 
         let frame = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -487,22 +522,36 @@ impl RenderCore {
             });
 
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            for (index, batch) in draw_batches.iter().enumerate() {
-                let blend_mode = self.material_registry.resolve(batch.material_id).blend_mode;
-                let pipeline = match blend_mode {
+            let draw_mode = |pass: &mut wgpu::RenderPass<'_>, mode: MaterialBlendMode| {
+                let pipeline = match mode {
                     MaterialBlendMode::Opaque => &self.opaque_pipeline,
                     MaterialBlendMode::Alpha => &self.alpha_pipeline,
                     MaterialBlendMode::Additive => &self.additive_pipeline,
                 };
                 pass.set_pipeline(pipeline);
-                let dynamic_offset = self.material_uniform_stride.saturating_mul(index as u32);
-                pass.set_bind_group(0, &self.globals_bind_group, &[dynamic_offset]);
-                if batch.vertex_count > 0 {
-                    let start = batch.vertex_offset;
-                    let end = batch.vertex_offset.saturating_add(batch.vertex_count);
-                    pass.draw(start..end, 0..1);
+
+                for batch in draw_batches.iter() {
+                    let definition = self.material_registry.resolve(batch.material_id);
+                    if definition.blend_mode != mode {
+                        continue;
+                    }
+
+                    let material_bind_group = self
+                        .material_bind_groups
+                        .get(&batch.material_id)
+                        .unwrap_or(&self.fallback_material_bind_group);
+                    pass.set_bind_group(0, material_bind_group, &[]);
+                    if batch.vertex_count > 0 {
+                        let start = batch.vertex_offset;
+                        let end = batch.vertex_offset.saturating_add(batch.vertex_count);
+                        pass.draw(start..end, 0..1);
+                    }
                 }
-            }
+            };
+
+            draw_mode(&mut pass, MaterialBlendMode::Opaque);
+            draw_mode(&mut pass, MaterialBlendMode::Alpha);
+            draw_mode(&mut pass, MaterialBlendMode::Additive);
         }
 
         self.queue.submit(Some(encoder.finish()));

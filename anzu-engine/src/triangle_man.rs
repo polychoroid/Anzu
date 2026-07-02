@@ -117,6 +117,83 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+pub const TRIANGLE_SHADER_WEBGL: &str = r#"
+struct RotationUniform {
+    angle: f32,
+    scale: f32,
+    translation: vec2<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> u_rotation: RotationUniform;
+
+struct MaterialUniform {
+    base_color_tint: vec3<f32>,
+    emissive_strength: f32,
+    shading_params: vec4<f32>,
+};
+
+@group(0) @binding(1)
+var<uniform> u_material: MaterialUniform;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec3<f32>,
+    @location(2) barycentric: vec3<f32>,
+    @location(3) light_pos: vec2<f32>,
+    @location(4) edge_mask: vec3<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+    @location(1) barycentric: vec3<f32>,
+    @location(2) light_strength: f32,
+    @location(3) edge_mask: vec3<f32>,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let c = cos(u_rotation.angle);
+    let s = sin(u_rotation.angle);
+    let rotated = vec2<f32>(
+        c * in.position.x - s * in.position.y,
+        s * in.position.x + c * in.position.y,
+    ) * u_rotation.scale;
+    let translated = rotated + u_rotation.translation;
+
+    var out: VertexOutput;
+    out.position = vec4<f32>(translated, 0.0, 1.0);
+    out.color = in.color;
+    out.barycentric = in.barycentric;
+    out.light_strength = in.light_pos.x;
+    out.edge_mask = in.edge_mask;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let EDGE_WIDTH = 0.15;
+    let edge_x = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.x)) * in.edge_mask.x;
+    let edge_y = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.y)) * in.edge_mask.y;
+    let edge_z = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.z)) * in.edge_mask.z;
+    let base_alpha = max(edge_x, max(edge_y, edge_z));
+
+    let light_strength = clamp(in.light_strength, 0.0, 1.0);
+    let base_color = in.color * u_material.base_color_tint;
+    let glow_brightness = 1.15;
+    let lit_color = clamp(
+        base_color * glow_brightness * (0.12 + light_strength * 0.85)
+            + vec3<f32>(u_material.emissive_strength * light_strength * 0.03),
+        vec3<f32>(0.0),
+        vec3<f32>(3.0),
+    );
+    let alpha = clamp(base_alpha + light_strength * 0.25, 0.0, 1.0);
+
+    return vec4<f32>(lit_color, alpha);
+}
+"#;
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -360,7 +437,7 @@ impl Default for TriangleManSpec {
             asteroid_spawn_accel_per_second: 10.0,
             asteroid_spawn_max_burst: 16,
             asteroid_initial_count: 2,
-            asteroid_target_count: 1200,
+            asteroid_target_count: 100,
             asteroid_target_time_seconds: 180.0,
             asteroid_mass_scale_at_target: 5000.0,
             scale: 0.045,
@@ -826,9 +903,14 @@ impl RomPackage for TriangleManRom {
 }
 
 impl RenderRomPackage for TriangleManRom {
-    fn render_data(&self) -> RomRenderData {
+    fn render_data(&self, webgl_compat: bool) -> RomRenderData {
         RomRenderData {
             shader_source_wgsl: TRIANGLE_SHADER,
+            webgl_shader_source_wgsl: if webgl_compat {
+                Some(TRIANGLE_SHADER_WEBGL)
+            } else {
+                None
+            },
             vertex_layout: Vertex::desc(),
             vertex_bytes: bytemuck::cast_slice(&TRIANGLE_VERTICES),
             vertex_count: TRIANGLE_VERTICES.len() as u32,

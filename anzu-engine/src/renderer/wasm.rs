@@ -11,7 +11,7 @@ use winit::{
 };
 
 use super::core::{BatchVertex, DrawBatch, RenderCore, RenderError, RotationUniform};
-use crate::ecs::{EntityId, World};
+use crate::ecs::{EntityId, MaterialId, World};
 use crate::input::InputEvent;
 use crate::renderer::RenderRomPackage;
 use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel};
@@ -19,6 +19,9 @@ use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, Simulati
 const FIXED_STEP_SECONDS: f32 = 1.0 / 60.0;
 const MAX_FIXED_STEPS_PER_FRAME: u32 = 8;
 const INPUT_LOG_INTERVAL_FRAMES: u64 = 120;
+const WEBGL_RENDER_SCALE: f32 = 0.60;
+const ENABLE_RUNTIME_INFO_LOGS: bool = false;
+const ENABLE_RUNTIME_WARN_LOGS: bool = false;
 
 struct GamepadPollStats {
     visible_gamepads: usize,
@@ -27,11 +30,15 @@ struct GamepadPollStats {
 }
 
 fn log_info(message: &str) {
-    web_sys::console::log_1(&JsValue::from_str(message));
+    if ENABLE_RUNTIME_INFO_LOGS {
+        web_sys::console::log_1(&JsValue::from_str(message));
+    }
 }
 
 fn log_warn(message: &str) {
-    web_sys::console::warn_1(&JsValue::from_str(message));
+    if ENABLE_RUNTIME_WARN_LOGS {
+        web_sys::console::warn_1(&JsValue::from_str(message));
+    }
 }
 
 impl RenderError {
@@ -44,6 +51,8 @@ pub struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     rom: Box<dyn RenderRomPackage>,
+    webgl_compat: bool,
+    render_scale: f32,
     physics_config: PhysicsConfig,
     world: World,
     anchor_entity: EntityId,
@@ -65,6 +74,12 @@ pub struct State {
 }
 
 impl State {
+    fn scaled_extent(width: u32, height: u32, scale: f32) -> (u32, u32) {
+        let scaled_width = ((width as f32) * scale).round() as u32;
+        let scaled_height = ((height as f32) * scale).round() as u32;
+        (scaled_width.max(1), scaled_height.max(1))
+    }
+
     fn simulation_counters(&self) -> (f32, f32, f32, f32, f32) {
         let mut linear_momentum_x = 0.0f32;
         let mut linear_momentum_y = 0.0f32;
@@ -112,8 +127,6 @@ impl State {
                 }
             });
 
-        // Returns the world-space position of the nearest bullet, or a far-off
-        // sentinel ([10.0, 10.0]) when no bullets exist so light_strength → 0.
         let nearest_bullet = |px: f32, py: f32| -> [f32; 2] {
             bullet_positions
                 .iter()
@@ -126,8 +139,16 @@ impl State {
                 .unwrap_or([10.0, 10.0])
         };
 
-        let mut batch = Vec::new();
-        let mut draw_batches = Vec::new();
+        let nearest_bullet_light = |px: f32, py: f32| -> f32 {
+            let bullet = nearest_bullet(px, py);
+            let light_dist = ((bullet[0] - px).powi(2) + (bullet[1] - py).powi(2)).sqrt();
+            let light_radius = 0.35f32;
+            let t = (light_dist / light_radius).clamp(0.0, 1.0);
+            let smooth = t * t * (3.0 - 2.0 * t);
+            (1.0 - smooth).powf(1.2)
+        };
+
+        let mut vertices_by_material: BTreeMap<MaterialId, Vec<BatchVertex>> = BTreeMap::new();
 
         self.world
             .for_each_render_mesh(|entity_id, mesh, material_id| {
@@ -146,9 +167,15 @@ impl State {
 
                 let c = transform.rotation_rad.cos();
                 let s = transform.rotation_rad.sin();
-                let batch_start = batch.len() as u32;
+                let entity_light_pos = if self.webgl_compat {
+                    [nearest_bullet_light(transform.position_x, transform.position_y), 0.0]
+                } else {
+                    nearest_bullet(transform.position_x, transform.position_y)
+                };
 
-                batch.extend(vertices.iter().map(|vertex| {
+                let material_vertices = vertices_by_material.entry(material_id).or_default();
+
+                material_vertices.extend(vertices.iter().map(|vertex| {
                     let x = vertex.position[0] * transform.uniform_scale;
                     let y = vertex.position[1] * transform.uniform_scale;
 
@@ -159,18 +186,24 @@ impl State {
                         position: [world_x, world_y],
                         color: vertex.color,
                         barycentric: vertex.barycentric,
-                        light_pos: nearest_bullet(world_x, world_y),
+                        light_pos: entity_light_pos,
                         edge_mask: vertex.edge_mask,
                     }
                 }));
-
-                let batch_end = batch.len() as u32;
-                draw_batches.push(DrawBatch {
-                    material_id,
-                    vertex_offset: batch_start,
-                    vertex_count: batch_end.saturating_sub(batch_start),
-                });
             });
+
+        let mut batch = Vec::new();
+        let mut draw_batches = Vec::new();
+        for (material_id, vertices) in vertices_by_material {
+            let batch_start = batch.len() as u32;
+            batch.extend(vertices);
+            let batch_end = batch.len() as u32;
+            draw_batches.push(DrawBatch {
+                material_id,
+                vertex_offset: batch_start,
+                vertex_count: batch_end.saturating_sub(batch_start),
+            });
+        }
 
         (batch, draw_batches)
     }
@@ -202,6 +235,7 @@ impl State {
             .await
             .map_err(|error| RenderError::AdapterRequest(error.to_string()).into_js_value())?;
         let adapter_info = adapter.get_info();
+        let webgl_compat = adapter_info.backend == wgpu::Backend::Gl;
         log_info(&format!(
             "[RENDER] init: adapter acquired backend={:?} device_type={:?} driver='{}'",
             adapter_info.backend, adapter_info.device_type, adapter_info.driver
@@ -263,11 +297,15 @@ impl State {
             RenderError::UnsupportedSurface("surface alpha mode selection failed").into_js_value()
         })?;
 
+        let render_scale = if webgl_compat { WEBGL_RENDER_SCALE } else { 1.0 };
+        let (surface_width, surface_height) =
+            Self::scaled_extent(size.width.max(1), size.height.max(1), render_scale);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: surface_width,
+            height: surface_height,
             present_mode,
             alpha_mode,
             view_formats: vec![],
@@ -276,8 +314,13 @@ impl State {
 
         surface.configure(&device, &config);
         log_info(&format!(
-            "[RENDER] surface configured: format={:?} size={}x{} present_mode={:?} alpha_mode={:?}",
-            config.format, config.width, config.height, config.present_mode, config.alpha_mode
+            "[RENDER] surface configured: format={:?} size={}x{} present_mode={:?} alpha_mode={:?} scale={:.2}",
+            config.format,
+            config.width,
+            config.height,
+            config.present_mode,
+            config.alpha_mode,
+            render_scale
         ));
 
         log_info(&format!("[ROM] bootstrap start: rom_id='{}'", rom.rom_id()));
@@ -299,7 +342,7 @@ impl State {
         let mut simulation = rom.create_simulation(&world, anchor_entity);
         simulation.update(0.0);
         log_info("[ROM] simulation created and initial update completed");
-        let render_data = rom.render_data();
+        let render_data = rom.render_data(webgl_compat);
         log_info(&format!(
             "[RENDER] render payload received: vertex_count={}",
             render_data.vertex_count
@@ -325,6 +368,8 @@ impl State {
             window,
             surface,
             rom,
+            webgl_compat,
+            render_scale,
             physics_config,
             world,
             anchor_entity,
@@ -387,8 +432,9 @@ impl State {
         if width == 0 || height == 0 {
             return;
         }
-
-        self.render_core.resize(&self.surface, width, height);
+        let (scaled_width, scaled_height) = Self::scaled_extent(width, height, self.render_scale);
+        self.render_core
+            .resize(&self.surface, scaled_width, scaled_height);
     }
 
     pub fn handle_key_event(&mut self, event: &KeyEvent) {
@@ -539,7 +585,7 @@ impl State {
                 ));
             }
 
-            self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(60);
+            self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(600);
         }
     }
 

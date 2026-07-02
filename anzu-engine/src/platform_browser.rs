@@ -94,7 +94,7 @@ impl App {
 
 impl ApplicationHandler<renderer::State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(ControlFlow::Wait);
         log_info("[APP] resumed: starting browser bootstrap");
         let mut window_attributes = Window::default_attributes();
 
@@ -306,8 +306,6 @@ impl ApplicationHandler<renderer::State> for App {
                     ));
                     self.frame_delta_accumulator_seconds = 0.0;
                 }
-
-                state.window().request_redraw();
             }
             _ => {}
         }

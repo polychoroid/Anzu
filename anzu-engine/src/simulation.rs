@@ -119,6 +119,8 @@ pub struct Scheduler {
     physics_config: PhysicsConfig,
 }
 
+const BROADPHASE_GRID_SWITCH_BODY_COUNT: usize = 128;
+
 impl Scheduler {
     pub fn new(physics_config: PhysicsConfig) -> Self {
         Self {
@@ -202,61 +204,70 @@ impl Scheduler {
         report.sync_ns = elapsed_ns_nonzero(sync_stage_start);
 
         let broadphase_stage_start = Instant::now();
-        let cell_size = sanitize_cell_size(self.physics_config.broadphase_cell_size);
-        let mut broadphase_cells: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
-        let mut entity_indices_by_id: BTreeMap<EntityId, usize> = BTreeMap::new();
-        for (index, body) in entities.iter().enumerate() {
-            entity_indices_by_id.insert(body.entity_id, index);
-            let (min_cell_x, max_cell_x, min_cell_y, max_cell_y) =
-                broadphase_cell_bounds(body, cell_size);
-            for cell_y in min_cell_y..=max_cell_y {
-                for cell_x in min_cell_x..=max_cell_x {
-                    broadphase_cells
-                        .entry((cell_x, cell_y))
-                        .or_default()
-                        .push(index);
+        let mut candidate_pairs: Vec<(usize, usize)> = Vec::new();
+
+        if entities.len() <= BROADPHASE_GRID_SWITCH_BODY_COUNT {
+            for a in 0..entities.len() {
+                for b in (a + 1)..entities.len() {
+                    candidate_pairs.push((a, b));
                 }
             }
+        } else {
+            let cell_size = sanitize_cell_size(self.physics_config.broadphase_cell_size);
+            let mut broadphase_cells: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
+            for (index, body) in entities.iter().enumerate() {
+                let (min_cell_x, max_cell_x, min_cell_y, max_cell_y) =
+                    broadphase_cell_bounds(body, cell_size);
+                for cell_y in min_cell_y..=max_cell_y {
+                    for cell_x in min_cell_x..=max_cell_x {
+                        broadphase_cells
+                            .entry((cell_x, cell_y))
+                            .or_default()
+                            .push(index);
+                    }
+                }
+            }
+
+            for occupant_indices in broadphase_cells.values() {
+                for a in 0..occupant_indices.len() {
+                    for b in (a + 1)..occupant_indices.len() {
+                        let index_a = occupant_indices[a];
+                        let index_b = occupant_indices[b];
+                        candidate_pairs.push((index_a.min(index_b), index_a.max(index_b)));
+                    }
+                }
+            }
+            candidate_pairs.sort_unstable();
+            candidate_pairs.dedup();
         }
 
-        let mut candidate_pairs: Vec<(EntityId, EntityId)> = Vec::new();
-        for occupant_indices in broadphase_cells.values() {
-            for a in 0..occupant_indices.len() {
-                for b in (a + 1)..occupant_indices.len() {
-                    let entity_a = entities[occupant_indices[a]].entity_id;
-                    let entity_b = entities[occupant_indices[b]].entity_id;
-                    candidate_pairs.push((entity_a.min(entity_b), entity_a.max(entity_b)));
-                }
-            }
-        }
-        candidate_pairs.sort_unstable();
-        candidate_pairs.dedup();
         report.candidate_pair_count = saturating_u32(candidate_pairs.len());
         report.broadphase_ns = elapsed_ns_nonzero(broadphase_stage_start);
 
         let mut current_proximity_pairs = BTreeSet::new();
         for pair in candidate_pairs {
             report.interaction_pairs_checked = report.interaction_pairs_checked.saturating_add(1);
-            let Some(&index_a) = entity_indices_by_id.get(&pair.0) else {
-                continue;
-            };
-            let Some(&index_b) = entity_indices_by_id.get(&pair.1) else {
-                continue;
-            };
+            let index_a = pair.0;
+            let index_b = pair.1;
             let Some((state_a, state_b)) = body_pair_mut(&mut entities, index_a, index_b) else {
                 continue;
             };
+
+            let canonical_pair = (
+                state_a.entity_id.min(state_b.entity_id),
+                state_a.entity_id.max(state_b.entity_id),
+            );
 
             let dx = state_b.position_x - state_a.position_x;
             let dy = state_b.position_y - state_a.position_y;
             let distance_sq = dx * dx + dy * dy;
             let proximity_distance = state_a.proximity_radius + state_b.proximity_radius;
             if distance_sq <= proximity_distance * proximity_distance {
-                current_proximity_pairs.insert(pair);
-                if !self.previous_proximity_pairs.contains(&pair) {
+                current_proximity_pairs.insert(canonical_pair);
+                if !self.previous_proximity_pairs.contains(&canonical_pair) {
                     report.interaction_events.push(InteractionEvent {
-                        entity_a: pair.0,
-                        entity_b: pair.1,
+                        entity_a: canonical_pair.0,
+                        entity_b: canonical_pair.1,
                         kind: InteractionEventKind::ProximityEnter,
                     });
                     report.proximity_enter_count = report.proximity_enter_count.saturating_add(1);
@@ -276,8 +287,8 @@ impl Scheduler {
                 .saturating_add(elapsed_ns_nonzero(narrowphase_start));
 
             report.interaction_events.push(InteractionEvent {
-                entity_a: pair.0,
-                entity_b: pair.1,
+                entity_a: canonical_pair.0,
+                entity_b: canonical_pair.1,
                 kind: InteractionEventKind::Collision,
             });
 
