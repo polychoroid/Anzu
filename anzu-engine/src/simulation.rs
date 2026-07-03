@@ -974,4 +974,74 @@ mod tests {
         assert!(report.candidate_pair_count >= 1);
         assert!(report.narrowphase_checks >= 1);
     }
+
+    #[test]
+    fn repeated_runs_keep_interaction_results_deterministic() {
+        fn build_world() -> World {
+            let mut world = World::new();
+            for y in 0..12 {
+                for x in 0..12 {
+                    let entity = world.spawn();
+                    world.set_transform(
+                        entity,
+                        Transform {
+                            position_x: -2.4 + x as f32 * 0.4,
+                            position_y: -2.4 + y as f32 * 0.4,
+                            ..Default::default()
+                        },
+                    );
+                    world.set_polygon_collider(
+                        entity,
+                        PolygonCollider {
+                            local_vertices: &TRIANGLE_POLY,
+                        },
+                    );
+                    world.set_collision_bounds(
+                        entity,
+                        CollisionBounds {
+                            proximity_radius: 0.72,
+                        },
+                    );
+                    world.set_rigid_body(entity, RigidBody::default());
+                }
+            }
+            world
+        }
+
+        let mut world_a = build_world();
+        let mut world_b = build_world();
+        let mut scheduler_a = Scheduler::new(PhysicsConfig {
+            world_min_x: -10.0,
+            world_max_x: 10.0,
+            world_min_y: -10.0,
+            world_max_y: 10.0,
+            broadphase_cell_size: 0.5,
+            ..PhysicsConfig::default()
+        });
+        let mut scheduler_b = Scheduler::new(PhysicsConfig {
+            world_min_x: -10.0,
+            world_max_x: 10.0,
+            world_min_y: -10.0,
+            world_max_y: 10.0,
+            broadphase_cell_size: 0.5,
+            ..PhysicsConfig::default()
+        });
+
+        let report_a = scheduler_a.update_world(&mut world_a, 1.0 / 60.0);
+        let report_b = scheduler_b.update_world(&mut world_b, 1.0 / 60.0);
+
+        assert_eq!(report_a.candidate_pair_count, report_b.candidate_pair_count);
+        assert_eq!(
+            report_a.interaction_pairs_checked,
+            report_b.interaction_pairs_checked
+        );
+        assert_eq!(report_a.narrowphase_checks, report_b.narrowphase_checks);
+        assert_eq!(report_a.collisions_resolved, report_b.collisions_resolved);
+        assert_eq!(
+            report_a.proximity_enter_count,
+            report_b.proximity_enter_count
+        );
+        assert_eq!(report_a.proximity_exit_count, report_b.proximity_exit_count);
+        assert_eq!(report_a.interaction_events, report_b.interaction_events);
+    }
 }

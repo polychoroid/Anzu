@@ -188,7 +188,7 @@ input_profile:
 - [x] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
 - [x] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
 - [x] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
-- [ ] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
+- [x] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
 - [x] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
 
 Progress note (2026-07-01): Slice A, Slice B, and Slice C are implemented in the scheduler with explicit stage timing/counter reporting, clarified compose/publish/reconcile boundaries, and a uniform-grid broadphase candidate feed. Validation included native + wasm `cargo check`, `cargo test simulation::tests:: -- --nocapture`, and `cargo test triangle_man::tests:: -- --nocapture`.
@@ -205,14 +205,18 @@ Progress note (2026-07-01): Slice A, Slice B, and Slice C are implemented in the
 **Outcome**: Collision handling moves from role-specific hardcoded branches to a data-driven outcome model supporting damage, despawn/replace behavior, and physically consistent fragment spawning.
 
 - [x] Task 4.5.1: Define collision outcome schema (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`) keyed by role/tag pairs.
-- [ ] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
+- [x] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
 - [x] Task 4.5.3: Add despawn-and-replace flow allowing collision outcomes to spawn one or more fragment entities.
-- [ ] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
+- [x] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
 - [x] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
-- [ ] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
+- [x] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
 - [x] Task 4.5.7: Add edge-case regression coverage for fragment spawn near world bounds and clamp fragment spawn positions to avoid first-tick out-of-bounds culling.
 
 Status note: the live-body stress logs now show the broadphase ramp reaching a gameplay steady state rather than being pinned to the old low-30s plateau.
+
+Progress note (2026-07-03): Added scheduler regression coverage for repeated-run deterministic interaction output under grid broadphase workloads, introduced declarative collision actions for Triangle Man (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`), added deterministic health/damage integration for asteroid collisions, switched fragment replacement to restitution-bounded momentum retention, and added a collision acceptance test proving damage-before-fragment threshold behavior with stable entity totals.
+
+Validation note (2026-07-03): Manual browser runs confirm asteroid health behavior works in both Firefox (WebGL path) and Chromium (WebGPU path), with observed runtime around ~75 fps.
 
 **Demonstrates**:
 - Collision behavior is configurable and scalable beyond hardcoded per-role logic
