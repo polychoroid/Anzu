@@ -83,6 +83,7 @@ pub fn default_control_bindings() -> BTreeMap<KeyCode, ControlCommand> {
     bindings.insert(KeyCode::Escape, ControlCommand::ToggleOverlay);
     bindings.insert(KeyCode::ArrowLeft, ControlCommand::ToggleControl);
     bindings.insert(KeyCode::ArrowRight, ControlCommand::TogglePerformance);
+    bindings.insert(KeyCode::F3, ControlCommand::ToggleNotifications);
     bindings.insert(KeyCode::KeyF, ControlCommand::TogglePinnedFpsHud);
     bindings.insert(KeyCode::KeyR, ControlCommand::ResetGame);
     bindings
@@ -208,13 +209,18 @@ impl ControlPlaneState {
                 ControlPlaneAction::None
             }
             ControlCommand::ToggleOverlay => {
-                if self.overlay_visibility.control || self.overlay_visibility.performance {
+                if self.overlay_visibility.control
+                    || self.overlay_visibility.performance
+                    || self.overlay_visibility.notifications
+                {
                     self.overlay_visibility.control = false;
                     self.overlay_visibility.performance = false;
+                    self.overlay_visibility.notifications = false;
                     self.push_notification("Overlay hidden");
                 } else {
                     self.overlay_visibility.control = true;
                     self.overlay_visibility.performance = false;
+                    self.overlay_visibility.notifications = false;
                     self.push_notification("Overlay opened: control");
                 }
                 self.sync_pause_scrim_visibility();
@@ -263,8 +269,24 @@ impl ControlPlaneState {
                 ControlPlaneAction::None
             }
             ControlCommand::ToggleNotifications => {
-                self.overlay_visibility.notifications = false;
-                self.push_notification("Notifications overlay unavailable in current layout");
+                if !self.overlay_visibility.notifications {
+                    let switched_tabs =
+                        self.overlay_visibility.control || self.overlay_visibility.performance;
+                    self.overlay_visibility.control = false;
+                    self.overlay_visibility.performance = false;
+                    self.overlay_visibility.notifications = true;
+                    if switched_tabs {
+                        self.push_notification("Overlay tab: notifications");
+                    } else {
+                        self.push_notification("Overlay opened: notifications");
+                    }
+                } else {
+                    self.overlay_visibility.control = false;
+                    self.overlay_visibility.performance = false;
+                    self.overlay_visibility.notifications = false;
+                    self.push_notification("Overlay hidden");
+                }
+                self.sync_pause_scrim_visibility();
                 ControlPlaneAction::None
             }
             ControlCommand::ResetGame => {
@@ -448,6 +470,10 @@ mod tests {
         assert_eq!(
             bindings.get(&KeyCode::ArrowRight),
             Some(&ControlCommand::TogglePerformance)
+        );
+        assert_eq!(
+            bindings.get(&KeyCode::F3),
+            Some(&ControlCommand::ToggleNotifications)
         );
         assert_eq!(
             bindings.get(&KeyCode::KeyF),
@@ -645,5 +671,18 @@ mod tests {
         let _ = state.apply_command(ControlCommand::TogglePinnedFpsHud);
         assert!(!state.is_fps_hud_pinned());
         assert_eq!(state.hud_telemetry_mode(), HudTelemetryMode::Hidden);
+    }
+
+    #[test]
+    fn toggle_notifications_closes_notifications_overlay_when_pressed_twice() {
+        let mut state = ControlPlaneState::new(8);
+
+        let _ = state.apply_command(ControlCommand::ToggleNotifications);
+        assert!(state.overlay_visibility().notifications);
+        assert_eq!(state.input_context(), InputContext::OverlayContext);
+
+        let _ = state.apply_command(ControlCommand::ToggleNotifications);
+        assert!(!state.overlay_visibility().notifications);
+        assert_eq!(state.input_context(), InputContext::GameplayContext);
     }
 }

@@ -430,6 +430,7 @@ impl State {
             && !overlays.control
             && !overlays.performance
             && !overlays.notifications
+            && !self.game_over
             && !pinned_fps_hud
         {
             return;
@@ -446,21 +447,124 @@ impl State {
         }
 
         if overlays.pause_menu {
+            let pause_outer_min_x = -0.34;
+            let pause_outer_max_x = 0.34;
+            let pause_outer_min_y = -0.20;
+            let pause_outer_max_y = 0.20;
+            let pause_inner_min_x = -0.30;
+            let pause_inner_max_x = 0.30;
+            let pause_inner_min_y = -0.16;
+            let pause_inner_max_y = 0.16;
+            let pause_label = "PAUSED";
+            let pause_label_glyph_size = 0.0145;
+            let pause_label_width = Self::overlay_text_width(pause_label, pause_label_glyph_size);
+            let pause_label_height = Self::overlay_text_height(pause_label_glyph_size);
+            let pause_label_start_x = pause_inner_min_x
+                + (pause_inner_max_x - pause_inner_min_x - pause_label_width) * 0.5;
+            let pause_label_top_y =
+                (pause_inner_min_y + pause_inner_max_y) * 0.5 + pause_label_height * 0.5;
+
             self.push_overlay_rect(
                 overlay_vertices,
-                -0.48,
-                -0.32,
-                0.48,
-                0.32,
+                pause_outer_min_x,
+                pause_outer_min_y,
+                pause_outer_max_x,
+                pause_outer_max_y,
                 [0.10, 0.12, 0.20],
             );
             self.push_overlay_rect(
                 overlay_vertices,
-                -0.44,
-                -0.28,
-                0.44,
-                0.28,
+                pause_inner_min_x,
+                pause_inner_min_y,
+                pause_inner_max_x,
+                pause_inner_max_y,
                 [0.18, 0.22, 0.36],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                pause_label,
+                pause_label_start_x,
+                pause_label_top_y,
+                pause_label_glyph_size,
+                [0.86, 0.95, 0.98],
+            );
+        }
+
+        if self.game_over {
+            let game_over_outer_min_x = -0.44;
+            let game_over_outer_max_x = 0.44;
+            let game_over_outer_min_y = -0.22;
+            let game_over_outer_max_y = 0.22;
+            let game_over_inner_min_x = -0.40;
+            let game_over_inner_max_x = 0.40;
+            let game_over_inner_min_y = -0.18;
+            let game_over_inner_max_y = 0.18;
+            let game_over_content_min_x = game_over_inner_min_x + 0.05;
+            let game_over_content_max_x = game_over_inner_max_x - 0.05;
+            let game_over_content_width = game_over_content_max_x - game_over_content_min_x;
+
+            let line_one = "GAME OVER";
+            let line_one_glyph_size = Self::overlay_text_glyph_size_to_fit(
+                line_one,
+                game_over_content_width,
+                0.016,
+                0.006,
+            );
+            let line_one_width = Self::overlay_text_width(line_one, line_one_glyph_size);
+            let line_one_start_x =
+                game_over_content_min_x + (game_over_content_width - line_one_width) * 0.5;
+
+            let line_two = "PRESS R TO RESTART";
+            let line_two_glyph_size = Self::overlay_text_glyph_size_to_fit(
+                line_two,
+                game_over_content_width,
+                0.010,
+                0.0048,
+            );
+            let line_two_width = Self::overlay_text_width(line_two, line_two_glyph_size);
+            let line_two_start_x =
+                game_over_content_min_x + (game_over_content_width - line_two_width) * 0.5;
+
+            let line_one_height = Self::overlay_text_height(line_one_glyph_size);
+            let line_two_height = Self::overlay_text_height(line_two_glyph_size);
+            let line_gap = 0.022;
+            let total_height = line_one_height + line_gap + line_two_height;
+            let panel_center_y = (game_over_inner_min_y + game_over_inner_max_y) * 0.5;
+            let line_one_top_y = panel_center_y + total_height * 0.5;
+            let line_two_top_y = line_one_top_y - line_one_height - line_gap;
+
+            self.push_overlay_rect(
+                overlay_vertices,
+                game_over_outer_min_x,
+                game_over_outer_min_y,
+                game_over_outer_max_x,
+                game_over_outer_max_y,
+                [0.17, 0.08, 0.10],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                game_over_inner_min_x,
+                game_over_inner_min_y,
+                game_over_inner_max_x,
+                game_over_inner_max_y,
+                [0.33, 0.14, 0.18],
+            );
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                line_one,
+                line_one_start_x,
+                line_one_top_y,
+                line_one_glyph_size,
+                [0.98, 0.84, 0.64],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                line_two,
+                line_two_start_x,
+                line_two_top_y,
+                line_two_glyph_size,
+                [0.95, 0.90, 0.80],
             );
         }
 
@@ -488,14 +592,95 @@ impl State {
         }
 
         if overlays.performance {
+            let panel_outer_min_x = -0.95;
+            let panel_outer_max_x = 0.95;
+            let panel_outer_min_y = -0.88;
+            let panel_outer_max_y = 0.94;
+            let panel_inner_min_x = -0.90;
+            let panel_inner_max_x = 0.90;
+            let panel_inner_min_y = -0.84;
+            let panel_inner_max_y = 0.90;
+
             // Outer border
-            self.push_overlay_rect(overlay_vertices, 0.48, 0.74, 0.98, 0.96, [0.40, 0.84, 0.94]);
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_outer_min_x,
+                panel_outer_min_y,
+                panel_outer_max_x,
+                panel_outer_max_y,
+                [0.40, 0.84, 0.94],
+            );
             // Inner panel
-            self.push_overlay_rect(overlay_vertices, 0.52, 0.78, 0.94, 0.92, [0.10, 0.17, 0.22]);
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_inner_min_x,
+                panel_inner_min_y,
+                panel_inner_max_x,
+                panel_inner_max_y,
+                [0.10, 0.17, 0.22],
+            );
+
+            // Section framing: faint dividers to separate graph and metrics regions.
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_inner_min_x + 0.03,
+                0.53,
+                panel_inner_max_x - 0.03,
+                0.535,
+                [0.24, 0.40, 0.50],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                -0.34,
+                -0.78,
+                -0.335,
+                0.50,
+                [0.22, 0.36, 0.46],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                0.22,
+                -0.78,
+                0.225,
+                0.50,
+                [0.22, 0.36, 0.46],
+            );
+
+            let graph_min_x = -0.84;
+            let graph_max_x = 0.84;
+            let graph_min_y = 0.58;
+            let graph_max_y = 0.76;
+            let graph_width = graph_max_x - graph_min_x;
+
+            self.push_overlay_rect(
+                overlay_vertices,
+                graph_min_x,
+                graph_min_y,
+                graph_max_x,
+                graph_max_y,
+                [0.15, 0.26, 0.33],
+            );
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "FPS GRAPH",
+                -0.84,
+                0.82,
+                0.0044,
+                [0.84, 0.95, 0.98],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "OBSERVABILITY",
+                -0.84,
+                0.50,
+                0.0044,
+                [0.84, 0.95, 0.98],
+            );
 
             let fps_fill = (self.smoothed_fps / 120.0).clamp(0.0, 1.0);
-            let bar_min_x = 0.56;
-            let bar_max_x = bar_min_x + 0.36 * fps_fill;
+            let bar_min_x = graph_min_x + 0.02;
+            let bar_max_x = bar_min_x + (graph_width - 0.04) * fps_fill;
             let bar_color = if self.smoothed_fps >= 55.0 {
                 [0.24, 0.90, 0.36]
             } else if self.smoothed_fps >= 30.0 {
@@ -508,10 +693,74 @@ impl State {
                 self.push_overlay_rect(
                     overlay_vertices,
                     bar_min_x,
-                    0.80,
+                    graph_min_y + 0.03,
                     bar_max_x,
-                    0.88,
+                    graph_max_y - 0.03,
                     bar_color,
+                );
+            }
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "0",
+                graph_min_x,
+                graph_min_y - 0.02,
+                0.0038,
+                [0.72, 0.86, 0.93],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "120",
+                graph_max_x - 0.08,
+                graph_min_y - 0.02,
+                0.0038,
+                [0.72, 0.86, 0.93],
+            );
+
+            let observability_lines = [
+                format!("FPS {}", self.smoothed_fps.round() as i32),
+                format!("TARGET {}", 60),
+                format!("FRAME {}", self.frame_index),
+                format!("TICS {}", self.fixed_tick_index),
+                format!("CLAMP {}", self.fixed_step_clamp_count),
+                format!(
+                    "PAUSED {}",
+                    diagnostics_bool_text(self.control_plane.is_runtime_paused())
+                ),
+                format!("SIM STOPPED {}", diagnostics_bool_text(self.game_over)),
+                format!("PEND {}", self.control_plane.pending_step_ticks()),
+                format!("SLOTS {}", self.input_diagnostics.slot_count),
+                format!("PADS {}", self.input_diagnostics.visible_gamepads),
+                format!("BTN {}", self.gamepad_button_states.len()),
+                format!("AXES {}", self.gamepad_axis_values.len()),
+            ];
+
+            for (index, line) in observability_lines.iter().enumerate() {
+                let column_index = index / 4;
+                let row_index = index % 4;
+                let stats_left_x = match column_index {
+                    0 => -0.84,
+                    1 => -0.28,
+                    _ => 0.28,
+                };
+                let stats_column_width = 0.50;
+                let stats_top_y = 0.45 - row_index as f32 * 0.19;
+
+                let glyph_size =
+                    Self::overlay_text_glyph_size_to_fit(line, stats_column_width, 0.0060, 0.0044);
+                let color = if index < 2 {
+                    [0.88, 0.96, 0.99]
+                } else {
+                    [0.74, 0.90, 0.96]
+                };
+
+                self.append_overlay_text_line(
+                    overlay_vertices,
+                    line,
+                    stats_left_x,
+                    stats_top_y,
+                    glyph_size,
+                    color,
                 );
             }
         }
@@ -533,7 +782,7 @@ impl State {
                 panel_min_y,
                 panel_max_x,
                 panel_max_y,
-                [0.80, 0.50, 0.30],
+                [0.22, 0.30, 0.46],
             );
             // Inner panel
             self.push_overlay_rect(
@@ -542,28 +791,45 @@ impl State {
                 panel_min_y + 0.04,
                 panel_max_x - 0.04,
                 panel_max_y - 0.04,
-                [0.16, 0.10, 0.08],
+                [0.07, 0.11, 0.18],
             );
 
             for (index, message) in notifications.iter().rev().take(4).enumerate() {
-                let top = panel_max_y - 0.05 - index as f32 * 0.09;
-                let bottom = top - 0.055;
-                let width_scale = ((message.len() % 24) as f32 / 24.0).clamp(0.25, 1.0);
-                let strip_max_x =
-                    panel_min_x + 0.08 + (panel_max_x - panel_min_x - 0.10) * width_scale;
-                let strip_color = match index {
-                    0 => [0.98, 0.72, 0.34],
-                    1 => [0.88, 0.60, 0.30],
-                    2 => [0.76, 0.52, 0.28],
-                    _ => [0.64, 0.44, 0.26],
+                let row_top = panel_max_y - 0.05 - index as f32 * 0.10;
+                let row_bottom = row_top - 0.08;
+                let row_min_x = panel_min_x + 0.05;
+                let row_max_x = panel_max_x - 0.05;
+                let row_width = row_max_x - row_min_x;
+                let text_color = match index {
+                    0 => [0.94, 0.98, 0.99],
+                    1 => [0.86, 0.93, 0.97],
+                    2 => [0.78, 0.88, 0.95],
+                    _ => [0.70, 0.82, 0.92],
                 };
+
+                let text_glyph_size =
+                    Self::overlay_text_glyph_size_to_fit(message, row_width - 0.04, 0.0034, 0.0022);
+                let text_width = Self::overlay_text_width(message, text_glyph_size);
+                let text_height = Self::overlay_text_height(text_glyph_size);
+                let text_start_x = row_min_x + (row_width - text_width) * 0.5;
+                let text_top_y = (row_top + row_bottom) * 0.5 + text_height * 0.5;
+
                 self.push_overlay_rect(
                     overlay_vertices,
-                    panel_min_x + 0.04,
-                    bottom,
-                    strip_max_x,
-                    top,
-                    strip_color,
+                    row_min_x,
+                    row_bottom,
+                    row_max_x,
+                    row_top,
+                    [0.13, 0.20, 0.30],
+                );
+
+                self.append_overlay_text_line(
+                    overlay_vertices,
+                    message,
+                    text_start_x,
+                    text_top_y,
+                    text_glyph_size,
+                    text_color,
                 );
             }
         }
@@ -571,145 +837,102 @@ impl State {
 
     fn append_control_diagnostic_indicators(&self, vertices: &mut Vec<BatchVertex>) {
         let diagnostics = self.input_diagnostics;
-        let panel_min_x = -0.935;
-        let panel_max_x = -0.465;
+        let panel_min_x = -0.92;
+        let panel_max_x = -0.36;
+        let panel_min_y = 0.47;
+        let panel_max_y = 0.85;
+        let content_min_x = panel_min_x + 0.03;
+        let content_max_x = panel_max_x - 0.03;
+        let content_width = content_max_x - content_min_x;
 
         // Dedicated diagnostics card to separate text from scene/scrim noise.
         // We layer the card fill to increase effective opacity on both WebGPU and WebGL.
         self.push_overlay_rect(
             vertices,
             panel_min_x,
-            0.59,
+            panel_min_y,
             panel_max_x,
-            0.91,
+            panel_max_y,
             [0.05, 0.10, 0.16],
         );
         self.push_overlay_rect(
             vertices,
             panel_min_x,
-            0.59,
+            panel_min_y,
             panel_max_x,
-            0.91,
+            panel_max_y,
             [0.05, 0.10, 0.16],
         );
         self.push_overlay_rect(
             vertices,
             panel_min_x,
-            0.59,
+            panel_min_y,
             panel_max_x,
-            0.91,
+            panel_max_y,
             [0.05, 0.10, 0.16],
         );
 
-        let text_color = [0.74, 0.92, 0.96];
-        let text_origin_x = -0.92;
-        let mut text_origin_y = 0.885;
-        let text_scale = 0.0046;
-        let text_step = 0.036;
+        let heading_color = [0.90, 0.98, 0.99];
+        let text_color = [0.78, 0.93, 0.97];
+        let accent_color = [0.98, 0.88, 0.66];
+        let base_text_scale = 0.0052;
+        let line_step = 0.038;
+        let mut line_top_y = panel_max_y - 0.035;
 
-        self.append_overlay_text_line(
-            vertices,
+        let lines = [
             "INPUT DIAG",
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            [0.86, 0.97, 0.98],
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
             &format!(
-                "FCS: {}",
+                "FOCUS {}",
                 diagnostics_bool_text(diagnostics.document_has_focus)
             ),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
             &format!(
-                "VIS: {}",
+                "VISIBLE {}",
                 diagnostics_bool_text(diagnostics.document_visible)
             ),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
             &format!(
-                "API: {}",
+                "API {}",
                 diagnostics_bool_text(diagnostics.gamepad_api_available)
             ),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
-            &format!("SEC: {}", diagnostics_bool_text(diagnostics.secure_context)),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
-            &format!("SLT: {}", diagnostics.slot_count),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
-            &format!("PAD: {}", diagnostics.visible_gamepads),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
-
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
             &format!(
-                "HUD MODE: {}",
+                "SECURE {}",
+                diagnostics_bool_text(diagnostics.secure_context)
+            ),
+            &format!("SLOTS {}", diagnostics.slot_count),
+            &format!("PADS {}", diagnostics.visible_gamepads),
+            &format!(
+                "HUD {}",
                 self.control_plane
                     .hud_telemetry_mode()
                     .label()
                     .to_ascii_uppercase()
             ),
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            text_color,
-        );
+            "F TOGGLE HUD",
+        ];
 
-        text_origin_y -= text_step;
-        self.append_overlay_text_line(
-            vertices,
-            "TOGGLE: F CYCLE",
-            text_origin_x,
-            text_origin_y,
-            text_scale,
-            [0.88, 0.86, 0.62],
-        );
+        for (index, line) in lines.iter().enumerate() {
+            let line_scale =
+                Self::overlay_text_glyph_size_to_fit(line, content_width, base_text_scale, 0.0038);
+            let line_width = Self::overlay_text_width(line, line_scale);
+            let line_start_x = content_min_x + (content_width - line_width) * 0.5;
+            let color = if index == 0 {
+                heading_color
+            } else if index == lines.len() - 1 {
+                accent_color
+            } else {
+                text_color
+            };
+
+            self.append_overlay_text_line(
+                vertices,
+                line,
+                line_start_x,
+                line_top_y,
+                line_scale,
+                color,
+            );
+
+            line_top_y -= line_step;
+        }
     }
 
     fn append_overlay_text_line(
@@ -746,35 +969,50 @@ impl State {
         }
     }
 
-    fn append_pinned_fps_text(&self, vertices: &mut Vec<BatchVertex>) {
-        let hud_min_x = 0.72;
-        let hud_max_x = 0.985;
-        let hud_min_y = 0.90;
-        let hud_max_y = 0.985;
+    fn overlay_text_width(text: &str, glyph_size: f32) -> f32 {
+        let glyph_count = text.chars().count() as f32;
+        if glyph_count <= 0.0 {
+            return 0.0;
+        }
 
-        self.push_overlay_rect(
-            vertices,
-            hud_min_x,
-            hud_min_y,
-            hud_max_x,
-            hud_max_y,
-            [0.10, 0.16, 0.22],
-        );
-        self.push_overlay_rect(
-            vertices,
-            hud_min_x,
-            hud_min_y,
-            hud_max_x,
-            hud_max_y,
-            [0.10, 0.16, 0.22],
-        );
+        // Each glyph advances by 6 units, while lit pixels span 4.86 units.
+        ((glyph_count - 1.0) * 6.0 + 4.86) * glyph_size
+    }
+
+    fn overlay_text_height(glyph_size: f32) -> f32 {
+        // Glyph rows occupy 4.86 units vertically (4 full steps + 0.86 fill).
+        4.86 * glyph_size
+    }
+
+    fn overlay_text_glyph_size_to_fit(
+        text: &str,
+        max_width: f32,
+        preferred_glyph_size: f32,
+        min_glyph_size: f32,
+    ) -> f32 {
+        if text.is_empty() {
+            return preferred_glyph_size.max(min_glyph_size);
+        }
+
+        let glyph_units = Self::overlay_text_width(text, 1.0);
+        if glyph_units <= 0.0 || max_width <= 0.0 {
+            return min_glyph_size;
+        }
+
+        let max_fit_size = max_width / glyph_units;
+        preferred_glyph_size.min(max_fit_size).max(min_glyph_size)
+    }
+
+    fn append_pinned_fps_text(&self, vertices: &mut Vec<BatchVertex>) {
+        let hud_text_x = 0.735;
+        let hud_text_top_y = 0.965;
 
         let fps_text = format!("FPS: {}", self.smoothed_fps.round() as i32);
         self.append_overlay_text_line(
             vertices,
             &fps_text,
-            hud_min_x + 0.015,
-            hud_max_y - 0.02,
+            hud_text_x,
+            hud_text_top_y,
             0.005,
             [0.86, 0.96, 0.98],
         );
