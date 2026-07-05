@@ -280,6 +280,16 @@ Validation note (2026-07-03): Manual browser runs confirm asteroid health behavi
 
 - [ ] Task 5.7.1: Define a compact composite material model supporting 2-3 chained passes
 - [ ] Task 5.7.2: Implement deterministic render-graph pass ordering with explicit dependencies
+- [ ] Task 5.7.3: Add emissive extraction + blur + add path for CRT-style glow/bloom
+- [ ] Task 5.7.4: Bound intermediate targets and add quality fallback under memory/frame pressure
+- [ ] Task 5.7.5: Add validation proving composite effects toggle per material without entity-structure changes
+
+**Demonstrates**:
+- Composite looks are achieved through pass composition, not vertex format growth
+- Effect layering remains opt-in and bounded by runtime budgets
+- Materials become a durable extension seam for ROM-specific rendering styles
+
+**Priority**: P1 (Unlocks extensible visual effects)
 
 ### Milestone 5.8: Engine Control Plane and Overlays (Core-First, Cross-Platform)
 **Outcome**: Pause/menu, control, performance, and notification overlays are owned by engine runtime core (not ROM logic and not HTML-only), so browser and future desktop frontends share one control-plane implementation.
@@ -314,16 +324,39 @@ Acceptance note (input context): When overlay context is visible, gameplay input
 - ROMs remain focused on gameplay while engine manages runtime UX controls
 
 **Priority**: P0 (Required for desktop parity and maintainable runtime UX)
-- [ ] Task 5.7.3: Add emissive extraction + blur + add path for CRT-style glow/bloom
-- [ ] Task 5.7.4: Bound intermediate targets and add quality fallback under memory/frame pressure
-- [ ] Task 5.7.5: Add validation proving composite effects toggle per material without entity-structure changes
+
+### Milestone 5.9: Font-Backed Engine Text Rendering
+**Outcome**: Engine overlays and HUD text render from imported font data through an atlas-backed text path instead of hardcoded glyph tables, while keeping simulation determinism isolated from presentation work.
+
+**Dependency note**: Build on Milestone 5.8 engine-owned overlays; do not reintroduce DOM-owned runtime UI for text presentation.
+
+**Recommended references**:
+- Preferred library: `glyphon` docs: <https://docs.rs/glyphon/latest/glyphon/>
+- `glyphon` repository and examples: <https://github.com/grovesNL/glyphon>
+- Concrete `glyphon` example (`hello-world.rs`): <https://github.com/grovesNL/glyphon/blob/main/examples/hello-world.rs>
+- `wgpu` API reference: <https://docs.rs/wgpu/latest/wgpu/>
+- `wgpu` graphics-work encapsulation guidance: <https://github.com/gfx-rs/wgpu/wiki/Encapsulating-Graphics-Work>
+- Vulkan text-overlay reference sample (atlas/bitmap path): <https://github.com/SaschaWillems/Vulkan/tree/master/examples/textoverlay>
+
+- [ ] Task 5.9.1: Define an engine-owned text rendering seam that separates string/layout preparation from render-pass encoding.
+- [ ] Task 5.9.2: Replace the hardcoded glyph-table overlay path with atlas-backed font rendering for engine overlays and HUD text only.
+- [ ] Task 5.9.3: Start with one embedded font and a constrained character-set policy suitable for current diagnostics, pause/menu, and notification overlays.
+- [ ] Task 5.9.4: Keep text render-only so font loading, layout, and caching do not affect deterministic simulation behavior or replay outcomes.
+- [ ] Task 5.9.5: Add profiling and observability for glyph atlas preparation cost, cache growth, first-use hitch behavior, and text draw-call/batch impact.
+- [ ] Task 5.9.6: Add acceptance checks for readability and stable behavior across Chromium WebGPU, Firefox WebGL fallback, resize events, and browser scale-factor changes.
+
+**First-slice exclusions**:
+- No multi-font fallback or localization commitment in this slice.
+- No complex-script shaping requirement in this slice.
+- No ROM-authored text widget/layout system in this slice.
+- No manifest-driven font streaming or residency policy in this slice.
 
 **Demonstrates**:
-- Composite looks are achieved through pass composition, not vertex format growth
-- Effect layering remains opt-in and bounded by runtime budgets
-- Materials become a durable extension seam for ROM-specific rendering styles
+- Engine text quality improves without expanding gameplay/simulation scope.
+- Overlay text remains engine-owned and cross-platform.
+- Font integration is measurable and bounded before broader UI/content ambitions.
 
-**Priority**: P1 (Unlocks extensible visual effects)
+**Priority**: P1 (Improves runtime UX after overlay ownership is established)
 
 ### Milestone 6: Session Support & Basic Multiplayer (Shared Sessions)
 **Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.
@@ -406,6 +439,7 @@ Acceptance note (input context): When overlay context is visible, gameplay input
 
 - [ ] Task 1.5.1: Define ROM manifest schema v1 (`rom_id`, `version`, `entry_scene`, `assets`, `scenes`, `controller_maps`, `entity_templates`)
 - [ ] Task 1.5.2: Add sprite/animation asset types and metadata conventions to manifest schema
+- [ ] Task 1.5.2a: Define a later manifest-managed font asset shape (`font_id`, source/hash metadata, intended usage, fallback chain) for engine and ROM text once residency/versioning infrastructure exists.
 - [ ] Task 1.5.3: Define scene reference records and controller-map reference records
 - [ ] Task 1.5.4: Define entity template schema linking assets, interaction config, and controller maps
 - [ ] Task 1.5.5: Implement ROM manifest parser validation for required fields and duplicate IDs
