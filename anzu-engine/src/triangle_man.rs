@@ -1080,7 +1080,7 @@ impl TriangleManSimulation {
         let heading_y = angle_rad.sin();
         let spawn_offset = 0.12;
 
-        let mass = 1.00;
+        let mass = 0.25;
         let moment_of_inertia = 0.5 * mass * radius * radius;
         world.set_transform(
             entity_id,
@@ -1695,7 +1695,7 @@ fn spawn_player_entity(
 
 #[cfg(test)]
 mod tests {
-    use super::{TriangleManSimulation, TriangleManSpec};
+    use super::{RoleKind, TriangleManSimulation, TriangleManSpec};
     use crate::ecs::{EntityId, Transform, World};
     use crate::input::InputEvent;
     use crate::simulation::{
@@ -1750,6 +1750,46 @@ mod tests {
         world.set_transform(anchor, Transform::default());
         simulation.write_anchor_to_world(&mut world, anchor);
         world.transform(anchor).copied().unwrap_or_default()
+    }
+
+    fn asteroid_entities_except_anchor(
+        simulation: &TriangleManSimulation,
+        world: &World,
+        anchor: EntityId,
+    ) -> Vec<EntityId> {
+        world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .filter(|entity_id| simulation.role_for_entity(*entity_id) == Some(RoleKind::Asteroid))
+            .collect()
+    }
+
+    fn total_mass(world: &World, entities: &[EntityId]) -> f32 {
+        entities
+            .iter()
+            .map(|entity_id| {
+                world
+                    .rigid_body(*entity_id)
+                    .expect("entity should have rigid body")
+                    .mass
+            })
+            .sum()
+    }
+
+    fn total_linear_momentum(world: &World, entities: &[EntityId]) -> (f32, f32) {
+        entities.iter().fold((0.0f32, 0.0f32), |acc, entity_id| {
+            let transform = world
+                .transform(*entity_id)
+                .expect("entity should have transform");
+            let body = world
+                .rigid_body(*entity_id)
+                .expect("entity should have rigid body");
+            (
+                acc.0 + body.mass * transform.velocity_x,
+                acc.1 + body.mass * transform.velocity_y,
+            )
+        })
     }
 
     #[test]
@@ -2318,6 +2358,378 @@ mod tests {
         assert!(
             (fragment_momentum_y - expected_momentum_y).abs() < 1e-3,
             "fragment y momentum mismatch: expected {expected_momentum_y}, got {fragment_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn lethal_bullet_hit_transfers_momentum_then_fragments_into_four_conserving_mass_and_momentum()
+    {
+        let anchor: EntityId = 910;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(asteroid, 1.0);
+        let bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.85, 0.0, 0.0);
+
+        let parent_mass = world
+            .rigid_body(asteroid)
+            .expect("asteroid rigid body should be present")
+            .mass;
+        let expected_momentum_entities = [asteroid, bullet];
+        let (expected_momentum_x, expected_momentum_y) =
+            total_linear_momentum(&world, &expected_momentum_entities);
+
+        let hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+        assert!(world.transform(asteroid).is_none());
+        assert!(world.transform(bullet).is_none());
+
+        let fragments = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            fragments.len(),
+            4,
+            "expected exactly four fragments from lethal asteroid hit"
+        );
+
+        let fragment_mass = total_mass(&world, &fragments);
+        assert!(
+            (fragment_mass - parent_mass).abs() < 1e-5,
+            "fragment mass mismatch: expected parent mass {parent_mass}, got {fragment_mass}"
+        );
+
+        let (fragment_momentum_x, fragment_momentum_y) = total_linear_momentum(&world, &fragments);
+        assert!(
+            (fragment_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "fragment x momentum mismatch: expected {expected_momentum_x}, got {fragment_momentum_x}"
+        );
+        assert!(
+            (fragment_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "fragment y momentum mismatch: expected {expected_momentum_y}, got {fragment_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn medium_fragment_hit_transfers_momentum_then_refragments_into_four_conserving_mass_and_momentum()
+     {
+        let anchor: EntityId = 911;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "first fragmentation should create four medium asteroids"
+        );
+
+        let medium_parent = medium_asteroids[0];
+        let medium_parent_mass = world
+            .rigid_body(medium_parent)
+            .expect("medium parent rigid body should be present")
+            .mass;
+
+        let medium_transform = world
+            .transform(medium_parent)
+            .expect("medium parent transform should be present");
+        let medium_parent_x = medium_transform.position_x;
+        let medium_parent_y = medium_transform.position_y;
+        let second_bullet = simulation.spawn_bullet_entity(
+            &mut world,
+            medium_parent_x - 0.15,
+            medium_parent_y,
+            0.45,
+            0.0,
+            0.0,
+        );
+
+        let expected_momentum_entities = [medium_parent, second_bullet];
+        let (expected_momentum_x, expected_momentum_y) =
+            total_linear_momentum(&world, &expected_momentum_entities);
+
+        let second_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: medium_parent,
+                entity_b: second_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &second_hit);
+
+        assert!(world.transform(medium_parent).is_none());
+        assert!(world.transform(second_bullet).is_none());
+
+        let after_second_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            after_second_hit.len(),
+            7,
+            "expected 3 surviving medium asteroids plus 4 new child asteroids"
+        );
+
+        let new_children: Vec<EntityId> = after_second_hit
+            .into_iter()
+            .filter(|entity_id| !medium_asteroids.contains(entity_id))
+            .collect();
+        assert_eq!(
+            new_children.len(),
+            4,
+            "second-stage hit should produce four child asteroids"
+        );
+
+        let child_mass = total_mass(&world, &new_children);
+        assert!(
+            (child_mass - medium_parent_mass).abs() < 1e-5,
+            "second-stage child mass mismatch: expected parent mass {medium_parent_mass}, got {child_mass}"
+        );
+
+        let (child_momentum_x, child_momentum_y) = total_linear_momentum(&world, &new_children);
+        assert!(
+            (child_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "second-stage child x momentum mismatch: expected {expected_momentum_x}, got {child_momentum_x}"
+        );
+        assert!(
+            (child_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "second-stage child y momentum mismatch: expected {expected_momentum_y}, got {child_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn chained_medium_fragment_hits_each_split_into_four_and_conserve_mass_and_momentum() {
+        let anchor: EntityId = 912;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "first fragmentation should create four medium asteroids"
+        );
+
+        let targets = [medium_asteroids[0], medium_asteroids[1]];
+        for (index, target_parent) in targets.into_iter().enumerate() {
+            let before_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+            assert!(
+                before_hit.contains(&target_parent),
+                "target medium asteroid should exist before chained hit {index}"
+            );
+
+            let parent_mass = world
+                .rigid_body(target_parent)
+                .expect("target medium rigid body should be present")
+                .mass;
+            let target_transform = world
+                .transform(target_parent)
+                .expect("target medium transform should be present");
+            let target_x = target_transform.position_x;
+            let target_y = target_transform.position_y;
+            let bullet_heading = 0.35 + index as f32 * 0.2;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                target_x - 0.15,
+                target_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let expected_momentum_entities = [target_parent, bullet];
+            let (expected_momentum_x, expected_momentum_y) =
+                total_linear_momentum(&world, &expected_momentum_entities);
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: target_parent,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+            assert!(world.transform(target_parent).is_none());
+            assert!(world.transform(bullet).is_none());
+
+            let after_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+            assert_eq!(
+                after_hit.len(),
+                before_hit.len() + 3,
+                "each chained second-stage hit should net +3 asteroids (remove 1, add 4)"
+            );
+
+            let new_children: Vec<EntityId> = after_hit
+                .iter()
+                .copied()
+                .filter(|entity_id| !before_hit.contains(entity_id))
+                .collect();
+            assert_eq!(
+                new_children.len(),
+                4,
+                "chained hit {index} should produce exactly four new child asteroids"
+            );
+
+            let child_mass = total_mass(&world, &new_children);
+            assert!(
+                (child_mass - parent_mass).abs() < 1e-5,
+                "chained hit {index} mass mismatch: expected parent mass {parent_mass}, got {child_mass}"
+            );
+
+            let (child_momentum_x, child_momentum_y) = total_linear_momentum(&world, &new_children);
+            assert!(
+                (child_momentum_x - expected_momentum_x).abs() < 1e-3,
+                "chained hit {index} x momentum mismatch: expected {expected_momentum_x}, got {child_momentum_x}"
+            );
+            assert!(
+                (child_momentum_y - expected_momentum_y).abs() < 1e-3,
+                "chained hit {index} y momentum mismatch: expected {expected_momentum_y}, got {child_momentum_y}"
+            );
+        }
+
+        let final_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            final_asteroids.len(),
+            10,
+            "after two chained second-stage hits, expected 10 asteroid entities total"
+        );
+    }
+
+    #[test]
+    fn full_chain_fragments_to_sixteen_then_vaporizes_all_grandchildren() {
+        let anchor: EntityId = 913;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        // Stage 1: large asteroid -> 4 medium fragments.
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "expected first-stage split to produce 4 medium asteroids"
+        );
+
+        // Stage 2: each medium asteroid -> 4 grandchildren, yielding 16 total.
+        for (index, medium_parent) in medium_asteroids.iter().copied().enumerate() {
+            let medium_transform = world
+                .transform(medium_parent)
+                .expect("medium asteroid transform should be present");
+            let medium_x = medium_transform.position_x;
+            let medium_y = medium_transform.position_y;
+            let bullet_heading = 0.25 + index as f32 * 0.2;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                medium_x - 0.15,
+                medium_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: medium_parent,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+        }
+
+        let mut grandchildren = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        grandchildren.sort_unstable();
+        assert_eq!(
+            grandchildren.len(),
+            16,
+            "expected four medium asteroids to each split into four grandchildren"
+        );
+
+        // Stage 3: vaporize each grandchild with one bullet (no further fragmentation expected).
+        for (index, grandchild) in grandchildren.iter().copied().enumerate() {
+            let grandchild_transform = world
+                .transform(grandchild)
+                .expect("grandchild transform should be present");
+            let grandchild_x = grandchild_transform.position_x;
+            let grandchild_y = grandchild_transform.position_y;
+            let bullet_heading = 0.15 + index as f32 * 0.11;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                grandchild_x - 0.12,
+                grandchild_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: grandchild,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+        }
+
+        let remaining_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            remaining_asteroids.len(),
+            0,
+            "expected all 16 grandchildren to be vaporized with no asteroid survivors"
         );
     }
 
