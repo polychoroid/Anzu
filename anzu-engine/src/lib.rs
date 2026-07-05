@@ -55,3 +55,11 @@ pub fn reset_game() {
         platform_browser::request_game_reset();
     }
 }
+
+#[wasm_bindgen]
+pub fn set_control_binding(_command: String, _key: String) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        platform_browser::request_control_binding(_command, _key);
+    }
+}

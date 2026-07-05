@@ -19,6 +19,7 @@ const FRAME_LOG_INTERVAL: u64 = 120;
 struct UiBridgeState {
     game_over: bool,
     reset_requested: bool,
+    pending_control_bindings: Vec<(String, String)>,
 }
 
 thread_local! {
@@ -35,6 +36,15 @@ pub fn request_game_reset() {
     });
 }
 
+pub fn request_control_binding(command: String, key: String) {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge
+            .borrow_mut()
+            .pending_control_bindings
+            .push((command, key));
+    });
+}
+
 fn publish_game_over(game_over: bool) {
     UI_BRIDGE_STATE.with(|bridge| {
         bridge.borrow_mut().game_over = game_over;
@@ -47,6 +57,16 @@ fn take_reset_request() -> bool {
         let requested = bridge.reset_requested;
         bridge.reset_requested = false;
         requested
+    })
+}
+
+fn take_pending_control_bindings() -> Vec<(String, String)> {
+    UI_BRIDGE_STATE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        bridge
+            .pending_control_bindings
+            .drain(..)
+            .collect::<Vec<(String, String)>>()
     })
 }
 
@@ -276,6 +296,16 @@ impl ApplicationHandler<renderer::State> for App {
                 if take_reset_request() {
                     state.reset_game();
                 }
+
+                for (command, key) in take_pending_control_bindings() {
+                    if !state.set_control_binding(&command, &key) {
+                        log_warn(&format!(
+                            "[CONTROL] rejected binding command='{}' key='{}'",
+                            command, key
+                        ));
+                    }
+                }
+
                 publish_game_over(state.is_game_over());
 
                 if let Err(error) = state.render() {

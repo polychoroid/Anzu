@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const is_game_over: () => number;
 export const reset_game: () => void;
+export const set_control_binding: (a: number, b: number, c: number, d: number) => void;
 export const start: () => void;
 export const wasm_bindgen__convert__closures_____invoke__h9887d5ab72723f8a: (a: number, b: number, c: any) => [number, number];
 export const wasm_bindgen__convert__closures_____invoke__h76f270015cb01911: (a: number, b: number, c: any, d: any) => void;

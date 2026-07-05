@@ -5,6 +5,8 @@ export function is_game_over(): boolean;
 
 export function reset_game(): void;
 
+export function set_control_binding(_command: string, _key: string): void;
+
 /**
  * Start called by wasm-bindgen when the module is initialized in the browser.
  */
@@ -16,6 +18,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly is_game_over: () => number;
     readonly reset_game: () => void;
+    readonly set_control_binding: (a: number, b: number, c: number, d: number) => void;
     readonly start: () => void;
     readonly wasm_bindgen__convert__closures_____invoke__h9887d5ab72723f8a: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h76f270015cb01911: (a: number, b: number, c: any, d: any) => void;

@@ -395,7 +395,8 @@ const ASTEROID_SPAWN_PRESETS: [(f32, f32, f32, f32, f32); 8] = [
 const FRAGMENT_MIN_PARENT_SCALE: f32 = 0.06;
 const FRAGMENT_CHILD_SCALE_FACTOR: f32 = 0.58;
 const FRAGMENT_TANGENT_SPEED: f32 = 0.16;
-const FRAGMENT_RESTITUTION_FLOOR: f32 = 0.2;
+const ASTEROID_MASS_VARIANCE_MIN: f32 = 0.25;
+const ASTEROID_MASS_VARIANCE_MAX: f32 = 1.75;
 const ASTEROID_BASE_HEALTH: f32 = 2.0;
 const ASTEROID_FRAGMENT_HEALTH: f32 = 1.0;
 const WORLD_MIN_X: f32 = -1.0;
@@ -420,6 +421,7 @@ pub struct TriangleManSpec {
     pub asteroid_initial_count: u32,
     pub asteroid_target_count: u32,
     pub asteroid_target_time_seconds: f32,
+    pub asteroid_velocity_scale_at_target: f32,
     pub asteroid_mass_scale_at_target: f32,
     pub scale: f32,
 }
@@ -442,7 +444,8 @@ impl Default for TriangleManSpec {
             asteroid_initial_count: 2,
             asteroid_target_count: 100,
             asteroid_target_time_seconds: 180.0,
-            asteroid_mass_scale_at_target: 5000.0,
+            asteroid_velocity_scale_at_target: 10.0,
+            asteroid_mass_scale_at_target: 1.0,
             scale: 0.045,
         }
     }
@@ -1007,11 +1010,13 @@ impl TriangleManSimulation {
         spawn_index: usize,
         scale: f32,
         mass_scale: f32,
+        velocity_scale: f32,
     ) -> EntityId {
         let preset = ASTEROID_SPAWN_PRESETS[spawn_index % ASTEROID_SPAWN_PRESETS.len()];
         let entity_id = world.spawn();
         let radius = max_radius(&SQUARE_COLLIDER, scale);
-        let mass = 2.2 * mass_scale.max(1.0);
+        let mass_variance = self.asteroid_spawn_mass_variance(spawn_index);
+        let mass = 2.2 * mass_scale.max(1.0) * mass_variance;
         let moment_of_inertia = 0.5 * mass * radius * radius;
 
         world.set_transform(
@@ -1021,8 +1026,8 @@ impl TriangleManSimulation {
                 position_y: preset.1,
                 rotation_rad: 0.0,
                 uniform_scale: scale,
-                velocity_x: preset.2,
-                velocity_y: preset.3,
+                velocity_x: preset.2 * velocity_scale,
+                velocity_y: preset.3 * velocity_scale,
                 angular_velocity: preset.4,
             },
         );
@@ -1147,7 +1152,7 @@ impl TriangleManSimulation {
         world: &mut World,
         asteroid_entity: EntityId,
         impact_entity: EntityId,
-        restitution_scale: f32,
+        _restitution_scale: f32,
     ) {
         let Some(asteroid_transform) = world.transform(asteroid_entity).copied() else {
             return;
@@ -1172,18 +1177,17 @@ impl TriangleManSimulation {
         let asteroid_mass = asteroid_body.mass.max(0.1);
         let impact_mass = impact_body.mass.max(0.01);
         let child_mass = (asteroid_mass * 0.25).max(0.03);
+        let total_fragment_mass = child_mass * 4.0;
         let child_moment = 0.5 * child_mass * child_radius * child_radius;
 
-        let retained_restitution =
-            (asteroid_body.restitution * restitution_scale).clamp(FRAGMENT_RESTITUTION_FLOOR, 1.0);
         let total_momentum_x = asteroid_transform.velocity_x * asteroid_mass
             + impact_transform.velocity_x * impact_mass;
         let total_momentum_y = asteroid_transform.velocity_y * asteroid_mass
             + impact_transform.velocity_y * impact_mass;
-        let retained_momentum_x = total_momentum_x * retained_restitution;
-        let retained_momentum_y = total_momentum_y * retained_restitution;
-        let base_velocity_x = retained_momentum_x / asteroid_mass;
-        let base_velocity_y = retained_momentum_y / asteroid_mass;
+        // Enforce linear momentum conservation across breakup:
+        // sum(fragment_mass * fragment_velocity) == asteroid_momentum + impactor_momentum.
+        let base_velocity_x = total_momentum_x / total_fragment_mass;
+        let base_velocity_y = total_momentum_y / total_fragment_mass;
 
         let mut impact_dir_x = impact_transform.velocity_x;
         let mut impact_dir_y = impact_transform.velocity_y;
@@ -1304,6 +1308,35 @@ impl TriangleManSimulation {
         let slope = (self.spec.asteroid_mass_scale_at_target.max(1.0) - 1.0) / target_time;
         (1.0 + self.elapsed_seconds.max(0.0) * slope).max(1.0)
     }
+
+    fn asteroid_velocity_scale(&self) -> f32 {
+        let target_time = self.spec.asteroid_target_time_seconds;
+        if target_time <= 0.0 {
+            return self.spec.asteroid_velocity_scale_at_target.max(1.0);
+        }
+
+        let target_scale = self.spec.asteroid_velocity_scale_at_target.max(1.0);
+        let progress = (self.elapsed_seconds.max(0.0) / target_time).clamp(0.0, 1.0);
+        let eased_progress = progress * progress;
+        1.0 + (target_scale - 1.0) * eased_progress
+    }
+
+    fn asteroid_spawn_mass_variance(&self, spawn_index: usize) -> f32 {
+        // Deterministic spawn-local pseudo-random factor in [ASTEROID_MASS_VARIANCE_MIN, ASTEROID_MASS_VARIANCE_MAX].
+        // Using spawn counters keeps replays deterministic for the same input stream.
+        let mut seed = (spawn_index as u32)
+            .wrapping_mul(0x9E37_79B9)
+            .wrapping_add(self.asteroid_spawned_total.wrapping_mul(0x7F4A_7C15));
+        seed ^= seed >> 16;
+        seed = seed.wrapping_mul(0x7FEB_352D);
+        seed ^= seed >> 15;
+        seed = seed.wrapping_mul(0x846C_A68B);
+        seed ^= seed >> 16;
+
+        let unit = (seed as f32) / (u32::MAX as f32);
+        ASTEROID_MASS_VARIANCE_MIN
+            + (ASTEROID_MASS_VARIANCE_MAX - ASTEROID_MASS_VARIANCE_MIN) * unit
+    }
 }
 
 impl SimulationModel for TriangleManSimulation {
@@ -1387,9 +1420,10 @@ impl SimulationModel for TriangleManSimulation {
 
         if !self.baseline_asteroid_spawned {
             let mass_scale = self.asteroid_mass_scale();
+            let velocity_scale = self.asteroid_velocity_scale();
             let baseline_count = self.spec.asteroid_initial_count.max(1);
             for index in 0..baseline_count {
-                self.spawn_asteroid_entity(world, index as usize, 0.14, mass_scale);
+                self.spawn_asteroid_entity(world, index as usize, 0.14, mass_scale, velocity_scale);
             }
             self.asteroid_spawn_index = baseline_count as usize;
             self.baseline_asteroid_spawned = true;
@@ -1517,11 +1551,18 @@ impl SimulationModel for TriangleManSimulation {
         let dynamic_interval = self.asteroid_spawn_interval();
         let spawn_burst = self.asteroid_spawn_burst_count();
         let mass_scale = self.asteroid_mass_scale();
+        let velocity_scale = self.asteroid_velocity_scale();
 
         while self.asteroid_spawn_timer_seconds <= 0.0 {
             if spawn_burst > 0 {
                 for _ in 0..spawn_burst {
-                    self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.12, mass_scale);
+                    self.spawn_asteroid_entity(
+                        world,
+                        self.asteroid_spawn_index,
+                        0.12,
+                        mass_scale,
+                        velocity_scale,
+                    );
                     self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
                 }
             }
@@ -2064,7 +2105,7 @@ mod tests {
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
         simulation.set_health_for_test(asteroid, 1.0);
         let bullet = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
 
@@ -2100,8 +2141,8 @@ mod tests {
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let _first = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
-        let _second = simulation.spawn_asteroid_entity(&mut world, 1, 0.14, 1.0);
+        let _first = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        let _second = simulation.spawn_asteroid_entity(&mut world, 1, 0.14, 1.0, 1.0);
 
         simulation.elapsed_seconds = 12.0;
 
@@ -2114,7 +2155,7 @@ mod tests {
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
         simulation.set_health_for_test(asteroid, 1.0);
         let bullet = simulation.spawn_bullet_entity(&mut world, 1.06, 0.0, 0.0, 0.0, 0.0);
 
@@ -2162,7 +2203,7 @@ mod tests {
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
         let bullet_one = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
 
         let first_hit = SchedulerFrameReport {
@@ -2205,5 +2246,140 @@ mod tests {
             assert!(simulation.role_for_entity(entity_id).is_some());
             assert!(world.rigid_body(entity_id).is_some());
         }
+    }
+
+    #[test]
+    fn heavy_asteroid_fragments_conserve_linear_momentum() {
+        let anchor: EntityId = 909;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 5000.0, 1.0);
+        if let Some(transform) = world.transform_mut(asteroid) {
+            transform.velocity_x = 0.0;
+            transform.velocity_y = 0.0;
+        }
+        simulation.set_health_for_test(asteroid, 1.0);
+
+        let bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 1.0, 0.0, 0.0);
+
+        let asteroid_transform = world
+            .transform(asteroid)
+            .expect("asteroid transform should be present");
+        let asteroid_body = world
+            .rigid_body(asteroid)
+            .expect("asteroid rigid body should be present");
+        let bullet_transform = world
+            .transform(bullet)
+            .expect("bullet transform should be present");
+        let bullet_body = world
+            .rigid_body(bullet)
+            .expect("bullet rigid body should be present");
+        let expected_momentum_x = asteroid_transform.velocity_x * asteroid_body.mass
+            + bullet_transform.velocity_x * bullet_body.mass;
+        let expected_momentum_y = asteroid_transform.velocity_y * asteroid_body.mass
+            + bullet_transform.velocity_y * bullet_body.mass;
+
+        let hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+        let fragment_entities: Vec<EntityId> = world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .collect();
+        assert_eq!(fragment_entities.len(), 4);
+
+        let mut fragment_momentum_x = 0.0f32;
+        let mut fragment_momentum_y = 0.0f32;
+        for entity_id in fragment_entities {
+            let transform = world
+                .transform(entity_id)
+                .expect("fragment transform should be present");
+            let body = world
+                .rigid_body(entity_id)
+                .expect("fragment rigid body should be present");
+            fragment_momentum_x += body.mass * transform.velocity_x;
+            fragment_momentum_y += body.mass * transform.velocity_y;
+        }
+
+        assert!(
+            (fragment_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "fragment x momentum mismatch: expected {expected_momentum_x}, got {fragment_momentum_x}"
+        );
+        assert!(
+            (fragment_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "fragment y momentum mismatch: expected {expected_momentum_y}, got {fragment_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn asteroid_mass_scale_stays_flat_with_default_spec() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(111);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds;
+        let mass_scale = simulation.asteroid_mass_scale();
+        assert!(
+            (mass_scale - 1.0).abs() < 1e-6,
+            "expected flat asteroid mass scale of 1.0, got {mass_scale}"
+        );
+    }
+
+    #[test]
+    fn asteroid_velocity_scale_reaches_ten_x_at_three_minutes() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(112);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds;
+        let velocity_scale = simulation.asteroid_velocity_scale();
+        assert!(
+            (velocity_scale - 10.0).abs() < 1e-6,
+            "expected asteroid velocity scale of 10.0 at target time, got {velocity_scale}"
+        );
+    }
+
+    #[test]
+    fn asteroid_velocity_scale_uses_ease_in_curve() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(113);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds * 0.5;
+        let velocity_scale = simulation.asteroid_velocity_scale();
+        assert!(
+            (velocity_scale - 3.25).abs() < 1e-5,
+            "expected eased mid-curve velocity scale of 3.25, got {velocity_scale}"
+        );
+    }
+
+    #[test]
+    fn spawned_asteroids_cover_expected_mass_variance_range() {
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(114);
+        simulation.baseline_asteroid_spawned = true;
+
+        let mut min_mass = f32::MAX;
+        let mut max_mass = f32::MIN;
+        for index in 0..64 {
+            let asteroid = simulation.spawn_asteroid_entity(&mut world, index, 0.14, 1.0, 1.0);
+            let mass = world
+                .rigid_body(asteroid)
+                .expect("spawned asteroid should have rigid body")
+                .mass;
+            min_mass = min_mass.min(mass);
+            max_mass = max_mass.max(mass);
+        }
+
+        assert!(min_mass >= 2.2 * 0.25 - 1e-5);
+        assert!(max_mass <= 2.2 * 1.75 + 1e-5);
+        assert!(
+            min_mass < 2.2 * 0.55,
+            "expected lower-tail mass variance, got min_mass={min_mass}"
+        );
+        assert!(
+            max_mass > 2.2 * 1.45,
+            "expected upper-tail mass variance, got max_mass={max_mass}"
+        );
     }
 }
