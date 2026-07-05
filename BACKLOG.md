@@ -234,6 +234,8 @@ Validation note (2026-07-03): Manual browser runs confirm asteroid health behavi
 - [ ] Task 5.3: Add lightweight render stats (draw calls, buffer uploads per frame)
 - [ ] Task 5.4: Create performance regression checklist for each milestone
 - [ ] Task 5.5: Require profiling evidence before introducing compute offload or complex scheduling
+- [ ] Task 5.5a: Document and verify the frame boundary contract (`acquire -> encode -> submit -> present`), including surface `lost/suboptimal/reconfigure` handling expectations.
+- [ ] Task 5.5b: Add boundary health instrumentation (`surface_reconfigure_count`, `present_fail_or_skip_count`, submit latency buckets, and frame pacing spike counters).
 
 **Demonstrates**:
 - Performance decisions are measured, not guessed
@@ -278,6 +280,40 @@ Validation note (2026-07-03): Manual browser runs confirm asteroid health behavi
 
 - [ ] Task 5.7.1: Define a compact composite material model supporting 2-3 chained passes
 - [ ] Task 5.7.2: Implement deterministic render-graph pass ordering with explicit dependencies
+
+### Milestone 5.8: Engine Control Plane and Overlays (Core-First, Cross-Platform)
+**Outcome**: Pause/menu, control, performance, and notification overlays are owned by engine runtime core (not ROM logic and not HTML-only), so browser and future desktop frontends share one control-plane implementation.
+
+- [x] Task 5.8.1: Define shared control-plane command and overlay domain types in renderer core/shared module (`ControlCommand`, `OverlayPanel`, `OverlayVisibility`).
+- [x] Task 5.8.2: Add shared configurable binding parser/default map for engine control commands (`Esc`, `F1`, `F2`, `F3`, `R`) with runtime override support.
+- [x] Task 5.8.3: Intercept engine control commands before ROM input dispatch so pause/reset/control/perf/notification toggles are ROM-independent.
+- [x] Task 5.8.4: Render overlays in-engine (main pass) so UI is not dependent on DOM dialogs.
+- [x] Task 5.8.5: Move display/controller diagnostics from HTML diagnostics panel into engine control overlay.
+- [x] Task 5.8.6: Provide minimal performance overlay (FPS) in-engine.
+- [ ] Task 5.8.7: Provide notification overlay in-engine for control-plane and device events.
+- [x] Task 5.8.8: Remove HTML-owned reset/game-over/controller HUD dialogs from `docs/index.html` after overlay parity.
+- [x] Task 5.8.9: Define and document explicit input contexts (`GameplayContext`, `OverlayContext`) in control-plane contract, including command precedence and consumption rules.
+- [x] Task 5.8.10: Enforce modal capture while overlay context is open (consume gameplay controls, allow overlay navigation/toggles, suppress pause-toggle side effects while overlay context is active).
+- [x] Task 5.8.11: Add regression coverage for context gating across keyboard and controller paths (including pause suppression while overlay is visible and restored routing after overlay close).
+
+Progress note (2026-07-03): Initial control-plane command/keybind handling is implemented and now anchored in shared renderer module `src/renderer/control_plane.rs` for cross-platform reuse. Runtime mutable control-plane state ownership has been moved into shared `ControlPlaneState` (core-first) and the wasm adapter now feeds key/controller/reset events into that shared state machine instead of keeping a wasm-local duplicate. In-engine overlay rendering has begun: pause menu, control, performance (with FPS bar), and notifications panels are now generated as geometry batches and rendered inside the existing GPU pass (not DOM-dependent).
+
+Validation note (2026-07-03): Post-migration targeted suites remain green: `control_plane::tests` 8 passed, `simulation::tests` 5 passed, `triangle_man::tests` 13 passed. Overlay geometry is now wired and visible when toggles are active (F1: control, F2: perf, F3: notifications, Esc: pause).
+
+Validation note (2026-07-05): Input-context modal capture and pause suppression are now enforced through shared control-plane + wasm routing gates. Added regression coverage for context restore and pause recovery after overlay close (`closing_overlay_restores_gameplay_context`, `pause_toggle_recovers_after_overlay_context_closes`). Targeted run: `cargo test renderer::control_plane::tests:: -- --nocapture` => 17 passed, 0 failed.
+
+Validation note (2026-07-05): Input/display diagnostics are now engine-owned and rendered in the control scrim; HTML diagnostics HUD/toggle and remaining HTML game-over/reset overlays were removed from `docs/index.html`. Validation: `cargo check --target wasm32-unknown-unknown` passed after renderer diagnostics integration and shell cleanup.
+
+Validation note (2026-07-05): Chromium and Firefox manual smoke runs confirm in-engine overlays are visible and functional in the same interaction order (pause -> control diagnostics scrim -> performance overlay) while gameplay continues rendering. Console output in both browsers shows expected no-gamepad warnings and control-context consume logs with no blocking runtime errors.
+
+Acceptance note (input context): When overlay context is visible, gameplay input routing is blocked except explicit control-plane commands, and behavior remains deterministic and consistent across keyboard/controller paths.
+
+**Demonstrates**:
+- Control-plane behavior is engine-owned and frontend-agnostic
+- Browser and desktop runtimes can reuse one command/binding model
+- ROMs remain focused on gameplay while engine manages runtime UX controls
+
+**Priority**: P0 (Required for desktop parity and maintainable runtime UX)
 - [ ] Task 5.7.3: Add emissive extraction + blur + add path for CRT-style glow/bloom
 - [ ] Task 5.7.4: Bound intermediate targets and add quality fallback under memory/frame pressure
 - [ ] Task 5.7.5: Add validation proving composite effects toggle per material without entity-structure changes
