@@ -4,7 +4,7 @@ use crate::ecs::{
     CollisionBounds, EntityId, Lifecycle, MaterialId, Mesh, MeshAssetId, PolygonCollider,
     RigidBody, Transform, World,
 };
-use crate::input::InputEvent;
+use crate::input::{InputBinding, InputContextStack, InputControlMap, InputEvent};
 use crate::renderer::{MaterialBlendMode, MaterialDefinition, RenderRomPackage, RomRenderData};
 use crate::rom::RomPackage;
 use crate::simulation::{
@@ -451,6 +451,8 @@ impl Default for TriangleManSpec {
     }
 }
 
+const TRIANGLE_MAN_GAMEPLAY_CONTEXT: &str = "triangle_man.gameplay";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TriangleManAction {
     ThrustForward,
@@ -458,107 +460,11 @@ enum TriangleManAction {
     TurnLeft,
     TurnRight,
     Fire,
+    TurnAxis,
+    ThrustStickAxis,
+    ThrustForwardAxis,
+    ThrustReverseAxis,
 }
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TriangleManAxisAction {
-    Thrust,
-    Turn,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TriangleManBindingKind {
-    Digital(TriangleManAction),
-    Analog {
-        axis: TriangleManAxisAction,
-        invert: bool,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TriangleManInputBinding {
-    source: &'static str,
-    control: &'static str,
-    kind: TriangleManBindingKind,
-}
-
-struct TriangleManInputProfile {
-    bindings: &'static [TriangleManInputBinding],
-}
-
-const TRIANGLE_MAN_INPUT_BINDINGS: [TriangleManInputBinding; 11] = [
-    TriangleManInputBinding {
-        source: "keyboard",
-        control: "KeyW",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::ThrustForward),
-    },
-    TriangleManInputBinding {
-        source: "keyboard",
-        control: "KeyS",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::ThrustReverse),
-    },
-    TriangleManInputBinding {
-        source: "keyboard",
-        control: "KeyA",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::TurnLeft),
-    },
-    TriangleManInputBinding {
-        source: "keyboard",
-        control: "KeyD",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::TurnRight),
-    },
-    TriangleManInputBinding {
-        source: "keyboard",
-        control: "Space",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
-    },
-    TriangleManInputBinding {
-        source: "gamepad",
-        control: "south_button",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
-    },
-    TriangleManInputBinding {
-        source: "gamepad",
-        control: "left_stick_x",
-        kind: TriangleManBindingKind::Analog {
-            axis: TriangleManAxisAction::Turn,
-            invert: false,
-        },
-    },
-    TriangleManInputBinding {
-        source: "gamepad",
-        control: "left_stick_y",
-        kind: TriangleManBindingKind::Analog {
-            axis: TriangleManAxisAction::Thrust,
-            invert: true,
-        },
-    },
-    TriangleManInputBinding {
-        source: "gamepad",
-        control: "left_trigger",
-        kind: TriangleManBindingKind::Analog {
-            axis: TriangleManAxisAction::Thrust,
-            invert: true,
-        },
-    },
-    TriangleManInputBinding {
-        source: "gamepad",
-        control: "right_trigger",
-        kind: TriangleManBindingKind::Analog {
-            axis: TriangleManAxisAction::Thrust,
-            invert: false,
-        },
-    },
-    TriangleManInputBinding {
-        source: "mouse",
-        control: "primary_button",
-        kind: TriangleManBindingKind::Digital(TriangleManAction::Fire),
-    },
-];
-
-const TRIANGLE_MAN_INPUT_PROFILE: TriangleManInputProfile = TriangleManInputProfile {
-    bindings: &TRIANGLE_MAN_INPUT_BINDINGS,
-};
 
 #[derive(Clone, Copy, Default)]
 struct TriangleManInputFrame {
@@ -568,12 +474,15 @@ struct TriangleManInputFrame {
 }
 
 struct TriangleManInputManager {
-    input_profile: &'static TriangleManInputProfile,
+    contexts: InputContextStack<TriangleManAction>,
     thrust_forward: bool,
     thrust_reverse: bool,
     turn_left: bool,
     turn_right: bool,
-    analog_values: BTreeMap<(&'static str, &'static str), f32>,
+    turn_axis: f32,
+    thrust_stick_axis: f32,
+    thrust_forward_axis: f32,
+    thrust_reverse_axis: f32,
     fire_key_down: bool,
     pending_fire: bool,
 }
@@ -595,13 +504,59 @@ const TRIGGER_RELEASE_THRESHOLD: f32 = 0.45;
 
 impl Default for TriangleManInputManager {
     fn default() -> Self {
+        let mut gameplay = InputControlMap::new();
+        for (binding, action) in [
+            (
+                InputBinding::keyboard("KeyW"),
+                TriangleManAction::ThrustForward,
+            ),
+            (
+                InputBinding::keyboard("KeyS"),
+                TriangleManAction::ThrustReverse,
+            ),
+            (InputBinding::keyboard("KeyA"), TriangleManAction::TurnLeft),
+            (InputBinding::keyboard("KeyD"), TriangleManAction::TurnRight),
+            (InputBinding::keyboard("Space"), TriangleManAction::Fire),
+            (
+                InputBinding::mouse("primary_button"),
+                TriangleManAction::Fire,
+            ),
+            (
+                InputBinding::gamepad("south_button"),
+                TriangleManAction::Fire,
+            ),
+            (
+                InputBinding::gamepad("left_stick_x"),
+                TriangleManAction::TurnAxis,
+            ),
+            (
+                InputBinding::gamepad("left_stick_y"),
+                TriangleManAction::ThrustStickAxis,
+            ),
+            (
+                InputBinding::gamepad("left_trigger"),
+                TriangleManAction::ThrustReverseAxis,
+            ),
+            (
+                InputBinding::gamepad("right_trigger"),
+                TriangleManAction::ThrustForwardAxis,
+            ),
+        ] {
+            gameplay
+                .bind_rom_action(binding, action)
+                .expect("Triangle Man gameplay bindings should not use reserved keys");
+        }
+
         Self {
-            input_profile: &TRIANGLE_MAN_INPUT_PROFILE,
+            contexts: InputContextStack::new(TRIANGLE_MAN_GAMEPLAY_CONTEXT, gameplay),
             thrust_forward: false,
             thrust_reverse: false,
             turn_left: false,
             turn_right: false,
-            analog_values: BTreeMap::new(),
+            turn_axis: 0.0,
+            thrust_stick_axis: 0.0,
+            thrust_forward_axis: 0.0,
+            thrust_reverse_axis: 0.0,
             fire_key_down: false,
             pending_fire: false,
         }
@@ -609,61 +564,75 @@ impl Default for TriangleManInputManager {
 }
 
 impl TriangleManInputManager {
+    fn active_context(&self) -> &'static str {
+        self.contexts.active_context()
+    }
+
+    fn set_active_context(&mut self, context_id: &'static str) -> bool {
+        self.contexts.replace_active_context(context_id)
+    }
+
     fn handle_input_event(&mut self, event: &InputEvent) {
         if event.is_repeat && event.is_pressed {
             return;
         }
 
-        for binding in self.input_profile.bindings {
-            if binding.source != event.source || binding.control != event.control {
-                continue;
-            }
+        let Some(action_event) = self.contexts.resolve_event(event) else {
+            return;
+        };
 
-            if event.source == "gamepad" {
+        if event.source == "gamepad" {
+            log_input_debug(&format!(
+                "[INPUT][TRIANGLE_MAN] matched control={} value={:.3} pressed={} repeat={}",
+                event.control, event.value, event.is_pressed, event.is_repeat
+            ));
+        }
+
+        match action_event.action {
+            TriangleManAction::ThrustForward => self.thrust_forward = action_event.is_pressed,
+            TriangleManAction::ThrustReverse => self.thrust_reverse = action_event.is_pressed,
+            TriangleManAction::TurnLeft => self.turn_left = action_event.is_pressed,
+            TriangleManAction::TurnRight => self.turn_right = action_event.is_pressed,
+            TriangleManAction::Fire => {
+                if action_event.is_pressed && !self.fire_key_down {
+                    self.pending_fire = true;
+                }
+                self.fire_key_down = action_event.is_pressed;
+            }
+            TriangleManAction::TurnAxis => {
+                self.turn_axis = apply_deadzone(action_event.value.clamp(-1.0, 1.0), 0.2);
                 log_input_debug(&format!(
-                    "[INPUT][TRIANGLE_MAN] matched control={} value={:.3} pressed={} repeat={}",
-                    event.control, event.value, event.is_pressed, event.is_repeat
+                    "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
+                    event.control, self.turn_axis
                 ));
             }
-
-            match binding.kind {
-                TriangleManBindingKind::Digital(action) => match action {
-                    TriangleManAction::ThrustForward => self.thrust_forward = event.is_pressed,
-                    TriangleManAction::ThrustReverse => self.thrust_reverse = event.is_pressed,
-                    TriangleManAction::TurnLeft => self.turn_left = event.is_pressed,
-                    TriangleManAction::TurnRight => self.turn_right = event.is_pressed,
-                    TriangleManAction::Fire => {
-                        if event.is_pressed && !self.fire_key_down {
-                            self.pending_fire = true;
-                        }
-                        self.fire_key_down = event.is_pressed;
-                    }
-                },
-                TriangleManBindingKind::Analog { axis, invert } => {
-                    let mut value = event.value.clamp(-1.0, 1.0);
-                    if invert {
-                        value = -value;
-                    }
-                    value = apply_analog_filter(
-                        binding.control,
-                        value,
-                        self.analog_values
-                            .get(&(binding.source, binding.control))
-                            .copied(),
-                    );
-
-                    if event.source == "gamepad" {
-                        log_input_debug(&format!(
-                            "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
-                            binding.control, value
-                        ));
-                    }
-
-                    self.analog_values.insert(
-                        (binding.source, binding.control),
-                        analog_axis_value(axis, value),
-                    );
-                }
+            TriangleManAction::ThrustStickAxis => {
+                let value = -action_event.value.clamp(-1.0, 1.0);
+                self.thrust_stick_axis = apply_deadzone(value, 0.2);
+                log_input_debug(&format!(
+                    "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
+                    event.control, self.thrust_stick_axis
+                ));
+            }
+            TriangleManAction::ThrustForwardAxis => {
+                self.thrust_forward_axis = apply_trigger_hysteresis(
+                    action_event.value.clamp(-1.0, 1.0),
+                    self.thrust_forward_axis,
+                );
+                log_input_debug(&format!(
+                    "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
+                    event.control, self.thrust_forward_axis
+                ));
+            }
+            TriangleManAction::ThrustReverseAxis => {
+                self.thrust_reverse_axis = apply_trigger_hysteresis(
+                    action_event.value.clamp(-1.0, 1.0),
+                    self.thrust_reverse_axis,
+                );
+                log_input_debug(&format!(
+                    "[INPUT][TRIANGLE_MAN] filtered analog control={} stored_value={:.3}",
+                    event.control, self.thrust_reverse_axis
+                ));
             }
         }
     }
@@ -672,30 +641,10 @@ impl TriangleManInputManager {
         let digital_thrust = axis_value(self.thrust_reverse, self.thrust_forward) as f32;
         let digital_turn = axis_value(self.turn_left, self.turn_right) as f32;
 
-        let mut analog_thrust = 0.0f32;
-        let mut analog_turn = 0.0f32;
-
-        for binding in self.input_profile.bindings {
-            let TriangleManBindingKind::Analog { axis, .. } = binding.kind else {
-                continue;
-            };
-
-            let Some(value) = self
-                .analog_values
-                .get(&(binding.source, binding.control))
-                .copied()
-            else {
-                continue;
-            };
-
-            match axis {
-                TriangleManAxisAction::Thrust => analog_thrust += value,
-                TriangleManAxisAction::Turn => analog_turn += value,
-            }
-        }
-
-        analog_thrust = analog_thrust.clamp(-1.0, 1.0);
-        analog_turn = analog_turn.clamp(-1.0, 1.0);
+        let analog_thrust = (self.thrust_stick_axis + self.thrust_forward_axis
+            - self.thrust_reverse_axis)
+            .clamp(-1.0, 1.0);
+        let analog_turn = self.turn_axis.clamp(-1.0, 1.0);
 
         let thrust = if analog_thrust.abs() > digital_thrust.abs() {
             analog_thrust
@@ -717,19 +666,6 @@ impl TriangleManInputManager {
 
         self.pending_fire = false;
         frame
-    }
-}
-
-fn analog_axis_value(_axis: TriangleManAxisAction, value: f32) -> f32 {
-    value
-}
-
-fn apply_analog_filter(control: &str, value: f32, previous: Option<f32>) -> f32 {
-    match control {
-        "left_trigger" | "right_trigger" => {
-            apply_trigger_hysteresis(value, previous.unwrap_or(0.0))
-        }
-        _ => apply_deadzone(value, 0.2),
     }
 }
 
@@ -1342,6 +1278,14 @@ impl TriangleManSimulation {
 impl SimulationModel for TriangleManSimulation {
     fn handle_input_event(&mut self, event: InputEvent) {
         self.input_manager.handle_input_event(&event);
+    }
+
+    fn active_input_context_id(&self) -> &'static str {
+        self.input_manager.active_context()
+    }
+
+    fn set_active_input_context(&mut self, context_id: &'static str) {
+        let _ = self.input_manager.set_active_context(context_id);
     }
 
     fn sync_anchor_from_world(&mut self, world: &World, anchor_entity: EntityId) {

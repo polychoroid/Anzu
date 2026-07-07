@@ -27,9 +27,12 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Avoid `unwrap`/`expect` in startup, rendering, networking, and asset-loading paths.
 - Require measurable acceptance checks for each completed task (build/test/profile evidence).
 - Keep deterministic simulation behavior isolated from I/O and rendering side effects.
+- Establish final host/guest topology early; do not defer core service boundaries (input, render, audio, network, storage, ROM lifecycle) to late-stage retrofits.
 - Keep physics response deterministic while supporting configurable restitution (elastic/inelastic) and bounded-world collisions.
 - Enforce deny-by-default authz and per-request authorization checks for protected endpoints.
 - Prefer documented extension seams (traits/modules/contracts) before adding complexity.
+- Require ROM integrity verification (content hash minimum) before execution; never activate unverifiable ROM binaries.
+- Treat asset loading and residency assumptions as day-0 architecture constraints, not post-content hardening work.
 - Classify runtime resources (`critical`, `scaled_optional`, `reused`, `streaming`) and tie each class to explicit budget/eviction policy.
 - Treat memory budgets as dynamic signals (CPU/WASM + GPU), with graceful quality fallback before hard failure.
 - Keep streaming and upload work off the frame-critical path via priority queues and bounded per-frame upload budgets.
@@ -226,6 +229,28 @@ Validation note (2026-07-03): Manual browser runs confirm asteroid health behavi
 
 **Priority**: P0 (Closes gameplay collision-action gap)
 
+### Milestone 4.6: Triangle Man 2 Platformer Scaffold
+**Outcome**: A new ROM, `anzu.triangle_man_2`, boots a minimal platformer slice with one ground strip and one controllable triangle.
+
+- [x] Task 4.6.1: Extract shared platformer helpers for mesh registration, render data, and locomotion state.
+- [x] Task 4.6.2: Wire `triangle_man_2` through the ROM resolver and browser manifest.
+- [x] Task 4.6.3: Implement first-slice movement with WASD, W jump, S crawl, traction, momentum, and ground contact.
+- [ ] Task 4.6.4: Add browser acceptance coverage proving the scene boots and the triangle can crawl, move, and jump on the ground.
+
+Progress note (2026-07-06): The first ROM slice is in place with shared platformer components, but browser-level acceptance still needs a focused run before the milestone is fully closed.
+
+### Milestone 4.7: Triangle Man 3D Isometric Adventure
+**Outcome**: A new ROM, `anzu.triangle_man_3d`, delivers an isometric adventure vertical slice with deterministic movement, camera framing, and interaction-ready scene composition.
+
+- [ ] Task 4.7.1: Define ROM package scaffold and resolver wiring for `anzu.triangle_man_3d`.
+- [ ] Task 4.7.2: Add isometric transform/extraction path compatible with existing render pipeline contracts.
+- [ ] Task 4.7.3: Implement first scene with terrain plane, player avatar proxy, and collision-enabled walkable bounds.
+- [ ] Task 4.7.4: Add input mapping for 8-direction movement projected into isometric world space.
+- [ ] Task 4.7.5: Add deterministic camera follow behavior with bounded smoothing and fixed-step stability.
+- [ ] Task 4.7.6: Add acceptance checks for spawn, traversal, collision boundaries, and stable fixed-tick behavior.
+
+Planning note (2026-07-06): Milestone added to capture the next ROM line after Triangle Man 2 and to preserve deterministic runtime requirements while expanding to isometric 3D presentation.
+
 ### Milestone 5: Runtime Performance Baseline and Profiling Gates
 **Outcome**: Runtime has explicit performance budgets and profiling checkpoints before major architectural expansion.
 
@@ -357,6 +382,41 @@ Acceptance note (input context): When overlay context is visible, gameplay input
 - Font integration is measurable and bounded before broader UI/content ambitions.
 
 **Priority**: P1 (Improves runtime UX after overlay ownership is established)
+
+### Milestone 5.10: Topology-First Console/ROM Split (Full-Functionality MVP Gate)
+**Outcome**: Runtime host/guest topology is established early with full service boundaries, ROM integrity verification, and manifest compatibility checks so future ROM/content growth does not force architectural rework.
+
+- [ ] Task 5.10.1: Freeze ROM ABI v1 and host service contract (input, render extraction, audio events, network envelopes, storage calls, lifecycle hooks).
+- [ ] Task 5.10.2: Add manifest v2 schema (`rom_url`, `abi_version`, `integrity`, `required_capabilities`, `storage_namespace`, optional fallback ROM metadata).
+- [ ] Task 5.10.3: Implement ROM loader path (`fetch -> verify -> instantiate -> activate`) with hard-fail behavior on ABI/integrity mismatch.
+- [ ] Task 5.10.4: Implement hash-addressed ROM cache/index (content hash keyed, not URL-only) with rollback-safe activation semantics.
+- [ ] Task 5.10.5: Integrate storage namespace isolation per ROM for saves/cache metadata and validate quota/eviction recovery path.
+- [ ] Task 5.10.6: Add deterministic replay checks proving host/guest boundary does not regress fixed-tick determinism.
+- [ ] Task 5.10.7: Add acceptance scenario for one dynamic ROM loaded through full path with offline cache reload.
+
+**Demonstrates**:
+- Final topology is established before ROM complexity increases
+- ROMs are integrity-protected from day one
+- Core service boundaries are stable enough for long-lived iteration
+
+**Priority**: P0 (Prevents late structural refactor risk)
+
+### Milestone 5.11: Early Audio Service Vertical Slice (Sine/Beep-Boop)
+**Outcome**: Engine owns a cross-platform audio service boundary early, validated with a minimal synthesized tone path so resource and lifecycle constraints are known before content/audio complexity arrives.
+
+- [ ] Task 5.11.1: Define `AudioService` contract (init/shutdown, voice lifecycle, one-shot events, per-frame budget counters).
+- [ ] Task 5.11.2: Implement minimal host-owned audio backend (WebAudio in browser path) with explicit unlock/resume handling.
+- [ ] Task 5.11.3: Add synthesized sine-wave generator and two one-shot cues (`beep`, `boop`) driven through ROM-facing audio events.
+- [ ] Task 5.11.4: Add runtime safeguards (voice limits, clipping guard, fallback to silence on backend errors).
+- [ ] Task 5.11.5: Add observability for callback underruns, active voice count, and audio timing drift versus fixed tick.
+- [ ] Task 5.11.6: Add acceptance checks across Chromium and Firefox (start, cue playback, suspend/resume tab behavior, no crash on context loss).
+
+**Demonstrates**:
+- Audio ownership is engine-level and independent of ROM internals
+- Early resource constraints are visible before full content audio integration
+- ROMs can emit declarative audio intent without binding to backend specifics
+
+**Priority**: P0 (Establishes early audio constraints and service topology)
 
 ### Milestone 6: Session Support & Basic Multiplayer (Shared Sessions)
 **Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.

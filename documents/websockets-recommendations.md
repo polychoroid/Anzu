@@ -4,6 +4,11 @@ Below is a **GitHub-ready recommendation document** (Markdown) based on your arc
 
 # Multiplayer WASM + WebSocket Architecture Recommendations
 
+## Current Project Status Note
+
+Anzu does not yet ship a production multiplayer WebSocket path in the runtime crate.
+Treat this document as forward-looking guidance for upcoming networking milestones, not as a description of already-implemented runtime behavior.
+
 ## Overview
 
 This document outlines a recommended architecture for building a **low-latency multiplayer game** using:

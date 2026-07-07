@@ -11,7 +11,11 @@ mod rom;
 #[cfg(any(target_arch = "wasm32", test))]
 mod simulation;
 #[cfg(any(target_arch = "wasm32", test))]
+mod platformer_common;
+#[cfg(any(target_arch = "wasm32", test))]
 mod triangle_man;
+#[cfg(any(target_arch = "wasm32", test))]
+mod triangle_man_2;
 
 #[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
@@ -27,6 +31,7 @@ pub fn start() -> Result<(), JsValue> {
         let rom_resolver: Arc<dyn Fn(&str) -> Option<Box<dyn renderer::RenderRomPackage>>> =
             Arc::new(|rom_id| match rom_id {
                 "anzu.triangle_man" => Some(Box::new(triangle_man::TriangleManRom)),
+                "anzu.triangle_man_2" => Some(Box::new(triangle_man_2::TriangleMan2Rom)),
                 _ => None,
             });
         platform_browser::run(rom_resolver).map_err(|error| JsValue::from_str(&error))?;

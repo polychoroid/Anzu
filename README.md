@@ -4,12 +4,13 @@ Anzu is a browser-first Rust/WASM engine project focused on a deterministic runt
 
 Live site: [https://polychoroid.github.io/Anzu/](https://polychoroid.github.io/Anzu/)
 
-Current project status (Milestone 3 complete):
+Current project status (through Milestone 4.6 slice):
 - Browser-hosted runtime loop with fixed 60 Hz simulation tick.
 - Full ECS implementation with multi-entity rendering and physics.
 - Input system supporting keyboard, mouse, and gamepad events.
 - Deterministic simulation (input replay produces identical output).
-- Working game: Triangle Man (Asteroids-like demo with player control, shooting, and asteroid spawning).
+- Working ROMs: Triangle Man (asteroids combat) and Triangle Man 2 (platformer slice with ground, walk/crawl/jump).
+- Default manifest ROM is currently Triangle Man 2 (`docs/manifest.json`).
 - Collision detection and rigid body physics with configurable restitution.
 - Material system foundation with per-entity `material_id` routing.
 - Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
@@ -24,7 +25,7 @@ Current project status (Milestone 3 complete):
 ## Repository Layout
 
 - `anzu-engine/` - Rust crate compiled to WebAssembly and loaded by browser shell.
-- `static/` - Browser entry page, manifest, content assets, and generated wasm/js package.
+- `docs/` - Browser entry page, manifest, content assets, and generated wasm/js package.
 - `documents/` - Architecture, developer, deployment, operations, and API documentation.
 - `BACKLOG.md` - Top-down implementation roadmap with milestones/tasks.
 
@@ -34,25 +35,26 @@ Current project status (Milestone 3 complete):
 
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir ../static/pkg --release
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
 2. Serve browser assets:
 
 ```bash
-cd static
+cd docs
 python3 -m http.server 8000
 ```
 
-3. Open `localhost:8000` and play Triangle Man (Asteroids-like game).
+3. Open `localhost:8000` and run the ROM selected in `docs/manifest.json`.
 
-**Controls**:
+**Controls (default Triangle Man 2 ROM)**:
+- **A/D** - Move left/right
+- **W** - Jump
+- **S** - Crawl stance
+
+If you switch `docs/manifest.json` to `anzu.triangle_man`, controls return to the asteroids profile:
 - **W/A/S/D** - Thrust forward/left/reverse/right
 - **Space/Mouse Left** - Fire bullets
-- **Gamepad Left Stick X/Y** - Turn and thrust
-- **Gamepad Triggers** - Reverse/forward thrust (browser-normalized semantic controls)
-- **Gamepad South Button** - Fire bullets
-- **Objective** - Destroy asteroids; avoid collisions
 
 ## Documentation Index
 
@@ -69,13 +71,13 @@ python3 -m http.server 8000
 ### Completed
 - **Milestone 1** (Walking Skeleton): Browser WASM engine foundation with basic render loop
 - **Milestone 2** (ECS Foundation): Multi-entity rendering, physics, collision detection, and lifecycle management
-- **Milestone 3** (Input & Determinism): Input-driven movement, deterministic simulation, and Asteroids-like game logic
+- **Milestone 3** (Input & Determinism): Input-driven movement and deterministic simulation
+- **Milestone 4.5** (Declarative Collision Outcomes): Policy-driven collisions and asteroid fragmentation in Triangle Man
 
 ### In Progress / Upcoming
 Full implementation roadmap is tracked in `BACKLOG.md`:
-- Milestone 3.5: Input/peripheral boundary polish and specialized hardware escape hatches
-- Milestone 4: Spatial broadphase optimization
-- Milestone 4.5: Collision outcome policy + fragmentation flow (in progress; schema/fragment replacement/tests landed)
+- Milestone 4.6: Triangle Man 2 platformer scaffold (browser acceptance still open)
+- Milestone 4.7: Triangle Man 3D isometric adventure (new)
 - Milestone 5: Performance profiling gates
 - Milestones 5.5-5.7: Extensible materials, parameterized shading, and composite multi-pass rendering
 - Milestone 6: Multiplayer session support

@@ -14,6 +14,8 @@ Core layers:
 Contract:
 - ROMs own input vocabulary and scenario rules.
 - Browser/device input quirks are normalized before ROM mapping so ordinary ROMs bind to semantic controls instead of raw browser axis indices.
+- Input context ownership is engine-first: `ControlPlaneState` owns the active ROM context stack and preempts it with an overlay context when any overlay is visible.
+- `Escape` is reserved as the engine overlay anchor key and must not be bound by ROM control maps.
 - Simulation composes applied intent first, then mutates world state through the physics pipeline.
 - Rendering reads state snapshots and must not contain gameplay business rules.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
@@ -21,11 +23,14 @@ Contract:
 Simulation flow:
 1. Input adapters produce generic input events at the platform edge.
 2. Browser input normalization translates raw controls into semantic controls where possible while preserving raw escape hatches for specialized hardware.
-3. ROM simulation converts those events into intent and per-body applied forces.
-4. World state is synchronized once per tick before physics.
-5. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
-6. ROM reconciliation handles policy-driven spawn/despawn and scenario-specific rules (including fragment replacement).
-7. Rendering reads the final world snapshot and never writes gameplay state.
+3. Runtime syncs the active ROM context from `ControlPlaneState` into the active `SimulationModel` before gameplay event dispatch and before each fixed update.
+4. ROM simulation resolves inputs against the active context and may emit context transition requests (`Push`, `Pop`, `Replace`) back to the runtime.
+5. Runtime applies requested context transitions to `ControlPlaneState`, then mirrors the resolved active context back into the simulation.
+6. ROM simulation converts those events into intent and per-body applied forces.
+7. World state is synchronized once per tick before physics.
+8. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
+9. ROM reconciliation handles policy-driven spawn/despawn and scenario-specific rules (including fragment replacement).
+10. Rendering reads the final world snapshot and never writes gameplay state.
 
 ## Rendering Pipeline
 Frame flow:
@@ -42,6 +47,7 @@ Current vertical slice target:
 - One vertex buffer and one uniform bind group for transform data.
 - Role-pair collision policy routing for solid-body vs hitbox outcomes.
 - Bullet-triggered asteroid fragment replacement with independent child entities.
+- Platformer locomotion slice with traction, crawl stance scaling, and grounded jump behavior.
 
 Current rendering/material state:
 - Entity mesh instances carry `material_id` values.

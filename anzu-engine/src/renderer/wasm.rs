@@ -17,7 +17,9 @@ use super::core::{BatchVertex, DrawBatch, RenderCore, RenderError, RotationUnifo
 use crate::ecs::{EntityId, MaterialId, World};
 use crate::input::InputEvent;
 use crate::renderer::RenderRomPackage;
-use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel};
+use crate::simulation::{
+    InputContextRequest, InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel,
+};
 
 const FIXED_STEP_SECONDS: f32 = 1.0 / 60.0;
 const MAX_FIXED_STEPS_PER_FRAME: u32 = 8;
@@ -1178,6 +1180,10 @@ impl State {
             get_gamepads_available
         ));
 
+        let mut control_plane = ControlPlaneState::new(MAX_CONTROL_PLANE_NOTIFICATIONS);
+        let _ = control_plane.replace_active_rom_context(simulation.active_input_context_id());
+        simulation.set_active_input_context(control_plane.active_rom_context());
+
         Ok(Self {
             window,
             surface,
@@ -1195,7 +1201,7 @@ impl State {
             fixed_step_clamp_count: 0,
             smoothed_fps: 60.0,
             game_over: false,
-            control_plane: ControlPlaneState::new(MAX_CONTROL_PLANE_NOTIFICATIONS),
+            control_plane,
             input_diagnostics: InputDiagnosticsSnapshot::default(),
             logged_gamepad_devices: BTreeSet::new(),
             gamepad_button_states: BTreeMap::new(),
@@ -1227,6 +1233,11 @@ impl State {
         self.smoothed_fps = 60.0;
         self.game_over = false;
         self.control_plane.on_game_reset_complete();
+        let _ = self
+            .control_plane
+            .replace_active_rom_context(self.simulation.active_input_context_id());
+        self.simulation
+            .set_active_input_context(self.control_plane.active_rom_context());
 
         self.logged_gamepad_devices.clear();
         self.gamepad_button_states.clear();
@@ -1295,20 +1306,11 @@ impl State {
             key_code
         ));
 
-        if !self.control_plane.allows_gameplay_input() {
-            log_info(&format!(
-                "[INPUT][KEYBOARD] key {:?} consumed by overlay context",
-                key_code
-            ));
-            return;
-        }
-
-        self.simulation
-            .handle_input_event(input_event_from_key_code(
-                key_code,
-                is_pressed,
-                event.repeat,
-            ));
+        self.forward_gameplay_input_event(
+            input_event_from_key_code(key_code, is_pressed, event.repeat),
+            "KEYBOARD",
+            &format!("key {:?}", key_code),
+        );
     }
 
     pub fn set_control_binding(&mut self, command_name: &str, key_name: &str) -> bool {
@@ -1323,13 +1325,11 @@ impl State {
             button, is_pressed
         ));
 
-        if !self.control_plane.allows_gameplay_input() {
-            log_info("[INPUT][MOUSE] button input consumed by overlay context");
-            return;
-        }
-
-        self.simulation
-            .handle_input_event(input_event_from_mouse_button(button, is_pressed));
+        self.forward_gameplay_input_event(
+            input_event_from_mouse_button(button, is_pressed),
+            "MOUSE",
+            "button input",
+        );
     }
 
     pub fn handle_mouse_wheel_event(&mut self, delta: MouseScrollDelta) {
@@ -1338,24 +1338,81 @@ impl State {
             MouseScrollDelta::PixelDelta(position) => position.y as f32,
         };
 
-        if !self.control_plane.allows_gameplay_input() {
-            log_info("[INPUT][MOUSE] wheel input consumed by overlay context");
-            return;
-        }
-
-        self.simulation
-            .handle_input_event(input_event_from_mouse_wheel(value));
+        self.forward_gameplay_input_event(
+            input_event_from_mouse_wheel(value),
+            "MOUSE",
+            "wheel input",
+        );
     }
 
     pub fn handle_cursor_moved_event(&mut self, x: f32, y: f32) {
+        self.forward_gameplay_input_event(
+            input_event_from_cursor_position("x", x),
+            "MOUSE",
+            "cursor_x",
+        );
+        self.forward_gameplay_input_event(
+            input_event_from_cursor_position("y", y),
+            "MOUSE",
+            "cursor_y",
+        );
+    }
+
+    fn forward_gameplay_input_event(
+        &mut self,
+        event: InputEvent,
+        source_label: &str,
+        detail: &str,
+    ) {
         if !self.control_plane.allows_gameplay_input() {
+            log_info(&format!(
+                "[INPUT][{}] {} consumed by context={}",
+                source_label,
+                detail,
+                self.control_plane.active_input_context_id()
+            ));
             return;
         }
 
         self.simulation
-            .handle_input_event(input_event_from_cursor_position("x", x));
+            .set_active_input_context(self.control_plane.active_rom_context());
+        self.simulation.handle_input_event(event);
+    }
+
+    fn apply_simulation_context_requests(&mut self) {
+        while let Some(request) = self.simulation.pop_input_context_request() {
+            match request {
+                InputContextRequest::Push(context_id) => {
+                    if !self.control_plane.push_rom_context(context_id) {
+                        log_warn(&format!(
+                            "[INPUT][CTX] rejected push request context={} active={}",
+                            context_id,
+                            self.control_plane.active_rom_context()
+                        ));
+                    }
+                }
+                InputContextRequest::Pop => {
+                    if !self.control_plane.pop_rom_context() {
+                        log_warn(&format!(
+                            "[INPUT][CTX] rejected pop request at root context={}",
+                            self.control_plane.active_rom_context()
+                        ));
+                    }
+                }
+                InputContextRequest::Replace(context_id) => {
+                    if !self.control_plane.replace_active_rom_context(context_id) {
+                        log_warn(&format!(
+                            "[INPUT][CTX] rejected replace request context={} active={}",
+                            context_id,
+                            self.control_plane.active_rom_context()
+                        ));
+                    }
+                }
+            }
+        }
+
         self.simulation
-            .handle_input_event(input_event_from_cursor_position("y", y));
+            .set_active_input_context(self.control_plane.active_rom_context());
     }
 
     fn run_fixed_tick(&mut self) {
@@ -1371,7 +1428,10 @@ impl State {
 
         self.simulation
             .sync_anchor_from_world(&self.world, self.anchor_entity);
+        self.simulation
+            .set_active_input_context(self.control_plane.active_rom_context());
         self.simulation.update(FIXED_STEP_SECONDS);
+        self.apply_simulation_context_requests();
         self.simulation
             .write_anchor_to_world(&mut self.world, self.anchor_entity);
 
@@ -1562,18 +1622,18 @@ impl State {
                             }
                         }
                     } else {
-                        if !self.control_plane.allows_gameplay_input() {
-                            continue;
-                        }
-
-                        self.simulation.handle_input_event(InputEvent {
+                        self.forward_gameplay_input_event(
+                            InputEvent {
                             source: "gamepad".to_owned(),
                             control,
                             value,
                             device_index: Some(device_index),
                             is_pressed,
                             is_repeat: false,
-                        });
+                            },
+                            "GAMEPAD",
+                            "button input",
+                        );
                     }
                 }
 
@@ -1600,16 +1660,18 @@ impl State {
                         value,
                         value.abs() >= 0.5
                     ));
-                    if self.control_plane.allows_gameplay_input() {
-                        self.simulation.handle_input_event(InputEvent {
+                    self.forward_gameplay_input_event(
+                        InputEvent {
                             source: "gamepad".to_owned(),
                             control: gamepad_axis_control(axis_index),
                             value,
                             device_index: Some(device_index),
                             is_pressed: value.abs() >= 0.5,
                             is_repeat: false,
-                        });
-                    }
+                        },
+                        "GAMEPAD",
+                        "axis input",
+                    );
 
                     if let Some((control, normalized_value)) =
                         gamepad_axis_semantic_alias(axis_index, value)
@@ -1621,16 +1683,18 @@ impl State {
                             normalized_value,
                             normalized_value >= 0.5,
                         ));
-                        if self.control_plane.allows_gameplay_input() {
-                            self.simulation.handle_input_event(InputEvent {
+                        self.forward_gameplay_input_event(
+                            InputEvent {
                                 source: "gamepad".to_owned(),
                                 control: control.to_owned(),
                                 value: normalized_value,
                                 device_index: Some(device_index),
                                 is_pressed: normalized_value >= 0.5,
                                 is_repeat: false,
-                            });
-                        }
+                            },
+                            "GAMEPAD",
+                            "axis alias input",
+                        );
                     }
                 }
 

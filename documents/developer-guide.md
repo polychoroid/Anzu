@@ -8,7 +8,7 @@
   - `src/renderer/core.rs` — render pipelines, material registry, blend-mode routing, and per-material uniform updates.
   - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
   - `Cargo.toml` — Rust dependencies and wasm target configuration.
-- `static/` — Browser shell and static runtime assets.
+- `docs/` — Browser shell and runtime assets served for local/dev/prod static hosting.
 - `documents/` — Documentation set (architecture, developer, deployment, operations, user, API).
 - `BACKLOG.md` — Top-down roadmap and task tracking.
 
@@ -32,7 +32,7 @@ Ensure you have:
 **Option A: Using `wasm-pack` (recommended)**
 ```bash
 cd anzu-engine
-wasm-pack build --target web --out-dir ../static/pkg --release
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
 **Option B: Using `cargo` + `wasm-bindgen` CLI**
@@ -41,17 +41,17 @@ cd anzu-engine
 cargo build --lib --release --target wasm32-unknown-unknown
 wasm-bindgen \
   --target web \
-  --out-dir ../static/pkg \
+  --out-dir ../docs/pkg \
   target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 
 ### Hosting the Static Files
 
-Serve the `static/` directory with any HTTP server. A few common options:
+Serve the `docs/` directory with any HTTP server. A few common options:
 
 **Python 3 (built-in)**
 ```bash
-cd static
+cd docs
 python3 -m http.server 8000
 ```
 Then open `http://localhost:8000/index.html` in your browser.
@@ -59,13 +59,13 @@ Then open `http://localhost:8000/index.html` in your browser.
 **Node.js http-server**
 ```bash
 npm install -g http-server
-cd static
+cd docs
 http-server
 ```
 
 **Simple shell script (for development)**
 ```bash
-cd static && python3 -m http.server 8000 &
+cd docs && python3 -m http.server 8000 &
 sleep 1 && open http://localhost:8000/index.html  # macOS
 # On Linux, use: xdg-open http://localhost:8000/index.html
 # On Windows, use: start http://localhost:8000/index.html
@@ -88,7 +88,7 @@ sleep 1 && open http://localhost:8000/index.html  # macOS
 ```bash
 cd anzu-engine
 cargo build --lib --target wasm32-unknown-unknown --release
-wasm-pack build --target web --out-dir ../static/pkg --release
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
 ### Formatting and Linting
@@ -107,8 +107,15 @@ wasm-pack build --target web --out-dir ../static/pkg --release
   ```bash
   cd anzu-engine && cargo test
   ```
-- Browser-specific tests require a browser test harness (not yet integrated; see Milestone 2).
+- Browser-specific tests require a browser test harness (not yet integrated).
 - Triangle Man includes regression tests for fragment independence and near-edge fragment survival behavior.
+- Input-context routing changes should be validated with:
+  ```bash
+  cd anzu-engine && cargo test renderer::control_plane::tests:: -- --nocapture
+  cd anzu-engine && cargo test triangle_man::tests:: -- --nocapture
+  cd anzu-engine && cargo test triangle_man_2::tests:: -- --nocapture
+  cd anzu-engine && cargo check --target wasm32-unknown-unknown
+  ```
 
 ## Conventions
 
@@ -120,6 +127,9 @@ Runtime pipeline continuation:
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
 - **Input normalization:** Normalize browser- and device-specific gamepad quirks in `src/renderer/wasm.rs` into semantic controls such as `left_trigger` and `right_trigger`; keep raw controls like `axis_4` available only as optional escape hatches for specialized hardware.
+- **Input context orchestration:** `ControlPlaneState` is the sole owner of active context stack state at runtime. ROMs expose context IDs and may request transitions via `SimulationModel::pop_input_context_request()`, but they do not own final context activation.
+- **Overlay preemption:** When overlay UI is visible, engine overlay context is active and gameplay input forwarding is suppressed. When overlay closes, runtime resumes the prior ROM context from the engine-owned stack.
+- **Reserved key rule:** `Escape` is reserved for engine overlay toggle and must not be used in ROM bindings (`bind_rom_action` rejects it).
 - **WebGPU best practices:** 
   - Use wgpu v29+ API.
   - Keep shader code as embedded WGSL strings (see the current renderer implementation).

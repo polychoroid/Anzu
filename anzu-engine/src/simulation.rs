@@ -4,6 +4,13 @@ use web_time::Instant;
 use crate::ecs::{EntityId, World};
 use crate::input::InputEvent;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputContextRequest {
+    Push(&'static str),
+    Pop,
+    Replace(&'static str),
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct SimulationTransform2D {
     pub position_x: f32,
@@ -14,6 +21,13 @@ pub struct SimulationTransform2D {
 
 pub trait SimulationModel {
     fn handle_input_event(&mut self, _event: InputEvent) {}
+    fn active_input_context_id(&self) -> &'static str {
+        "rom.gameplay"
+    }
+    fn set_active_input_context(&mut self, _context_id: &'static str) {}
+    fn pop_input_context_request(&mut self) -> Option<InputContextRequest> {
+        None
+    }
     fn sync_anchor_from_world(&mut self, _world: &World, _anchor_entity: EntityId) {}
     fn write_anchor_to_world(&self, _world: &mut World, _anchor_entity: EntityId) {}
     fn update(&mut self, delta_seconds: f32);

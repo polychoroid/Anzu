@@ -34,13 +34,13 @@ Budget and streaming checks:
 Common failure modes:
 - `manifest.json` not found or blocked by incorrect serving path.
 - Browser not supporting selected GPU backend path.
-- Stale generated `static/pkg` files after code changes.
+- Stale generated `docs/pkg` files after code changes.
 
 Debug workflow:
 1. Rebuild with wasm-pack release output.
 2. Hard-refresh browser page.
 3. Inspect console messages for startup and render diagnostics.
-4. Validate static server root is `static`.
+4. Validate static server root is `docs`.
 5. Compare `pairs_checked` and phase timing logs before/after any simulation architecture change.
 
 Memory pressure workflow:

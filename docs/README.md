@@ -1,5 +1,5 @@
-Anzu Static Runtime
-===================
+Anzu Browser Runtime Assets
+===========================
 
 This folder contains browser-hosted runtime assets for Anzu.
 
@@ -14,10 +14,10 @@ Build and run
 
 ```bash
 cd ../anzu-engine
-wasm-pack build --target web --out-dir ../static/pkg --release
+wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-2. Serve this `static/` directory:
+2. Serve this `docs/` directory:
 
 ```bash
 python3 -m http.server 8000

@@ -2,6 +2,9 @@ use std::collections::{BTreeMap, VecDeque};
 
 use winit::keyboard::KeyCode;
 
+const DEFAULT_ROM_CONTEXT_ID: &str = "rom.gameplay";
+const OVERLAY_CONTEXT_ID: &str = "engine.overlay";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InputContext {
     GameplayContext,
@@ -81,8 +84,6 @@ pub fn default_control_bindings() -> BTreeMap<KeyCode, ControlCommand> {
     let mut bindings = BTreeMap::new();
     bindings.insert(KeyCode::KeyP, ControlCommand::TogglePause);
     bindings.insert(KeyCode::Escape, ControlCommand::ToggleOverlay);
-    bindings.insert(KeyCode::ArrowLeft, ControlCommand::ToggleControl);
-    bindings.insert(KeyCode::ArrowRight, ControlCommand::TogglePerformance);
     bindings.insert(KeyCode::F3, ControlCommand::ToggleNotifications);
     bindings.insert(KeyCode::KeyF, ControlCommand::TogglePinnedFpsHud);
     bindings.insert(KeyCode::KeyR, ControlCommand::ResetGame);
@@ -153,6 +154,7 @@ pub struct ControlPlaneState {
     pending_step_ticks: u32,
     hud_telemetry_mode: HudTelemetryMode,
     control_bindings: BTreeMap<KeyCode, ControlCommand>,
+    rom_context_stack: Vec<&'static str>,
     overlay_visibility: OverlayVisibility,
     notifications: VecDeque<String>,
     max_notifications: usize,
@@ -165,6 +167,7 @@ impl ControlPlaneState {
             pending_step_ticks: 0,
             hud_telemetry_mode: HudTelemetryMode::Hidden,
             control_bindings: default_control_bindings(),
+            rom_context_stack: vec![DEFAULT_ROM_CONTEXT_ID],
             overlay_visibility: OverlayVisibility::new(),
             notifications: VecDeque::new(),
             max_notifications,
@@ -342,6 +345,8 @@ impl ControlPlaneState {
         self.simulation_paused = false;
         self.pending_step_ticks = 0;
         self.hud_telemetry_mode = HudTelemetryMode::Hidden;
+        self.rom_context_stack.clear();
+        self.rom_context_stack.push(DEFAULT_ROM_CONTEXT_ID);
         self.overlay_visibility = OverlayVisibility::new();
         self.push_notification("Game reset");
     }
@@ -364,6 +369,53 @@ impl ControlPlaneState {
 
     pub fn pending_step_ticks(&self) -> u32 {
         self.pending_step_ticks
+    }
+
+    pub fn active_rom_context(&self) -> &'static str {
+        self.rom_context_stack
+            .last()
+            .copied()
+            .unwrap_or(DEFAULT_ROM_CONTEXT_ID)
+    }
+
+    pub fn push_rom_context(&mut self, context_id: &'static str) -> bool {
+        if context_id.is_empty() {
+            return false;
+        }
+
+        self.rom_context_stack.push(context_id);
+        true
+    }
+
+    pub fn pop_rom_context(&mut self) -> bool {
+        if self.rom_context_stack.len() <= 1 {
+            return false;
+        }
+
+        self.rom_context_stack.pop();
+        true
+    }
+
+    pub fn replace_active_rom_context(&mut self, context_id: &'static str) -> bool {
+        if context_id.is_empty() {
+            return false;
+        }
+
+        if let Some(active) = self.rom_context_stack.last_mut() {
+            *active = context_id;
+            true
+        } else {
+            self.rom_context_stack.push(context_id);
+            true
+        }
+    }
+
+    pub fn active_input_context_id(&self) -> &'static str {
+        if self.overlay_visibility.any_visible() {
+            OVERLAY_CONTEXT_ID
+        } else {
+            self.active_rom_context()
+        }
     }
 
     pub fn input_context(&self) -> InputContext {
@@ -462,14 +514,6 @@ mod tests {
         assert_eq!(
             bindings.get(&KeyCode::Escape),
             Some(&ControlCommand::ToggleOverlay)
-        );
-        assert_eq!(
-            bindings.get(&KeyCode::ArrowLeft),
-            Some(&ControlCommand::ToggleControl)
-        );
-        assert_eq!(
-            bindings.get(&KeyCode::ArrowRight),
-            Some(&ControlCommand::TogglePerformance)
         );
         assert_eq!(
             bindings.get(&KeyCode::F3),
@@ -684,5 +728,50 @@ mod tests {
         let _ = state.apply_command(ControlCommand::ToggleNotifications);
         assert!(!state.overlay_visibility().notifications);
         assert_eq!(state.input_context(), InputContext::GameplayContext);
+    }
+
+    #[test]
+    fn rom_context_stack_push_and_pop_behaves_like_a_stack() {
+        let mut state = ControlPlaneState::new(8);
+        assert_eq!(state.active_rom_context(), "rom.gameplay");
+
+        assert!(state.push_rom_context("rom.menu"));
+        assert!(state.push_rom_context("rom.crafting"));
+        assert_eq!(state.active_rom_context(), "rom.crafting");
+
+        assert!(state.pop_rom_context());
+        assert_eq!(state.active_rom_context(), "rom.menu");
+
+        assert!(state.pop_rom_context());
+        assert_eq!(state.active_rom_context(), "rom.gameplay");
+
+        assert!(!state.pop_rom_context());
+        assert_eq!(state.active_rom_context(), "rom.gameplay");
+    }
+
+    #[test]
+    fn replace_active_rom_context_updates_top_without_touching_base_depth() {
+        let mut state = ControlPlaneState::new(8);
+        assert!(state.push_rom_context("rom.menu"));
+        assert_eq!(state.active_rom_context(), "rom.menu");
+
+        assert!(state.replace_active_rom_context("rom.pause"));
+        assert_eq!(state.active_rom_context(), "rom.pause");
+
+        assert!(state.pop_rom_context());
+        assert_eq!(state.active_rom_context(), "rom.gameplay");
+    }
+
+    #[test]
+    fn overlay_context_preempts_rom_context_and_restores_after_close() {
+        let mut state = ControlPlaneState::new(8);
+        assert!(state.push_rom_context("rom.menu"));
+        assert_eq!(state.active_input_context_id(), "rom.menu");
+
+        let _ = state.apply_command(ControlCommand::ToggleOverlay);
+        assert_eq!(state.active_input_context_id(), "engine.overlay");
+
+        let _ = state.apply_command(ControlCommand::ToggleOverlay);
+        assert_eq!(state.active_input_context_id(), "rom.menu");
     }
 }
