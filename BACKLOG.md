@@ -38,6 +38,70 @@ Target: Production-ready browser deployment, optional logic modules, complete ob
 - Keep streaming and upload work off the frame-critical path via priority queues and bounded per-frame upload budgets.
 - Require fallback assets/LODs for streamable content so over-budget conditions degrade quality, not correctness.
 
+### Cross-Cutting Rust Canonical Corrections (P0)
+Outcome: Bring engine code in line with canonical Rust forms while improving hot-path performance and readability.
+
+- [ ] Task RC.1: Remove `unwrap`/`expect`/`panic!` from non-test startup/runtime code paths and convert recoverable failures to typed `Result` errors with actionable context.
+- [ ] Task RC.2: Replace trait-object ROM resolver wiring with compile-time dispatch for built-in ROMs; keep runtime polymorphism only where extension policy explicitly requires it.
+- [ ] Task RC.3: Reduce `Box<dyn ...>` usage in runtime state and ROM/simulation seams where known finite variants allow enum or generic dispatch without behavior regressions.
+- [ ] Task RC.4: Replace boxed-future manifest loader trait signatures with a canonical async abstraction that minimizes heap indirection while preserving wasm compatibility.
+- [ ] Task RC.5: Split oversized wasm runtime module responsibilities (input translation, fixed-tick orchestration, overlay composition, extraction) into focused modules with clear ownership boundaries.
+- [ ] Task RC.6: Remove or fully wire currently-unused public API surface in simulation/control-plane modules; no placeholder dead public methods in core runtime paths.
+- [ ] Task RC.7: Canonicalize test fixtures and assertions by replacing fragile `unwrap`/`expect` setup patterns with explicit helper assertions and deterministic fixtures.
+- [ ] Task RC.8: Enforce zero warnings repo-wide in CI; fail builds on warnings and track cleanup progress until the warning baseline reaches zero.
+
+Specific implementation slices and acceptance checks:
+
+- [ ] Task RC.1a: Replace production `expect` in ROM input map defaults with fallible setup functions that return typed errors and surface startup context.
+- [ ] Task RC.1b: Add startup failure test coverage for invalid/reserved bindings so failures are explicit and non-panicking.
+- [ ] Task RC.1c: Run panic-path audit for non-test code and remove remaining `unwrap`/`expect` in startup/render/input wiring.
+- [ ] Task RC.1 acceptance: `rg "unwrap\\(|expect\\(|panic!\\(" anzu-engine/src --glob '!**/*test*'` returns only explicitly documented non-recoverable invariant sites.
+
+- [ ] Task RC.2a: Introduce a concrete ROM catalog enum for built-in ROM ids and route selection through explicit match-based dispatch.
+- [ ] Task RC.2b: Remove trait-object resolver closure from browser entry wiring and pass concrete ROM selection into runtime bootstrap.
+- [ ] Task RC.2c: Document extension seam for future plugin ROM loading separate from built-in dispatch path.
+- [ ] Task RC.2 acceptance: No `Arc<dyn Fn(&str) -> Option<Box<dyn ...>>>` resolver remains in startup wiring for built-in ROMs.
+
+- [ ] Task RC.3a: Replace boxed simulation/render trait objects in runtime state with enum-backed dispatch for known ROM set.
+- [ ] Task RC.3b: Keep trait-object boundary only at documented dynamic-extension seam and justify it with comments and docs.
+- [ ] Task RC.3c: Capture before/after frame and extraction timings to verify no regression from dispatch changes.
+- [ ] Task RC.3 acceptance: Runtime hot paths no longer allocate or dispatch through `Box<dyn ...>` for built-in ROMs; benchmark notes committed.
+
+- [ ] Task RC.4a: Refactor manifest loader trait to avoid `Pin<Box<dyn Future...>>` in core signature (associated type or concrete generic strategy).
+- [ ] Task RC.4b: Keep wasm fetch implementation behavior identical and verify manifest parse/error mapping remains stable.
+- [ ] Task RC.4c: Add compile-time boundary check proving loader abstraction remains host-adapter friendly.
+- [ ] Task RC.4 acceptance: Manifest loader API no longer requires boxed futures in the primary trait path; tests pass in wasm/test targets.
+
+- [ ] Task RC.5a: Extract input translation and device normalization from `renderer/wasm.rs` into a dedicated module.
+- [ ] Task RC.5b: Extract fixed-tick orchestration/control-plane bridging from `renderer/wasm.rs` into runtime-core module.
+- [ ] Task RC.5c: Extract overlay geometry/text generation from `renderer/wasm.rs` into a focused overlay module with local tests.
+- [ ] Task RC.5 acceptance: `renderer/wasm.rs` retains adapter responsibilities (host/event/surface glue) and no longer owns core policy/extraction logic.
+
+- [ ] Task RC.6a: Remove unused simulation trait defaults and control-plane methods that are not part of the active runtime path.
+- [ ] Task RC.6b: For APIs intentionally kept for near-term roadmap, add immediate call sites or `TODO(owner,date)` notes and tests.
+- [ ] Task RC.6c: Add warning cleanup pass for dead constants/functions in platformer and ROM modules.
+- [ ] Task RC.6 acceptance: `cargo check` reports zero dead-code warnings for retained runtime/control-plane APIs.
+
+- [ ] Task RC.7a: Replace test fixture setup `unwrap`/`expect` with explicit `assert!(is_some())` plus domain-specific diagnostics.
+- [ ] Task RC.7b: Add deterministic fixture helpers for world/bootstrap setup reused across Triangle Man test suites.
+- [ ] Task RC.7c: Normalize test naming to include scenario and expected invariant.
+- [ ] Task RC.7 acceptance: Test panic messages are deterministic and actionable; fixture setup is shared and non-fragile.
+
+- [ ] Task RC.8a: Enable repo-wide warning denial in CI (`-D warnings`) for check/test targets used by this project.
+- [ ] Task RC.8b: Add a warning-baseline gate script or task used locally and in CI to prevent regressions.
+- [ ] Task RC.8c: Document warning policy and escape-hatch process (temporary allow with owner/date) in developer docs.
+- [ ] Task RC.8 acceptance: CI fails on new warnings and passes cleanly on default branch targets.
+
+Suggested execution order:
+1. RC.1 -> remove production panic paths first.
+2. RC.2 -> concrete built-in ROM dispatch.
+3. RC.3 -> remove hot-path boxed dyn dispatch.
+4. RC.5 -> module responsibility split.
+5. RC.4 -> manifest async abstraction cleanup.
+6. RC.6 -> dead API and warning cleanup.
+7. RC.7 -> test harness canonicalization.
+8. RC.8 -> strict CI warning enforcement.
+
 ## Epic: Runtime Execution Model
 
 **Description**: Deterministic engine scheduler, ECS, world state, and frame lifecycle.
