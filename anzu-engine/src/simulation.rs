@@ -728,10 +728,71 @@ impl Default for Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionEventKind, PhysicsConfig, Scheduler};
-    use crate::ecs::{CollisionBounds, Lifecycle, PolygonCollider, RigidBody, Transform, World};
+    use super::{
+        InteractionEventKind, PhysicsConfig, Scheduler, SchedulerFrameReport, elapsed_ns_nonzero,
+    };
+    use crate::ecs::{
+        CollisionBounds, Lifecycle, MaterialId, Mesh, MeshAssetId, PolygonCollider, RigidBody,
+        Transform, World,
+    };
+    use std::collections::BTreeMap;
 
     const TRIANGLE_POLY: [[f32; 2]; 3] = [[-0.5, -0.5], [0.5, -0.5], [0.0, 0.6]];
+
+    #[repr(C)]
+    #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+    struct ExtractionVertex {
+        position: [f32; 2],
+        color: [f32; 3],
+        barycentric: [f32; 3],
+        light_pos: [f32; 2],
+        edge_mask: [f32; 3],
+    }
+
+    const EXTRACTION_STRESS_VERTICES: [ExtractionVertex; 6] = [
+        ExtractionVertex {
+            position: [-0.5, 0.5],
+            color: [0.9, 0.4, 0.3],
+            barycentric: [1.0, 0.0, 0.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [1.0, 0.0, 0.0],
+        },
+        ExtractionVertex {
+            position: [-0.5, -0.5],
+            color: [0.9, 0.4, 0.3],
+            barycentric: [0.0, 1.0, 0.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [0.0, 1.0, 0.0],
+        },
+        ExtractionVertex {
+            position: [0.5, -0.5],
+            color: [0.9, 0.4, 0.3],
+            barycentric: [0.0, 0.0, 1.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [0.0, 0.0, 1.0],
+        },
+        ExtractionVertex {
+            position: [-0.5, 0.5],
+            color: [0.2, 0.7, 0.9],
+            barycentric: [1.0, 0.0, 0.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [1.0, 0.0, 0.0],
+        },
+        ExtractionVertex {
+            position: [0.5, -0.5],
+            color: [0.2, 0.7, 0.9],
+            barycentric: [0.0, 1.0, 0.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [0.0, 1.0, 0.0],
+        },
+        ExtractionVertex {
+            position: [0.5, 0.5],
+            color: [0.2, 0.7, 0.9],
+            barycentric: [0.0, 0.0, 1.0],
+            light_pos: [0.0, 0.0],
+            edge_mask: [0.0, 0.0, 1.0],
+        },
+    ];
 
     #[test]
     fn deterministic_interaction_event_order_is_stable() {
@@ -1057,5 +1118,465 @@ mod tests {
         );
         assert_eq!(report_a.proximity_exit_count, report_b.proximity_exit_count);
         assert_eq!(report_a.interaction_events, report_b.interaction_events);
+    }
+
+    fn build_stress_grid_world(side: u32, spacing: f32, proximity_radius: f32) -> World {
+        let mut world = World::new();
+        let half_extent = (side as f32 - 1.0) * 0.5 * spacing;
+
+        for y in 0..side {
+            for x in 0..side {
+                let entity = world.spawn();
+                world.set_transform(
+                    entity,
+                    Transform {
+                        position_x: x as f32 * spacing - half_extent,
+                        position_y: y as f32 * spacing - half_extent,
+                        ..Default::default()
+                    },
+                );
+                world.set_polygon_collider(
+                    entity,
+                    PolygonCollider {
+                        local_vertices: &TRIANGLE_POLY,
+                    },
+                );
+                world.set_collision_bounds(entity, CollisionBounds { proximity_radius });
+                world.set_rigid_body(
+                    entity,
+                    RigidBody {
+                        mass: 1.0,
+                        inverse_mass: 0.0,
+                        restitution: 0.0,
+                        friction: 0.0,
+                        moment_of_inertia: 1.0,
+                        inverse_moment_of_inertia: 0.0,
+                        is_sensor: false,
+                    },
+                );
+            }
+        }
+
+        world
+    }
+
+    fn percentile_ns(samples: &[u64], percentile: f32) -> u64 {
+        if samples.is_empty() {
+            return 0;
+        }
+
+        let mut sorted = samples.to_vec();
+        sorted.sort_unstable();
+        let rank = ((sorted.len() - 1) as f32 * percentile)
+            .round()
+            .clamp(0.0, (sorted.len() - 1) as f32) as usize;
+        sorted[rank]
+    }
+
+    fn stage_totals_ns(report: &SchedulerFrameReport) -> [u64; 7] {
+        [
+            report.sync_ns,
+            report.compose_ns,
+            report.broadphase_ns,
+            report.narrowphase_ns,
+            report.resolve_ns,
+            report.reconcile_ns,
+            report.publish_ns,
+        ]
+    }
+
+    struct StressProfileResult {
+        stage_samples: [Vec<u64>; 7],
+        body_count_peak: u32,
+        candidate_pairs_peak: u32,
+    }
+
+    fn run_stress_profile(
+        side: u32,
+        spacing: f32,
+        proximity_radius: f32,
+        total_frames: u32,
+        warmup_frames: u32,
+        physics_config: PhysicsConfig,
+    ) -> StressProfileResult {
+        let mut world = build_stress_grid_world(side, spacing, proximity_radius);
+        let mut scheduler = Scheduler::new(physics_config);
+
+        let mut stage_samples: [Vec<u64>; 7] = std::array::from_fn(|_| Vec::new());
+        let mut body_count_peak = 0u32;
+        let mut candidate_pairs_peak = 0u32;
+
+        for frame in 0..total_frames {
+            let report = scheduler.update_world(&mut world, 1.0 / 60.0);
+            body_count_peak = body_count_peak.max(report.body_count);
+            candidate_pairs_peak = candidate_pairs_peak.max(report.candidate_pair_count);
+
+            if frame < warmup_frames {
+                continue;
+            }
+
+            let totals = stage_totals_ns(&report);
+            for (samples, value) in stage_samples.iter_mut().zip(totals) {
+                samples.push(value);
+            }
+        }
+
+        StressProfileResult {
+            stage_samples,
+            body_count_peak,
+            candidate_pairs_peak,
+        }
+    }
+
+    fn stage_percentiles_ns(stage_samples: &[u64]) -> (u64, u64, u64) {
+        (
+            percentile_ns(stage_samples, 0.50),
+            percentile_ns(stage_samples, 0.95),
+            percentile_ns(stage_samples, 0.99),
+        )
+    }
+
+    fn extraction_stress_mesh_bytes() -> &'static [u8] {
+        bytemuck::cast_slice(&EXTRACTION_STRESS_VERTICES)
+    }
+
+    fn build_render_extraction_world(side: u32, spacing: f32, base_scale: f32) -> World {
+        let mut world = World::new();
+        let half_extent = (side as f32 - 1.0) * 0.5 * spacing;
+        let mesh_asset_id = MeshAssetId(400);
+        world.register_mesh_asset(
+            mesh_asset_id,
+            Mesh {
+                vertex_bytes: extraction_stress_mesh_bytes(),
+            },
+        );
+
+        for y in 0..side {
+            for x in 0..side {
+                let entity = world.spawn();
+                let phase = (x + y) as f32 * 0.13;
+                world.set_transform(
+                    entity,
+                    Transform {
+                        position_x: x as f32 * spacing - half_extent,
+                        position_y: y as f32 * spacing - half_extent,
+                        rotation_rad: phase,
+                        uniform_scale: base_scale,
+                        ..Default::default()
+                    },
+                );
+                let material_id = if (x + y) % 2 == 0 {
+                    MaterialId(1)
+                } else {
+                    MaterialId(2)
+                };
+                world.set_mesh_instance_with_material(entity, mesh_asset_id, material_id);
+            }
+        }
+
+        world
+    }
+
+    fn extract_render_batches_for_world(world: &World) -> (usize, usize) {
+        let mut vertices_by_material: BTreeMap<MaterialId, Vec<ExtractionVertex>> = BTreeMap::new();
+
+        world.for_each_render_mesh(|entity_id, mesh, material_id| {
+            let Some(transform) = world.transform(entity_id) else {
+                return;
+            };
+
+            let Ok(vertices) = bytemuck::try_cast_slice::<u8, ExtractionVertex>(mesh.vertex_bytes)
+            else {
+                return;
+            };
+
+            let c = transform.rotation_rad.cos();
+            let s = transform.rotation_rad.sin();
+            let material_vertices = vertices_by_material.entry(material_id).or_default();
+            material_vertices.extend(vertices.iter().map(|vertex| {
+                let x = vertex.position[0] * transform.uniform_scale;
+                let y = vertex.position[1] * transform.uniform_scale;
+                let world_x = c * x - s * y + transform.position_x;
+                let world_y = s * x + c * y + transform.position_y;
+
+                ExtractionVertex {
+                    position: [world_x, world_y],
+                    color: vertex.color,
+                    barycentric: vertex.barycentric,
+                    light_pos: vertex.light_pos,
+                    edge_mask: vertex.edge_mask,
+                }
+            }));
+        });
+
+        let transformed_vertex_count = vertices_by_material.values().map(Vec::len).sum();
+        let draw_batch_count = vertices_by_material.len();
+        (transformed_vertex_count, draw_batch_count)
+    }
+
+    struct RenderExtractionProfileResult {
+        samples_ns: Vec<u64>,
+        transformed_vertices_peak: usize,
+        draw_batches_peak: usize,
+    }
+
+    fn run_render_extraction_profile(
+        side: u32,
+        spacing: f32,
+        base_scale: f32,
+        total_frames: u32,
+        warmup_frames: u32,
+    ) -> RenderExtractionProfileResult {
+        let mut world = build_render_extraction_world(side, spacing, base_scale);
+        let mut samples_ns = Vec::new();
+        let mut transformed_vertices_peak = 0usize;
+        let mut draw_batches_peak = 0usize;
+
+        for frame in 0..total_frames {
+            for (entity_id, transform) in world.transforms_mut() {
+                let phase = entity_id as f32 * 0.011 + frame as f32 * 0.017;
+                transform.rotation_rad = phase.sin() * 0.35;
+            }
+
+            let extraction_start = std::time::Instant::now();
+            let (transformed_vertices, draw_batches) = extract_render_batches_for_world(&world);
+            let extraction_ns = elapsed_ns_nonzero(extraction_start);
+
+            transformed_vertices_peak = transformed_vertices_peak.max(transformed_vertices);
+            draw_batches_peak = draw_batches_peak.max(draw_batches);
+
+            if frame >= warmup_frames {
+                samples_ns.push(extraction_ns);
+            }
+        }
+
+        RenderExtractionProfileResult {
+            samples_ns,
+            transformed_vertices_peak,
+            draw_batches_peak,
+        }
+    }
+
+    fn emit_render_extraction_csv_row(scenario_name: &str, result: &RenderExtractionProfileResult) {
+        let (p50, p95, p99) = stage_percentiles_ns(&result.samples_ns);
+        eprintln!(
+            "render_extraction,scenario={scenario_name},p50_ns={p50},p95_ns={p95},p99_ns={p99},transformed_vertices_peak={},draw_batches_peak={},samples={}",
+            result.transformed_vertices_peak,
+            result.draw_batches_peak,
+            result.samples_ns.len()
+        );
+    }
+
+    fn emit_stress_profile_csv_rows(
+        scenario_name: &str,
+        stage_names: &[&str; 7],
+        result: &StressProfileResult,
+    ) {
+        for (stage_name, samples) in stage_names.iter().zip(result.stage_samples.iter()) {
+            let (p50, p95, p99) = stage_percentiles_ns(samples);
+            eprintln!(
+                "stress_grid,scenario={scenario_name},stage={stage_name},p50_ns={p50},p95_ns={p95},p99_ns={p99},bodies_peak={},candidate_pairs_peak={},samples={}",
+                result.body_count_peak,
+                result.candidate_pairs_peak,
+                samples.len()
+            );
+        }
+    }
+
+    #[test]
+    fn stress_grid_smoke_reports_stage_percentiles() {
+        let result = run_stress_profile(
+            10,
+            0.36,
+            0.7,
+            36,
+            6,
+            PhysicsConfig {
+                world_min_x: -8.0,
+                world_max_x: 8.0,
+                world_min_y: -8.0,
+                world_max_y: 8.0,
+                broadphase_cell_size: 0.5,
+                ..PhysicsConfig::default()
+            },
+        );
+
+        for samples in &result.stage_samples {
+            assert!(!samples.is_empty());
+            assert!(percentile_ns(samples, 0.95) >= percentile_ns(samples, 0.50));
+        }
+    }
+
+    #[test]
+    fn stress_grid_sparse_profile_reduces_broadphase_pressure() {
+        let dense = run_stress_profile(
+            14,
+            0.34,
+            0.72,
+            48,
+            8,
+            PhysicsConfig {
+                world_min_x: -12.0,
+                world_max_x: 12.0,
+                world_min_y: -12.0,
+                world_max_y: 12.0,
+                broadphase_cell_size: 0.5,
+                ..PhysicsConfig::default()
+            },
+        );
+        let sparse = run_stress_profile(
+            14,
+            1.8,
+            0.28,
+            48,
+            8,
+            PhysicsConfig {
+                world_min_x: -18.0,
+                world_max_x: 18.0,
+                world_min_y: -18.0,
+                world_max_y: 18.0,
+                broadphase_cell_size: 1.0,
+                ..PhysicsConfig::default()
+            },
+        );
+
+        assert_eq!(dense.body_count_peak, sparse.body_count_peak);
+        assert!(dense.candidate_pairs_peak > sparse.candidate_pairs_peak);
+
+        let dense_broadphase_p95 = percentile_ns(&dense.stage_samples[2], 0.95);
+        let sparse_broadphase_p95 = percentile_ns(&sparse.stage_samples[2], 0.95);
+        assert!(sparse_broadphase_p95 <= dense_broadphase_p95);
+    }
+
+    #[test]
+    #[ignore = "stress benchmark: run manually with --ignored --nocapture"]
+    fn stress_grid_manual_profile_reports_p50_p95_p99() {
+        let result = run_stress_profile(
+            28,
+            0.34,
+            0.72,
+            210,
+            30,
+            PhysicsConfig {
+                world_min_x: -12.0,
+                world_max_x: 12.0,
+                world_min_y: -12.0,
+                world_max_y: 12.0,
+                broadphase_cell_size: 0.5,
+                ..PhysicsConfig::default()
+            },
+        );
+
+        let stage_names = [
+            "sync",
+            "compose",
+            "broadphase",
+            "narrowphase",
+            "resolve",
+            "reconcile",
+            "publish",
+        ];
+
+        eprintln!(
+            "[stress-grid] bodies_peak={} candidate_pairs_peak={}",
+            result.body_count_peak, result.candidate_pairs_peak
+        );
+
+        for (stage_name, samples) in stage_names.iter().zip(result.stage_samples.iter()) {
+            let (p50, p95, p99) = stage_percentiles_ns(samples);
+            eprintln!(
+                "[stress-grid] stage={} p50_ns={} p95_ns={} p99_ns={}",
+                stage_name, p50, p95, p99
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "stress benchmark: run manually with --ignored --nocapture"]
+    fn stress_grid_manual_dense_sparse_csv() {
+        let stage_names = [
+            "sync",
+            "compose",
+            "broadphase",
+            "narrowphase",
+            "resolve",
+            "reconcile",
+            "publish",
+        ];
+
+        let dense = run_stress_profile(
+            24,
+            0.34,
+            0.72,
+            180,
+            30,
+            PhysicsConfig {
+                world_min_x: -12.0,
+                world_max_x: 12.0,
+                world_min_y: -12.0,
+                world_max_y: 12.0,
+                broadphase_cell_size: 0.5,
+                ..PhysicsConfig::default()
+            },
+        );
+        let sparse = run_stress_profile(
+            24,
+            1.8,
+            0.28,
+            180,
+            30,
+            PhysicsConfig {
+                world_min_x: -24.0,
+                world_max_x: 24.0,
+                world_min_y: -24.0,
+                world_max_y: 24.0,
+                broadphase_cell_size: 1.0,
+                ..PhysicsConfig::default()
+            },
+        );
+
+        eprintln!(
+            "stress_grid_csv_header,scenario,stage,p50_ns,p95_ns,p99_ns,bodies_peak,candidate_pairs_peak,samples"
+        );
+        emit_stress_profile_csv_rows("dense", &stage_names, &dense);
+        emit_stress_profile_csv_rows("sparse", &stage_names, &sparse);
+    }
+
+    #[test]
+    fn render_extraction_smoke_reports_percentiles() {
+        let result = run_render_extraction_profile(10, 0.5, 0.35, 42, 6);
+
+        assert!(!result.samples_ns.is_empty());
+        assert!(result.transformed_vertices_peak > 0);
+        assert!(result.draw_batches_peak > 0);
+
+        let (p50, p95, p99) = stage_percentiles_ns(&result.samples_ns);
+        assert!(p95 >= p50);
+        assert!(p99 >= p95);
+    }
+
+    #[test]
+    fn render_extraction_dense_profile_costs_more_than_sparse() {
+        let dense = run_render_extraction_profile(22, 0.42, 0.35, 52, 8);
+        let sparse = run_render_extraction_profile(12, 0.75, 0.35, 52, 8);
+
+        assert!(dense.transformed_vertices_peak > sparse.transformed_vertices_peak);
+
+        let dense_p95 = percentile_ns(&dense.samples_ns, 0.95);
+        let sparse_p95 = percentile_ns(&sparse.samples_ns, 0.95);
+        assert!(dense_p95 >= sparse_p95);
+    }
+
+    #[test]
+    #[ignore = "stress benchmark: run manually with --ignored --nocapture"]
+    fn render_extraction_manual_dense_sparse_csv() {
+        let dense = run_render_extraction_profile(32, 0.34, 0.35, 160, 20);
+        let sparse = run_render_extraction_profile(16, 0.85, 0.35, 160, 20);
+
+        eprintln!(
+            "render_extraction_csv_header,scenario,p50_ns,p95_ns,p99_ns,transformed_vertices_peak,draw_batches_peak,samples"
+        );
+        emit_render_extraction_csv_row("dense", &dense);
+        emit_render_extraction_csv_row("sparse", &sparse);
     }
 }

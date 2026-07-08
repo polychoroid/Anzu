@@ -316,6 +316,24 @@ Planning note (2026-07-06): Milestone added to capture the next ROM line after T
 
 **Priority**: P1 (Unlocks extensible visual effects)
 
+### Milestone 5.75: Architecture Remediation—Adapter Boundary and Hot-Path Hardening
+**Outcome**: Adapter files are reduced to host integration only, runtime/render extraction policy moves to platform-neutral core modules, and high-risk CPU/upload hot paths are instrumented with enforceable budgets.
+
+- [ ] Task 5.75.1: Split responsibilities in `src/renderer/wasm.rs` so fixed-step orchestration, control-plane policy flow, and render extraction policy are owned by shared runtime/core modules.
+- [ ] Task 5.75.2: Keep `src/platform_browser.rs` browser-only (window/canvas/event wiring) and remove any runtime-policy ownership from browser adapter paths.
+- [ ] Task 5.75.3: Introduce a core render-extraction module with explicit static-vs-dynamic geometry paths and clear ownership contracts.
+- [ ] Task 5.75.4: Add upload-budget instrumentation in render core (bytes/frame, dynamic write count, p50/p95/p99 upload cost) and wire warning thresholds.
+- [ ] Task 5.75.5: Add regression checks proving core runtime behavior can run without browser-specific APIs (host parity contract checks at compile/test seam level).
+- [ ] Task 5.75.6: Re-evaluate `dyn`/`Box` seams after boundary cleanup and replace incidental indirection where extension points are not real.
+- [ ] Task 5.75.7: Add unified manual benchmark output that emits simulation-stage and render-extraction CSV metrics under one run label.
+
+**Demonstrates**:
+- Adapter-boundary violations are actively removed rather than documented only
+- Runtime portability improves for non-browser wasm and future native hosts
+- Extraction/upload bottlenecks are measured and budgeted before 3D scope expansion
+
+**Priority**: P0 (Top priority: fixes confirmed design flaws before new feature expansion)
+
 ### Milestone 5.8: Engine Control Plane and Overlays (Core-First, Cross-Platform)
 **Outcome**: Pause/menu, control, performance, and notification overlays are owned by engine runtime core (not ROM logic and not HTML-only), so browser and future desktop frontends share one control-plane implementation.
 
@@ -400,6 +418,23 @@ Acceptance note (input context): When overlay context is visible, gameplay input
 - Core service boundaries are stable enough for long-lived iteration
 
 **Priority**: P0 (Prevents late structural refactor risk)
+
+### Milestone 5.10a: In-Game Multi-ROM Menu and Runtime ROM Switching
+**Outcome**: Players can open an in-game ROM menu, view available ROMs, and switch/load multiple ROMs without leaving the runtime shell.
+
+- [ ] Task 5.10a.1: Define ROM catalog model for menu consumption (`rom_id`, display name, version, source, integrity/hash status, capability flags).
+- [ ] Task 5.10a.2: Add engine-owned ROM menu overlay panel integrated with control-plane navigation/input contexts.
+- [ ] Task 5.10a.3: Implement ROM lifecycle transitions (`prepare`, `deactivate current`, `activate new`, `rollback on failure`) with deterministic state reset semantics.
+- [ ] Task 5.10a.4: Enforce ROM integrity and compatibility checks before activation in menu-triggered loads.
+- [ ] Task 5.10a.5: Add loading/error states in overlay UX (pending, success, failure, reason) with non-blocking fallback behavior.
+- [ ] Task 5.10a.6: Add acceptance coverage for switching across at least 2 ROMs in one session, including failure recovery to previous active ROM.
+
+**Demonstrates**:
+- In-game ROM discovery/switching is a first-class runtime capability
+- ROM activation remains safe (integrity/compatibility) under user-driven switching
+- Control-plane UX supports feature growth without DOM-owned menu dependencies
+
+**Priority**: P0 (Stakeholder feature + platform capability)
 
 ### Milestone 5.11: Early Audio Service Vertical Slice (Sine/Beep-Boop)
 **Outcome**: Engine owns a cross-platform audio service boundary early, validated with a minimal synthesized tone path so resource and lifecycle constraints are known before content/audio complexity arrives.
