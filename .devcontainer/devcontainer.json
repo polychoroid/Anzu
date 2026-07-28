@@ -24,7 +24,7 @@
 		}
 	},
 	"forwardPorts": [8000, 8080],
-	"postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo --version && rustc --version && cargo install wasm-pack --locked --force && wasm-pack --version",
+	"postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo --version && rustc --version && cargo install wasm-pack --locked --force && cargo install cargo-deny --locked --force && wasm-pack --version && cargo-deny --version",
 	"mounts": [
 		{
 			"source": "devcontainer-cargo-cache-${devcontainerId}",

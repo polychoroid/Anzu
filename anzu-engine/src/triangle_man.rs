@@ -117,6 +117,83 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+pub const TRIANGLE_SHADER_WEBGL: &str = r#"
+struct RotationUniform {
+    angle: f32,
+    scale: f32,
+    translation: vec2<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> u_rotation: RotationUniform;
+
+struct MaterialUniform {
+    base_color_tint: vec3<f32>,
+    emissive_strength: f32,
+    shading_params: vec4<f32>,
+};
+
+@group(0) @binding(1)
+var<uniform> u_material: MaterialUniform;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec3<f32>,
+    @location(2) barycentric: vec3<f32>,
+    @location(3) light_pos: vec2<f32>,
+    @location(4) edge_mask: vec3<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+    @location(1) barycentric: vec3<f32>,
+    @location(2) light_strength: f32,
+    @location(3) edge_mask: vec3<f32>,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let c = cos(u_rotation.angle);
+    let s = sin(u_rotation.angle);
+    let rotated = vec2<f32>(
+        c * in.position.x - s * in.position.y,
+        s * in.position.x + c * in.position.y,
+    ) * u_rotation.scale;
+    let translated = rotated + u_rotation.translation;
+
+    var out: VertexOutput;
+    out.position = vec4<f32>(translated, 0.0, 1.0);
+    out.color = in.color;
+    out.barycentric = in.barycentric;
+    out.light_strength = in.light_pos.x;
+    out.edge_mask = in.edge_mask;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let EDGE_WIDTH = 0.15;
+    let edge_x = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.x)) * in.edge_mask.x;
+    let edge_y = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.y)) * in.edge_mask.y;
+    let edge_z = (1.0 - smoothstep(0.0, EDGE_WIDTH, in.barycentric.z)) * in.edge_mask.z;
+    let base_alpha = max(edge_x, max(edge_y, edge_z));
+
+    let light_strength = clamp(in.light_strength, 0.0, 1.0);
+    let base_color = in.color * u_material.base_color_tint;
+    let glow_brightness = 1.15;
+    let lit_color = clamp(
+        base_color * glow_brightness * (0.12 + light_strength * 0.85)
+            + vec3<f32>(u_material.emissive_strength * light_strength * 0.03),
+        vec3<f32>(0.0),
+        vec3<f32>(3.0),
+    );
+    let alpha = clamp(base_alpha + light_strength * 0.25, 0.0, 1.0);
+
+    return vec4<f32>(lit_color, alpha);
+}
+"#;
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -277,7 +354,7 @@ const TRIANGLE_MATERIALS: [MaterialDefinition; 3] = [
         material_id: MATERIAL_PLAYER,
         blend_mode: MaterialBlendMode::Alpha,
         base_color_tint: [1.0, 1.0, 1.0],
-        emissive_strength: 0.15,
+        emissive_strength: 0.65,
         metallic: 0.05,
         roughness: 0.35,
         specular_strength: 0.7,
@@ -285,9 +362,9 @@ const TRIANGLE_MATERIALS: [MaterialDefinition; 3] = [
     MaterialDefinition {
         material_id: MATERIAL_ASTEROID,
         blend_mode: MaterialBlendMode::Opaque,
-        base_color_tint: [0.03, 0.03, 0.035],
+        base_color_tint: [0.4, 0.4, 0.25],
         emissive_strength: 0.15,
-        metallic: 0.0,
+        metallic: 0.5,
         roughness: 0.98,
         specular_strength: 0.15,
     },
@@ -318,6 +395,10 @@ const ASTEROID_SPAWN_PRESETS: [(f32, f32, f32, f32, f32); 8] = [
 const FRAGMENT_MIN_PARENT_SCALE: f32 = 0.06;
 const FRAGMENT_CHILD_SCALE_FACTOR: f32 = 0.58;
 const FRAGMENT_TANGENT_SPEED: f32 = 0.16;
+const ASTEROID_MASS_VARIANCE_MIN: f32 = 0.25;
+const ASTEROID_MASS_VARIANCE_MAX: f32 = 1.75;
+const ASTEROID_BASE_HEALTH: f32 = 2.0;
+const ASTEROID_FRAGMENT_HEALTH: f32 = 1.0;
 const WORLD_MIN_X: f32 = -1.0;
 const WORLD_MAX_X: f32 = 1.0;
 const WORLD_MIN_Y: f32 = -1.0;
@@ -337,8 +418,10 @@ pub struct TriangleManSpec {
     pub asteroid_spawn_min_interval_seconds: f32,
     pub asteroid_spawn_accel_per_second: f32,
     pub asteroid_spawn_max_burst: u32,
+    pub asteroid_initial_count: u32,
     pub asteroid_target_count: u32,
     pub asteroid_target_time_seconds: f32,
+    pub asteroid_velocity_scale_at_target: f32,
     pub asteroid_mass_scale_at_target: f32,
     pub scale: f32,
 }
@@ -357,11 +440,13 @@ impl Default for TriangleManSpec {
             asteroid_spawn_interval_seconds: 1.0,
             asteroid_spawn_min_interval_seconds: 0.45,
             asteroid_spawn_accel_per_second: 10.0,
-            asteroid_spawn_max_burst: 50,
-            asteroid_target_count: 600,
-            asteroid_target_time_seconds: 300.0,
-            asteroid_mass_scale_at_target: 100.0,
-            scale: 0.05,
+            asteroid_spawn_max_burst: 16,
+            asteroid_initial_count: 2,
+            asteroid_target_count: 100,
+            asteroid_target_time_seconds: 180.0,
+            asteroid_velocity_scale_at_target: 10.0,
+            asteroid_mass_scale_at_target: 1.0,
+            scale: 0.045,
         }
     }
 }
@@ -674,11 +759,7 @@ fn axis_value(negative: bool, positive: bool) -> i8 {
 }
 
 fn apply_deadzone(value: f32, deadzone: f32) -> f32 {
-    if value.abs() < deadzone {
-        0.0
-    } else {
-        value
-    }
+    if value.abs() < deadzone { 0.0 } else { value }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -695,13 +776,55 @@ enum CollisionMode {
 }
 
 #[derive(Clone, Copy, Debug)]
+enum CollisionAction {
+    Ignore,
+    ApplyDamage {
+        target: RoleKind,
+        amount: f32,
+    },
+    Despawn {
+        target: RoleKind,
+    },
+    SpawnFragments {
+        target: RoleKind,
+        impactor: RoleKind,
+    },
+    ImpulseAdjust {
+        restitution_scale: f32,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
 struct RolePairPolicy {
     a: RoleKind,
     b: RoleKind,
     mode: CollisionMode,
-    despawn_a_on_collision: bool,
-    despawn_b_on_collision: bool,
+    actions: &'static [CollisionAction],
 }
+
+const ACTIONS_PLAYER_PLAYER: [CollisionAction; 1] = [CollisionAction::Ignore];
+const ACTIONS_PLAYER_ASTEROID: [CollisionAction; 1] = [CollisionAction::Ignore];
+const ACTIONS_PLAYER_BULLET: [CollisionAction; 1] = [CollisionAction::Despawn {
+    target: RoleKind::Bullet,
+}];
+const ACTIONS_ASTEROID_ASTEROID: [CollisionAction; 1] = [CollisionAction::Ignore];
+const ACTIONS_ASTEROID_BULLET: [CollisionAction; 4] = [
+    CollisionAction::ImpulseAdjust {
+        restitution_scale: 0.9,
+    },
+    CollisionAction::ApplyDamage {
+        target: RoleKind::Asteroid,
+        amount: 1.0,
+    },
+    CollisionAction::Despawn {
+        target: RoleKind::Bullet,
+    },
+    CollisionAction::SpawnFragments {
+        target: RoleKind::Asteroid,
+        impactor: RoleKind::Bullet,
+    },
+];
+const ACTIONS_BULLET_BULLET: [CollisionAction; 1] = [CollisionAction::Ignore];
 
 // Editable role-pair policy table.
 // Keep one entry per unordered pair (A,B) to avoid ambiguous behavior.
@@ -712,43 +835,37 @@ const ROLE_PAIR_POLICIES: [RolePairPolicy; 6] = [
         a: RoleKind::Player,
         b: RoleKind::Player,
         mode: CollisionMode::Solid,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: false,
+        actions: &ACTIONS_PLAYER_PLAYER,
     },
     RolePairPolicy {
         a: RoleKind::Player,
         b: RoleKind::Asteroid,
         mode: CollisionMode::Solid,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: false,
+        actions: &ACTIONS_PLAYER_ASTEROID,
     },
     RolePairPolicy {
         a: RoleKind::Player,
         b: RoleKind::Bullet,
         mode: CollisionMode::Hitbox,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: true,
+        actions: &ACTIONS_PLAYER_BULLET,
     },
     RolePairPolicy {
         a: RoleKind::Asteroid,
         b: RoleKind::Asteroid,
         mode: CollisionMode::Solid,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: false,
+        actions: &ACTIONS_ASTEROID_ASTEROID,
     },
     RolePairPolicy {
         a: RoleKind::Asteroid,
         b: RoleKind::Bullet,
         mode: CollisionMode::Hitbox,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: true,
+        actions: &ACTIONS_ASTEROID_BULLET,
     },
     RolePairPolicy {
         a: RoleKind::Bullet,
         b: RoleKind::Bullet,
         mode: CollisionMode::Hitbox,
-        despawn_a_on_collision: false,
-        despawn_b_on_collision: false,
+        actions: &ACTIONS_BULLET_BULLET,
     },
 ];
 
@@ -766,18 +883,6 @@ fn policy_collision_mode_for(role: RoleKind) -> CollisionMode {
         CollisionMode::Hitbox
     } else {
         CollisionMode::Solid
-    }
-}
-
-fn despawn_flags_for_pair(
-    policy: RolePairPolicy,
-    role_a: RoleKind,
-    role_b: RoleKind,
-) -> (bool, bool) {
-    if policy.a == role_a && policy.b == role_b {
-        (policy.despawn_a_on_collision, policy.despawn_b_on_collision)
-    } else {
-        (policy.despawn_b_on_collision, policy.despawn_a_on_collision)
     }
 }
 
@@ -828,9 +933,14 @@ impl RomPackage for TriangleManRom {
 }
 
 impl RenderRomPackage for TriangleManRom {
-    fn render_data(&self) -> RomRenderData {
+    fn render_data(&self, webgl_compat: bool) -> RomRenderData {
         RomRenderData {
             shader_source_wgsl: TRIANGLE_SHADER,
+            webgl_shader_source_wgsl: if webgl_compat {
+                Some(TRIANGLE_SHADER_WEBGL)
+            } else {
+                None
+            },
             vertex_layout: Vertex::desc(),
             vertex_bytes: bytemuck::cast_slice(&TRIANGLE_VERTICES),
             vertex_count: TRIANGLE_VERTICES.len() as u32,
@@ -857,6 +967,14 @@ pub struct TriangleManSimulation {
     baseline_asteroid_spawned: bool,
     fire_requested: bool,
     roles: BTreeMap<EntityId, RoleKind>,
+    health_points: BTreeMap<EntityId, f32>,
+}
+
+#[derive(Clone, Copy)]
+struct FragmentRequest {
+    asteroid_entity: EntityId,
+    impact_entity: EntityId,
+    restitution_scale: f32,
 }
 
 impl TriangleManSimulation {
@@ -882,6 +1000,7 @@ impl TriangleManSimulation {
             baseline_asteroid_spawned: false,
             fire_requested: false,
             roles,
+            health_points: BTreeMap::new(),
         }
     }
 
@@ -891,11 +1010,13 @@ impl TriangleManSimulation {
         spawn_index: usize,
         scale: f32,
         mass_scale: f32,
+        velocity_scale: f32,
     ) -> EntityId {
         let preset = ASTEROID_SPAWN_PRESETS[spawn_index % ASTEROID_SPAWN_PRESETS.len()];
         let entity_id = world.spawn();
         let radius = max_radius(&SQUARE_COLLIDER, scale);
-        let mass = 2.2 * mass_scale.max(1.0);
+        let mass_variance = self.asteroid_spawn_mass_variance(spawn_index);
+        let mass = 2.2 * mass_scale.max(1.0) * mass_variance;
         let moment_of_inertia = 0.5 * mass * radius * radius;
 
         world.set_transform(
@@ -905,8 +1026,8 @@ impl TriangleManSimulation {
                 position_y: preset.1,
                 rotation_rad: 0.0,
                 uniform_scale: scale,
-                velocity_x: preset.2,
-                velocity_y: preset.3,
+                velocity_x: preset.2 * velocity_scale,
+                velocity_y: preset.3 * velocity_scale,
                 angular_velocity: preset.4,
             },
         );
@@ -937,6 +1058,8 @@ impl TriangleManSimulation {
         );
 
         self.roles.insert(entity_id, RoleKind::Asteroid);
+        self.health_points
+            .insert(entity_id, asteroid_health_for_scale(scale));
         self.asteroid_spawned_total = self.asteroid_spawned_total.saturating_add(1);
         entity_id
     }
@@ -957,7 +1080,7 @@ impl TriangleManSimulation {
         let heading_y = angle_rad.sin();
         let spawn_offset = 0.12;
 
-        let mass = 1.00;
+        let mass = 0.25;
         let moment_of_inertia = 0.5 * mass * radius * radius;
         world.set_transform(
             entity_id,
@@ -1014,22 +1137,33 @@ impl TriangleManSimulation {
         self.roles.get(&entity_id).copied()
     }
 
+    #[cfg(test)]
+    fn set_health_for_test(&mut self, entity_id: EntityId, health: f32) {
+        self.health_points.insert(entity_id, health.max(0.0));
+    }
+
+    #[cfg(test)]
+    fn health_for_test(&self, entity_id: EntityId) -> Option<f32> {
+        self.health_points.get(&entity_id).copied()
+    }
+
     fn spawn_asteroid_fragments_on_impact(
         &mut self,
         world: &mut World,
         asteroid_entity: EntityId,
-        bullet_entity: EntityId,
+        impact_entity: EntityId,
+        _restitution_scale: f32,
     ) {
         let Some(asteroid_transform) = world.transform(asteroid_entity).copied() else {
             return;
         };
-        let Some(bullet_transform) = world.transform(bullet_entity).copied() else {
+        let Some(impact_transform) = world.transform(impact_entity).copied() else {
             return;
         };
         let Some(asteroid_body) = world.rigid_body(asteroid_entity).copied() else {
             return;
         };
-        let bullet_body = world.rigid_body(bullet_entity).copied().unwrap_or_default();
+        let impact_body = world.rigid_body(impact_entity).copied().unwrap_or_default();
 
         if asteroid_transform.uniform_scale <= FRAGMENT_MIN_PARENT_SCALE {
             return;
@@ -1041,20 +1175,26 @@ impl TriangleManSimulation {
         let split_offset = (child_radius * 0.9).max(0.02);
 
         let asteroid_mass = asteroid_body.mass.max(0.1);
-        let bullet_mass = bullet_body.mass.max(0.01);
+        let impact_mass = impact_body.mass.max(0.01);
         let child_mass = (asteroid_mass * 0.25).max(0.03);
+        let total_fragment_mass = child_mass * 4.0;
         let child_moment = 0.5 * child_mass * child_radius * child_radius;
 
-        // Fragments receive linear momentum from the bullet only.
-        let base_velocity_x = (bullet_transform.velocity_x * bullet_mass) / asteroid_mass;
-        let base_velocity_y = (bullet_transform.velocity_y * bullet_mass) / asteroid_mass;
+        let total_momentum_x = asteroid_transform.velocity_x * asteroid_mass
+            + impact_transform.velocity_x * impact_mass;
+        let total_momentum_y = asteroid_transform.velocity_y * asteroid_mass
+            + impact_transform.velocity_y * impact_mass;
+        // Enforce linear momentum conservation across breakup:
+        // sum(fragment_mass * fragment_velocity) == asteroid_momentum + impactor_momentum.
+        let base_velocity_x = total_momentum_x / total_fragment_mass;
+        let base_velocity_y = total_momentum_y / total_fragment_mass;
 
-        let mut impact_dir_x = bullet_transform.velocity_x;
-        let mut impact_dir_y = bullet_transform.velocity_y;
+        let mut impact_dir_x = impact_transform.velocity_x;
+        let mut impact_dir_y = impact_transform.velocity_y;
         let impact_len = (impact_dir_x * impact_dir_x + impact_dir_y * impact_dir_y).sqrt();
         if impact_len <= 1e-5 {
-            impact_dir_x = bullet_transform.position_x - asteroid_transform.position_x;
-            impact_dir_y = bullet_transform.position_y - asteroid_transform.position_y;
+            impact_dir_x = impact_transform.position_x - asteroid_transform.position_x;
+            impact_dir_y = impact_transform.position_y - asteroid_transform.position_y;
         }
         normalize_or_fallback(&mut impact_dir_x, &mut impact_dir_y, 1.0, 0.0);
 
@@ -1118,7 +1258,8 @@ impl TriangleManSimulation {
             world.set_lifecycle(entity_id, Lifecycle { ttl_seconds: 6.0 });
 
             self.roles.insert(entity_id, RoleKind::Asteroid);
-            self.asteroid_spawned_total = self.asteroid_spawned_total.saturating_add(1);
+            self.health_points
+                .insert(entity_id, asteroid_health_for_scale(child_scale));
         }
     }
 
@@ -1130,7 +1271,8 @@ impl TriangleManSimulation {
     }
 
     fn asteroid_target_spawn_total(&self) -> u32 {
-        let target_total = self.spec.asteroid_target_count.max(1);
+        let baseline = self.spec.asteroid_initial_count.max(1);
+        let target_total = self.spec.asteroid_target_count.max(baseline);
         let target_time = self.spec.asteroid_target_time_seconds;
 
         if target_time <= 0.0 {
@@ -1138,15 +1280,22 @@ impl TriangleManSimulation {
         }
 
         let progress = (self.elapsed_seconds.max(0.0) / target_time).clamp(0.0, 1.0);
-        let baseline = 1u32;
         let additional_target = target_total.saturating_sub(baseline);
         baseline + ((additional_target as f32) * progress).floor() as u32
     }
 
     fn asteroid_spawn_burst_count(&self) -> u32 {
+        let live_count = self
+            .roles
+            .values()
+            .filter(|role| **role == RoleKind::Asteroid)
+            .count() as u32;
         let missing = self
             .asteroid_target_spawn_total()
-            .saturating_sub(self.asteroid_spawned_total);
+            .saturating_sub(live_count);
+        if missing == 0 {
+            return 0;
+        }
         missing.clamp(1, self.spec.asteroid_spawn_max_burst.max(1))
     }
 
@@ -1158,6 +1307,35 @@ impl TriangleManSimulation {
 
         let slope = (self.spec.asteroid_mass_scale_at_target.max(1.0) - 1.0) / target_time;
         (1.0 + self.elapsed_seconds.max(0.0) * slope).max(1.0)
+    }
+
+    fn asteroid_velocity_scale(&self) -> f32 {
+        let target_time = self.spec.asteroid_target_time_seconds;
+        if target_time <= 0.0 {
+            return self.spec.asteroid_velocity_scale_at_target.max(1.0);
+        }
+
+        let target_scale = self.spec.asteroid_velocity_scale_at_target.max(1.0);
+        let progress = (self.elapsed_seconds.max(0.0) / target_time).clamp(0.0, 1.0);
+        let eased_progress = progress * progress;
+        1.0 + (target_scale - 1.0) * eased_progress
+    }
+
+    fn asteroid_spawn_mass_variance(&self, spawn_index: usize) -> f32 {
+        // Deterministic spawn-local pseudo-random factor in [ASTEROID_MASS_VARIANCE_MIN, ASTEROID_MASS_VARIANCE_MAX].
+        // Using spawn counters keeps replays deterministic for the same input stream.
+        let mut seed = (spawn_index as u32)
+            .wrapping_mul(0x9E37_79B9)
+            .wrapping_add(self.asteroid_spawned_total.wrapping_mul(0x7F4A_7C15));
+        seed ^= seed >> 16;
+        seed = seed.wrapping_mul(0x7FEB_352D);
+        seed ^= seed >> 15;
+        seed = seed.wrapping_mul(0x846C_A68B);
+        seed ^= seed >> 16;
+
+        let unit = (seed as f32) / (u32::MAX as f32);
+        ASTEROID_MASS_VARIANCE_MIN
+            + (ASTEROID_MASS_VARIANCE_MAX - ASTEROID_MASS_VARIANCE_MIN) * unit
     }
 }
 
@@ -1237,15 +1415,22 @@ impl SimulationModel for TriangleManSimulation {
     ) {
         self.roles
             .retain(|entity_id, _| world.transform(*entity_id).is_some());
+        self.health_points
+            .retain(|entity_id, _| world.transform(*entity_id).is_some());
 
         if !self.baseline_asteroid_spawned {
             let mass_scale = self.asteroid_mass_scale();
-            self.spawn_asteroid_entity(world, 0, 0.14, mass_scale);
+            let velocity_scale = self.asteroid_velocity_scale();
+            let baseline_count = self.spec.asteroid_initial_count.max(1);
+            for index in 0..baseline_count {
+                self.spawn_asteroid_entity(world, index as usize, 0.14, mass_scale, velocity_scale);
+            }
+            self.asteroid_spawn_index = baseline_count as usize;
             self.baseline_asteroid_spawned = true;
         }
 
         let mut entities_to_despawn = BTreeSet::new();
-        let mut asteroid_fragment_hits: BTreeMap<EntityId, EntityId> = BTreeMap::new();
+        let mut fragment_requests: BTreeMap<EntityId, FragmentRequest> = BTreeMap::new();
         for event in &frame_report.interaction_events {
             if event.kind != InteractionEventKind::Collision {
                 continue;
@@ -1262,44 +1447,124 @@ impl SimulationModel for TriangleManSimulation {
                 continue;
             };
 
-            if role_a == RoleKind::Asteroid && role_b == RoleKind::Bullet {
-                asteroid_fragment_hits
-                    .entry(event.entity_a)
-                    .or_insert(event.entity_b);
-            } else if role_a == RoleKind::Bullet && role_b == RoleKind::Asteroid {
-                asteroid_fragment_hits
-                    .entry(event.entity_b)
-                    .or_insert(event.entity_a);
+            let mut role_matches: Vec<EntityId> = Vec::with_capacity(2);
+            let mut restitution_scale = 1.0f32;
+            for action in policy.actions {
+                if let CollisionAction::ImpulseAdjust {
+                    restitution_scale: scale,
+                } = *action
+                {
+                    restitution_scale *= scale.clamp(0.0, 1.0);
+                }
             }
 
-            let (despawn_a, despawn_b) = despawn_flags_for_pair(policy, role_a, role_b);
-            if despawn_a {
-                entities_to_despawn.insert(event.entity_a);
-            }
-            if despawn_b {
-                entities_to_despawn.insert(event.entity_b);
+            for action in policy.actions {
+                match *action {
+                    CollisionAction::Ignore | CollisionAction::ImpulseAdjust { .. } => {}
+                    CollisionAction::Despawn { target } => {
+                        role_matches.clear();
+                        matches_role_target(event.entity_a, role_a, target, &mut role_matches);
+                        matches_role_target(event.entity_b, role_b, target, &mut role_matches);
+                        for entity_id in &role_matches {
+                            entities_to_despawn.insert(*entity_id);
+                        }
+                    }
+                    CollisionAction::ApplyDamage { target, amount } => {
+                        role_matches.clear();
+                        matches_role_target(event.entity_a, role_a, target, &mut role_matches);
+                        matches_role_target(event.entity_b, role_b, target, &mut role_matches);
+                        for entity_id in &role_matches {
+                            let health =
+                                self.health_points.entry(*entity_id).or_insert_with(|| {
+                                    if target == RoleKind::Asteroid {
+                                        world
+                                            .transform(*entity_id)
+                                            .map(|transform| {
+                                                asteroid_health_for_scale(transform.uniform_scale)
+                                            })
+                                            .unwrap_or(ASTEROID_BASE_HEALTH)
+                                    } else {
+                                        1.0
+                                    }
+                                });
+                            *health = (*health - amount).max(0.0);
+                        }
+                    }
+                    CollisionAction::SpawnFragments { target, impactor } => {
+                        let asteroid_entity = if role_a == target {
+                            Some(event.entity_a)
+                        } else if role_b == target {
+                            Some(event.entity_b)
+                        } else {
+                            None
+                        };
+                        let impact_entity = if role_a == impactor {
+                            Some(event.entity_a)
+                        } else if role_b == impactor {
+                            Some(event.entity_b)
+                        } else {
+                            None
+                        };
+
+                        let Some(asteroid_entity) = asteroid_entity else {
+                            continue;
+                        };
+                        let Some(impact_entity) = impact_entity else {
+                            continue;
+                        };
+
+                        let health = self
+                            .health_points
+                            .entry(asteroid_entity)
+                            .or_insert(ASTEROID_BASE_HEALTH);
+                        if *health <= 0.0 {
+                            fragment_requests
+                                .entry(asteroid_entity)
+                                .or_insert(FragmentRequest {
+                                    asteroid_entity,
+                                    impact_entity,
+                                    restitution_scale,
+                                });
+                        }
+                    }
+                }
             }
         }
 
-        for (asteroid_entity, bullet_entity) in asteroid_fragment_hits {
-            self.spawn_asteroid_fragments_on_impact(world, asteroid_entity, bullet_entity);
-            entities_to_despawn.insert(asteroid_entity);
-            entities_to_despawn.insert(bullet_entity);
+        for fragment_request in fragment_requests.values() {
+            self.spawn_asteroid_fragments_on_impact(
+                world,
+                fragment_request.asteroid_entity,
+                fragment_request.impact_entity,
+                fragment_request.restitution_scale,
+            );
+            entities_to_despawn.insert(fragment_request.asteroid_entity);
+            entities_to_despawn.insert(fragment_request.impact_entity);
         }
 
         for entity_id in entities_to_despawn {
             world.despawn(entity_id);
             self.roles.remove(&entity_id);
+            self.health_points.remove(&entity_id);
         }
 
         let dynamic_interval = self.asteroid_spawn_interval();
         let spawn_burst = self.asteroid_spawn_burst_count();
         let mass_scale = self.asteroid_mass_scale();
+        let velocity_scale = self.asteroid_velocity_scale();
 
         while self.asteroid_spawn_timer_seconds <= 0.0 {
-            for _ in 0..spawn_burst {
-                self.spawn_asteroid_entity(world, self.asteroid_spawn_index, 0.12, mass_scale);
-                self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+            if spawn_burst > 0 {
+                for _ in 0..spawn_burst {
+                    self.spawn_asteroid_entity(
+                        world,
+                        self.asteroid_spawn_index,
+                        0.12,
+                        mass_scale,
+                        velocity_scale,
+                    );
+                    self.asteroid_spawn_index = self.asteroid_spawn_index.saturating_add(1);
+                }
             }
             self.asteroid_spawn_timer_seconds += dynamic_interval;
         }
@@ -1318,6 +1583,7 @@ impl SimulationModel for TriangleManSimulation {
 
         if world.transform(self.anchor_entity).is_none() {
             self.roles.remove(&self.anchor_entity);
+            self.health_points.remove(&self.anchor_entity);
         }
     }
 
@@ -1328,6 +1594,25 @@ impl SimulationModel for TriangleManSimulation {
             rotation_rad: self.angle_rad,
             uniform_scale: self.spec.scale,
         }
+    }
+}
+
+fn asteroid_health_for_scale(scale: f32) -> f32 {
+    if scale >= 0.1 {
+        ASTEROID_BASE_HEALTH
+    } else {
+        ASTEROID_FRAGMENT_HEALTH
+    }
+}
+
+fn matches_role_target(
+    entity_id: EntityId,
+    role: RoleKind,
+    target: RoleKind,
+    matches: &mut Vec<EntityId>,
+) {
+    if role == target {
+        matches.push(entity_id);
     }
 }
 
@@ -1410,7 +1695,7 @@ fn spawn_player_entity(
 
 #[cfg(test)]
 mod tests {
-    use super::{TriangleManSimulation, TriangleManSpec};
+    use super::{RoleKind, TriangleManSimulation, TriangleManSpec};
     use crate::ecs::{EntityId, Transform, World};
     use crate::input::InputEvent;
     use crate::simulation::{
@@ -1455,6 +1740,56 @@ mod tests {
         let mut world = World::new();
         world.set_transform(anchor, initial);
         (simulation, world)
+    }
+
+    fn snapshot_anchor_transform(
+        simulation: &TriangleManSimulation,
+        anchor: EntityId,
+    ) -> Transform {
+        let mut world = World::new();
+        world.set_transform(anchor, Transform::default());
+        simulation.write_anchor_to_world(&mut world, anchor);
+        world.transform(anchor).copied().unwrap_or_default()
+    }
+
+    fn asteroid_entities_except_anchor(
+        simulation: &TriangleManSimulation,
+        world: &World,
+        anchor: EntityId,
+    ) -> Vec<EntityId> {
+        world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .filter(|entity_id| simulation.role_for_entity(*entity_id) == Some(RoleKind::Asteroid))
+            .collect()
+    }
+
+    fn total_mass(world: &World, entities: &[EntityId]) -> f32 {
+        entities
+            .iter()
+            .map(|entity_id| {
+                world
+                    .rigid_body(*entity_id)
+                    .expect("entity should have rigid body")
+                    .mass
+            })
+            .sum()
+    }
+
+    fn total_linear_momentum(world: &World, entities: &[EntityId]) -> (f32, f32) {
+        entities.iter().fold((0.0f32, 0.0f32), |acc, entity_id| {
+            let transform = world
+                .transform(*entity_id)
+                .expect("entity should have transform");
+            let body = world
+                .rigid_body(*entity_id)
+                .expect("entity should have rigid body");
+            (
+                acc.0 + body.mass * transform.velocity_x,
+                acc.1 + body.mass * transform.velocity_y,
+            )
+        })
     }
 
     #[test]
@@ -1518,11 +1853,11 @@ mod tests {
         with_second_press.update(dt);
         without_second_press.update(dt);
 
-        let a = with_second_press.transform_2d();
-        let b = without_second_press.transform_2d();
+        let a = snapshot_anchor_transform(&with_second_press, anchor);
+        let b = snapshot_anchor_transform(&without_second_press, anchor);
         assert!(
-            (a.position_x - b.position_x).abs() > 1e-6
-                || (a.position_y - b.position_y).abs() > 1e-6,
+            (a.velocity_x - b.velocity_x).abs() > 1e-6
+                || (a.velocity_y - b.velocity_y).abs() > 1e-6,
             "expected second press to change movement, but it was ignored"
         );
     }
@@ -1593,9 +1928,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x > without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x > without_transform.velocity_x);
     }
 
     #[test]
@@ -1627,9 +1962,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x < without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x < without_transform.velocity_x);
     }
 
     #[test]
@@ -1665,9 +2000,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x > without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x > without_transform.velocity_x);
     }
 
     #[test]
@@ -1703,9 +2038,9 @@ mod tests {
         with_trigger.update(dt);
         without_trigger.update(dt);
 
-        let with_transform = with_trigger.transform_2d();
-        let without_transform = without_trigger.transform_2d();
-        assert!(with_transform.position_x < without_transform.position_x);
+        let with_transform = snapshot_anchor_transform(&with_trigger, anchor);
+        let without_transform = snapshot_anchor_transform(&without_trigger, anchor);
+        assert!(with_transform.velocity_x < without_transform.velocity_x);
     }
 
     #[test]
@@ -1752,16 +2087,16 @@ mod tests {
         control.update(dt);
         control.update(dt);
 
-        let below_press_transform = below_press.transform_2d();
-        let held_transform = held_between_thresholds.transform_2d();
-        let control_transform = control.transform_2d();
+        let below_press_transform = snapshot_anchor_transform(&below_press, anchor);
+        let held_transform = snapshot_anchor_transform(&held_between_thresholds, anchor);
+        let control_transform = snapshot_anchor_transform(&control, anchor);
 
         assert!(
-            (below_press_transform.position_x - control_transform.position_x).abs() < 1e-6,
+            (below_press_transform.velocity_x - control_transform.velocity_x).abs() < 1e-6,
             "trigger input below press threshold should be ignored"
         );
         assert!(
-            held_transform.position_x > control_transform.position_x,
+            held_transform.velocity_x > control_transform.velocity_x,
             "trigger should remain active between press and release thresholds"
         );
     }
@@ -1794,12 +2129,12 @@ mod tests {
         with_stick.update(dt);
         without_stick.update(dt);
 
-        let a = with_stick.transform_2d();
-        let b = without_stick.transform_2d();
+        let a = snapshot_anchor_transform(&with_stick, anchor);
+        let b = snapshot_anchor_transform(&without_stick, anchor);
 
         assert!(
-            (a.position_x - b.position_x).abs() > 1e-6
-                || (a.position_y - b.position_y).abs() > 1e-6,
+            (a.velocity_x - b.velocity_x).abs() > 1e-6
+                || (a.velocity_y - b.velocity_y).abs() > 1e-6,
             "expected gamepad axis mapping to affect motion"
         );
     }
@@ -1810,7 +2145,8 @@ mod tests {
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(asteroid, 1.0);
         let bullet = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
 
         let report = SchedulerFrameReport {
@@ -1840,12 +2176,27 @@ mod tests {
     }
 
     #[test]
+    fn asteroid_spawn_burst_refills_live_count_after_losses() {
+        let anchor: EntityId = 303;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let _first = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        let _second = simulation.spawn_asteroid_entity(&mut world, 1, 0.14, 1.0, 1.0);
+
+        simulation.elapsed_seconds = 12.0;
+
+        assert_eq!(simulation.asteroid_spawn_burst_count(), 6);
+    }
+
+    #[test]
     fn fragments_spawned_near_world_edge_survive_initial_scheduler_tick() {
         let anchor: EntityId = 202;
         let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
         simulation.baseline_asteroid_spawned = true;
 
-        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0);
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(asteroid, 1.0);
         let bullet = simulation.spawn_bullet_entity(&mut world, 1.06, 0.0, 0.0, 0.0, 0.0);
 
         if let Some(transform) = world.transform_mut(asteroid) {
@@ -1883,6 +2234,564 @@ mod tests {
         assert_eq!(
             fragment_count, 4,
             "fragments should survive the first scheduler tick near the world edge"
+        );
+    }
+
+    #[test]
+    fn bullet_asteroid_collision_damages_then_fragments_deterministically() {
+        let anchor: EntityId = 707;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        let bullet_one = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet_one,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        assert!(world.transform(asteroid).is_some());
+        assert!(world.transform(bullet_one).is_none());
+        assert_eq!(simulation.health_for_test(asteroid), Some(1.0));
+
+        let bullet_two = simulation.spawn_bullet_entity(&mut world, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let second_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet_two,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &second_hit);
+
+        assert!(world.transform(asteroid).is_none());
+        assert!(world.transform(bullet_two).is_none());
+
+        let fragment_entities: Vec<EntityId> = world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .collect();
+        assert_eq!(fragment_entities.len(), 4);
+        for entity_id in fragment_entities {
+            assert!(simulation.role_for_entity(entity_id).is_some());
+            assert!(world.rigid_body(entity_id).is_some());
+        }
+    }
+
+    #[test]
+    fn heavy_asteroid_fragments_conserve_linear_momentum() {
+        let anchor: EntityId = 909;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 5000.0, 1.0);
+        if let Some(transform) = world.transform_mut(asteroid) {
+            transform.velocity_x = 0.0;
+            transform.velocity_y = 0.0;
+        }
+        simulation.set_health_for_test(asteroid, 1.0);
+
+        let bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 1.0, 0.0, 0.0);
+
+        let asteroid_transform = world
+            .transform(asteroid)
+            .expect("asteroid transform should be present");
+        let asteroid_body = world
+            .rigid_body(asteroid)
+            .expect("asteroid rigid body should be present");
+        let bullet_transform = world
+            .transform(bullet)
+            .expect("bullet transform should be present");
+        let bullet_body = world
+            .rigid_body(bullet)
+            .expect("bullet rigid body should be present");
+        let expected_momentum_x = asteroid_transform.velocity_x * asteroid_body.mass
+            + bullet_transform.velocity_x * bullet_body.mass;
+        let expected_momentum_y = asteroid_transform.velocity_y * asteroid_body.mass
+            + bullet_transform.velocity_y * bullet_body.mass;
+
+        let hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+        let fragment_entities: Vec<EntityId> = world
+            .transforms()
+            .map(|(entity_id, _)| entity_id)
+            .filter(|entity_id| *entity_id != anchor)
+            .collect();
+        assert_eq!(fragment_entities.len(), 4);
+
+        let mut fragment_momentum_x = 0.0f32;
+        let mut fragment_momentum_y = 0.0f32;
+        for entity_id in fragment_entities {
+            let transform = world
+                .transform(entity_id)
+                .expect("fragment transform should be present");
+            let body = world
+                .rigid_body(entity_id)
+                .expect("fragment rigid body should be present");
+            fragment_momentum_x += body.mass * transform.velocity_x;
+            fragment_momentum_y += body.mass * transform.velocity_y;
+        }
+
+        assert!(
+            (fragment_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "fragment x momentum mismatch: expected {expected_momentum_x}, got {fragment_momentum_x}"
+        );
+        assert!(
+            (fragment_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "fragment y momentum mismatch: expected {expected_momentum_y}, got {fragment_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn lethal_bullet_hit_transfers_momentum_then_fragments_into_four_conserving_mass_and_momentum()
+    {
+        let anchor: EntityId = 910;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let asteroid = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(asteroid, 1.0);
+        let bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.85, 0.0, 0.0);
+
+        let parent_mass = world
+            .rigid_body(asteroid)
+            .expect("asteroid rigid body should be present")
+            .mass;
+        let expected_momentum_entities = [asteroid, bullet];
+        let (expected_momentum_x, expected_momentum_y) =
+            total_linear_momentum(&world, &expected_momentum_entities);
+
+        let hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: asteroid,
+                entity_b: bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+        assert!(world.transform(asteroid).is_none());
+        assert!(world.transform(bullet).is_none());
+
+        let fragments = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            fragments.len(),
+            4,
+            "expected exactly four fragments from lethal asteroid hit"
+        );
+
+        let fragment_mass = total_mass(&world, &fragments);
+        assert!(
+            (fragment_mass - parent_mass).abs() < 1e-5,
+            "fragment mass mismatch: expected parent mass {parent_mass}, got {fragment_mass}"
+        );
+
+        let (fragment_momentum_x, fragment_momentum_y) = total_linear_momentum(&world, &fragments);
+        assert!(
+            (fragment_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "fragment x momentum mismatch: expected {expected_momentum_x}, got {fragment_momentum_x}"
+        );
+        assert!(
+            (fragment_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "fragment y momentum mismatch: expected {expected_momentum_y}, got {fragment_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn medium_fragment_hit_transfers_momentum_then_refragments_into_four_conserving_mass_and_momentum()
+     {
+        let anchor: EntityId = 911;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "first fragmentation should create four medium asteroids"
+        );
+
+        let medium_parent = medium_asteroids[0];
+        let medium_parent_mass = world
+            .rigid_body(medium_parent)
+            .expect("medium parent rigid body should be present")
+            .mass;
+
+        let medium_transform = world
+            .transform(medium_parent)
+            .expect("medium parent transform should be present");
+        let medium_parent_x = medium_transform.position_x;
+        let medium_parent_y = medium_transform.position_y;
+        let second_bullet = simulation.spawn_bullet_entity(
+            &mut world,
+            medium_parent_x - 0.15,
+            medium_parent_y,
+            0.45,
+            0.0,
+            0.0,
+        );
+
+        let expected_momentum_entities = [medium_parent, second_bullet];
+        let (expected_momentum_x, expected_momentum_y) =
+            total_linear_momentum(&world, &expected_momentum_entities);
+
+        let second_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: medium_parent,
+                entity_b: second_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &second_hit);
+
+        assert!(world.transform(medium_parent).is_none());
+        assert!(world.transform(second_bullet).is_none());
+
+        let after_second_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            after_second_hit.len(),
+            7,
+            "expected 3 surviving medium asteroids plus 4 new child asteroids"
+        );
+
+        let new_children: Vec<EntityId> = after_second_hit
+            .into_iter()
+            .filter(|entity_id| !medium_asteroids.contains(entity_id))
+            .collect();
+        assert_eq!(
+            new_children.len(),
+            4,
+            "second-stage hit should produce four child asteroids"
+        );
+
+        let child_mass = total_mass(&world, &new_children);
+        assert!(
+            (child_mass - medium_parent_mass).abs() < 1e-5,
+            "second-stage child mass mismatch: expected parent mass {medium_parent_mass}, got {child_mass}"
+        );
+
+        let (child_momentum_x, child_momentum_y) = total_linear_momentum(&world, &new_children);
+        assert!(
+            (child_momentum_x - expected_momentum_x).abs() < 1e-3,
+            "second-stage child x momentum mismatch: expected {expected_momentum_x}, got {child_momentum_x}"
+        );
+        assert!(
+            (child_momentum_y - expected_momentum_y).abs() < 1e-3,
+            "second-stage child y momentum mismatch: expected {expected_momentum_y}, got {child_momentum_y}"
+        );
+    }
+
+    #[test]
+    fn chained_medium_fragment_hits_each_split_into_four_and_conserve_mass_and_momentum() {
+        let anchor: EntityId = 912;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "first fragmentation should create four medium asteroids"
+        );
+
+        let targets = [medium_asteroids[0], medium_asteroids[1]];
+        for (index, target_parent) in targets.into_iter().enumerate() {
+            let before_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+            assert!(
+                before_hit.contains(&target_parent),
+                "target medium asteroid should exist before chained hit {index}"
+            );
+
+            let parent_mass = world
+                .rigid_body(target_parent)
+                .expect("target medium rigid body should be present")
+                .mass;
+            let target_transform = world
+                .transform(target_parent)
+                .expect("target medium transform should be present");
+            let target_x = target_transform.position_x;
+            let target_y = target_transform.position_y;
+            let bullet_heading = 0.35 + index as f32 * 0.2;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                target_x - 0.15,
+                target_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let expected_momentum_entities = [target_parent, bullet];
+            let (expected_momentum_x, expected_momentum_y) =
+                total_linear_momentum(&world, &expected_momentum_entities);
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: target_parent,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+
+            assert!(world.transform(target_parent).is_none());
+            assert!(world.transform(bullet).is_none());
+
+            let after_hit = asteroid_entities_except_anchor(&simulation, &world, anchor);
+            assert_eq!(
+                after_hit.len(),
+                before_hit.len() + 3,
+                "each chained second-stage hit should net +3 asteroids (remove 1, add 4)"
+            );
+
+            let new_children: Vec<EntityId> = after_hit
+                .iter()
+                .copied()
+                .filter(|entity_id| !before_hit.contains(entity_id))
+                .collect();
+            assert_eq!(
+                new_children.len(),
+                4,
+                "chained hit {index} should produce exactly four new child asteroids"
+            );
+
+            let child_mass = total_mass(&world, &new_children);
+            assert!(
+                (child_mass - parent_mass).abs() < 1e-5,
+                "chained hit {index} mass mismatch: expected parent mass {parent_mass}, got {child_mass}"
+            );
+
+            let (child_momentum_x, child_momentum_y) = total_linear_momentum(&world, &new_children);
+            assert!(
+                (child_momentum_x - expected_momentum_x).abs() < 1e-3,
+                "chained hit {index} x momentum mismatch: expected {expected_momentum_x}, got {child_momentum_x}"
+            );
+            assert!(
+                (child_momentum_y - expected_momentum_y).abs() < 1e-3,
+                "chained hit {index} y momentum mismatch: expected {expected_momentum_y}, got {child_momentum_y}"
+            );
+        }
+
+        let final_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            final_asteroids.len(),
+            10,
+            "after two chained second-stage hits, expected 10 asteroid entities total"
+        );
+    }
+
+    #[test]
+    fn full_chain_fragments_to_sixteen_then_vaporizes_all_grandchildren() {
+        let anchor: EntityId = 913;
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(anchor);
+        simulation.baseline_asteroid_spawned = true;
+
+        // Stage 1: large asteroid -> 4 medium fragments.
+        let large_parent = simulation.spawn_asteroid_entity(&mut world, 0, 0.14, 1.0, 1.0);
+        simulation.set_health_for_test(large_parent, 1.0);
+        let first_bullet = simulation.spawn_bullet_entity(&mut world, -0.2, 0.0, 0.7, 0.0, 0.0);
+        let first_hit = SchedulerFrameReport {
+            interaction_events: vec![InteractionEvent {
+                entity_a: large_parent,
+                entity_b: first_bullet,
+                kind: InteractionEventKind::Collision,
+            }],
+            ..Default::default()
+        };
+        simulation.reconcile_world(&mut world, 1.0 / 60.0, &first_hit);
+
+        let mut medium_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        medium_asteroids.sort_unstable();
+        assert_eq!(
+            medium_asteroids.len(),
+            4,
+            "expected first-stage split to produce 4 medium asteroids"
+        );
+
+        // Stage 2: each medium asteroid -> 4 grandchildren, yielding 16 total.
+        for (index, medium_parent) in medium_asteroids.iter().copied().enumerate() {
+            let medium_transform = world
+                .transform(medium_parent)
+                .expect("medium asteroid transform should be present");
+            let medium_x = medium_transform.position_x;
+            let medium_y = medium_transform.position_y;
+            let bullet_heading = 0.25 + index as f32 * 0.2;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                medium_x - 0.15,
+                medium_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: medium_parent,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+        }
+
+        let mut grandchildren = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        grandchildren.sort_unstable();
+        assert_eq!(
+            grandchildren.len(),
+            16,
+            "expected four medium asteroids to each split into four grandchildren"
+        );
+
+        // Stage 3: vaporize each grandchild with one bullet (no further fragmentation expected).
+        for (index, grandchild) in grandchildren.iter().copied().enumerate() {
+            let grandchild_transform = world
+                .transform(grandchild)
+                .expect("grandchild transform should be present");
+            let grandchild_x = grandchild_transform.position_x;
+            let grandchild_y = grandchild_transform.position_y;
+            let bullet_heading = 0.15 + index as f32 * 0.11;
+            let bullet = simulation.spawn_bullet_entity(
+                &mut world,
+                grandchild_x - 0.12,
+                grandchild_y,
+                bullet_heading,
+                0.0,
+                0.0,
+            );
+
+            let hit = SchedulerFrameReport {
+                interaction_events: vec![InteractionEvent {
+                    entity_a: grandchild,
+                    entity_b: bullet,
+                    kind: InteractionEventKind::Collision,
+                }],
+                ..Default::default()
+            };
+            simulation.reconcile_world(&mut world, 1.0 / 60.0, &hit);
+        }
+
+        let remaining_asteroids = asteroid_entities_except_anchor(&simulation, &world, anchor);
+        assert_eq!(
+            remaining_asteroids.len(),
+            0,
+            "expected all 16 grandchildren to be vaporized with no asteroid survivors"
+        );
+    }
+
+    #[test]
+    fn asteroid_mass_scale_stays_flat_with_default_spec() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(111);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds;
+        let mass_scale = simulation.asteroid_mass_scale();
+        assert!(
+            (mass_scale - 1.0).abs() < 1e-6,
+            "expected flat asteroid mass scale of 1.0, got {mass_scale}"
+        );
+    }
+
+    #[test]
+    fn asteroid_velocity_scale_reaches_ten_x_at_three_minutes() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(112);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds;
+        let velocity_scale = simulation.asteroid_velocity_scale();
+        assert!(
+            (velocity_scale - 10.0).abs() < 1e-6,
+            "expected asteroid velocity scale of 10.0 at target time, got {velocity_scale}"
+        );
+    }
+
+    #[test]
+    fn asteroid_velocity_scale_uses_ease_in_curve() {
+        let (mut simulation, _world) = seeded_simulation_with_anchor(113);
+        simulation.elapsed_seconds = simulation.spec.asteroid_target_time_seconds * 0.5;
+        let velocity_scale = simulation.asteroid_velocity_scale();
+        assert!(
+            (velocity_scale - 3.25).abs() < 1e-5,
+            "expected eased mid-curve velocity scale of 3.25, got {velocity_scale}"
+        );
+    }
+
+    #[test]
+    fn spawned_asteroids_cover_expected_mass_variance_range() {
+        let (mut simulation, mut world) = seeded_simulation_with_anchor(114);
+        simulation.baseline_asteroid_spawned = true;
+
+        let mut min_mass = f32::MAX;
+        let mut max_mass = f32::MIN;
+        for index in 0..64 {
+            let asteroid = simulation.spawn_asteroid_entity(&mut world, index, 0.14, 1.0, 1.0);
+            let mass = world
+                .rigid_body(asteroid)
+                .expect("spawned asteroid should have rigid body")
+                .mass;
+            min_mass = min_mass.min(mass);
+            max_mass = max_mass.max(mass);
+        }
+
+        assert!(min_mass >= 2.2 * 0.25 - 1e-5);
+        assert!(max_mass <= 2.2 * 1.75 + 1e-5);
+        assert!(
+            min_mass < 2.2 * 0.55,
+            "expected lower-tail mass variance, got min_mass={min_mass}"
+        );
+        assert!(
+            max_mass > 2.2 * 1.45,
+            "expected upper-tail mass variance, got max_mass={max_mass}"
         );
     }
 }

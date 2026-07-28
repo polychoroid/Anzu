@@ -111,6 +111,10 @@ wasm-pack build --target web --out-dir ../static/pkg --release
 - Triangle Man includes regression tests for fragment independence and near-edge fragment survival behavior.
 
 ## Conventions
+
+Runtime pipeline continuation:
+- See `documents/runtime-execution-recommendations.md` for staged implementation guidance and a next-session resume checklist for Milestone 4 runtime execution work.
+
 - **Rust style:** Follow standard Rust idioms; use `cargo fmt` and `cargo clippy` to maintain consistency.
 - **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.

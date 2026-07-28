@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 
 use winit::{
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta},
@@ -10,8 +10,11 @@ use winit::{
     window::Window,
 };
 
+use super::control_plane::{
+    ControlCommand, ControlPlaneAction, ControlPlaneState, command_label, is_reserved_browser_key,
+};
 use super::core::{BatchVertex, DrawBatch, RenderCore, RenderError, RotationUniform};
-use crate::ecs::{EntityId, World};
+use crate::ecs::{EntityId, MaterialId, World};
 use crate::input::InputEvent;
 use crate::renderer::RenderRomPackage;
 use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, SimulationModel};
@@ -19,19 +22,110 @@ use crate::simulation::{InteractionEventKind, PhysicsConfig, Scheduler, Simulati
 const FIXED_STEP_SECONDS: f32 = 1.0 / 60.0;
 const MAX_FIXED_STEPS_PER_FRAME: u32 = 8;
 const INPUT_LOG_INTERVAL_FRAMES: u64 = 120;
+const WEBGL_RENDER_SCALE: f32 = 0.60;
+const ENABLE_RUNTIME_INFO_LOGS: bool = true;
+const ENABLE_RUNTIME_WARN_LOGS: bool = true;
+const MAX_CONTROL_PLANE_NOTIFICATIONS: usize = 8;
+const OVERLAY_MATERIAL_ID: MaterialId = MaterialId(u16::MAX);
 
 struct GamepadPollStats {
     visible_gamepads: usize,
     slot_count: u32,
     document_has_focus: bool,
+    document_visible: bool,
+    secure_context: bool,
+    gamepad_api_available: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InputDiagnosticsSnapshot {
+    visible_gamepads: usize,
+    slot_count: u32,
+    document_has_focus: bool,
+    document_visible: bool,
+    secure_context: bool,
+    gamepad_api_available: bool,
+}
+
+impl InputDiagnosticsSnapshot {
+    fn from_poll_stats(stats: GamepadPollStats) -> Self {
+        Self {
+            visible_gamepads: stats.visible_gamepads,
+            slot_count: stats.slot_count,
+            document_has_focus: stats.document_has_focus,
+            document_visible: stats.document_visible,
+            secure_context: stats.secure_context,
+            gamepad_api_available: stats.gamepad_api_available,
+        }
+    }
+}
+
+impl Default for InputDiagnosticsSnapshot {
+    fn default() -> Self {
+        Self {
+            visible_gamepads: 0,
+            slot_count: 0,
+            document_has_focus: true,
+            document_visible: true,
+            secure_context: false,
+            gamepad_api_available: false,
+        }
+    }
+}
+
+fn diagnostics_bool_text(value: bool) -> &'static str {
+    if value { "YES" } else { "NO" }
+}
+
+fn overlay_glyph_5x5(character: char) -> [u8; 5] {
+    match character.to_ascii_uppercase() {
+        'A' => [0b01110, 0b10001, 0b11111, 0b10001, 0b10001],
+        'B' => [0b11110, 0b10001, 0b11110, 0b10001, 0b11110],
+        'C' => [0b01111, 0b10000, 0b10000, 0b10000, 0b01111],
+        'D' => [0b11110, 0b10001, 0b10001, 0b10001, 0b11110],
+        'E' => [0b11111, 0b10000, 0b11110, 0b10000, 0b11111],
+        'F' => [0b11111, 0b10000, 0b11110, 0b10000, 0b10000],
+        'G' => [0b01111, 0b10000, 0b10011, 0b10001, 0b01110],
+        'H' => [0b10001, 0b10001, 0b11111, 0b10001, 0b10001],
+        'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b11111],
+        'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        'M' => [0b10001, 0b11011, 0b10101, 0b10001, 0b10001],
+        'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001],
+        'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b01110],
+        'P' => [0b11110, 0b10001, 0b11110, 0b10000, 0b10000],
+        'R' => [0b11110, 0b10001, 0b11110, 0b10010, 0b10001],
+        'S' => [0b01111, 0b10000, 0b01110, 0b00001, 0b11110],
+        'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100],
+        'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'V' => [0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        'X' => [0b10001, 0b01010, 0b00100, 0b01010, 0b10001],
+        'Y' => [0b10001, 0b01010, 0b00100, 0b00100, 0b00100],
+        '0' => [0b01110, 0b10011, 0b10101, 0b11001, 0b01110],
+        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b01110],
+        '2' => [0b01110, 0b10001, 0b00010, 0b00100, 0b11111],
+        '3' => [0b11110, 0b00001, 0b00110, 0b00001, 0b11110],
+        '4' => [0b00010, 0b00110, 0b01010, 0b11111, 0b00010],
+        '5' => [0b11111, 0b10000, 0b11110, 0b00001, 0b11110],
+        '6' => [0b01110, 0b10000, 0b11110, 0b10001, 0b01110],
+        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000],
+        '8' => [0b01110, 0b10001, 0b01110, 0b10001, 0b01110],
+        '9' => [0b01110, 0b10001, 0b01111, 0b00001, 0b01110],
+        ':' => [0b00000, 0b00100, 0b00000, 0b00100, 0b00000],
+        ' ' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000],
+        _ => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000],
+    }
 }
 
 fn log_info(message: &str) {
-    web_sys::console::log_1(&JsValue::from_str(message));
+    if ENABLE_RUNTIME_INFO_LOGS {
+        web_sys::console::log_1(&JsValue::from_str(message));
+    }
 }
 
 fn log_warn(message: &str) {
-    web_sys::console::warn_1(&JsValue::from_str(message));
+    if ENABLE_RUNTIME_WARN_LOGS {
+        web_sys::console::warn_1(&JsValue::from_str(message));
+    }
 }
 
 impl RenderError {
@@ -43,6 +137,10 @@ impl RenderError {
 pub struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
+    rom: Box<dyn RenderRomPackage>,
+    webgl_compat: bool,
+    render_scale: f32,
+    physics_config: PhysicsConfig,
     world: World,
     anchor_entity: EntityId,
     scheduler: Scheduler,
@@ -51,9 +149,10 @@ pub struct State {
     next_scheduler_log_frame: u64,
     fixed_time_accumulator_seconds: f32,
     fixed_step_clamp_count: u64,
+    smoothed_fps: f32,
     game_over: bool,
-    simulation_paused: bool,
-    pending_step_ticks: u32,
+    control_plane: ControlPlaneState,
+    input_diagnostics: InputDiagnosticsSnapshot,
     logged_gamepad_devices: BTreeSet<u32>,
     gamepad_button_states: BTreeMap<(u32, usize), bool>,
     gamepad_button_values: BTreeMap<(u32, usize), f32>,
@@ -63,6 +162,12 @@ pub struct State {
 }
 
 impl State {
+    fn scaled_extent(width: u32, height: u32, scale: f32) -> (u32, u32) {
+        let scaled_width = ((width as f32) * scale).round() as u32;
+        let scaled_height = ((height as f32) * scale).round() as u32;
+        (scaled_width.max(1), scaled_height.max(1))
+    }
+
     fn simulation_counters(&self) -> (f32, f32, f32, f32, f32) {
         let mut linear_momentum_x = 0.0f32;
         let mut linear_momentum_y = 0.0f32;
@@ -101,16 +206,15 @@ impl State {
         // First pass: collect world-space positions of all bullet entities.
         // Bullets are identified by having a Lifecycle component (only they have TTL).
         let mut bullet_positions: Vec<[f32; 2]> = Vec::new();
-        self.world.for_each_render_mesh(|entity_id, _mesh, _material_id| {
-            if self.world.lifecycle(entity_id).is_some() {
-                if let Some(t) = self.world.transform(entity_id) {
-                    bullet_positions.push([t.position_x, t.position_y]);
+        self.world
+            .for_each_render_mesh(|entity_id, _mesh, _material_id| {
+                if self.world.lifecycle(entity_id).is_some() {
+                    if let Some(t) = self.world.transform(entity_id) {
+                        bullet_positions.push([t.position_x, t.position_y]);
+                    }
                 }
-            }
-        });
+            });
 
-        // Returns the world-space position of the nearest bullet, or a far-off
-        // sentinel ([10.0, 10.0]) when no bullets exist so light_strength → 0.
         let nearest_bullet = |px: f32, py: f32| -> [f32; 2] {
             bullet_positions
                 .iter()
@@ -123,53 +227,795 @@ impl State {
                 .unwrap_or([10.0, 10.0])
         };
 
-        let mut batch = Vec::new();
-        let mut draw_batches = Vec::new();
+        let nearest_bullet_light = |px: f32, py: f32| -> f32 {
+            let bullet = nearest_bullet(px, py);
+            let light_dist = ((bullet[0] - px).powi(2) + (bullet[1] - py).powi(2)).sqrt();
+            let light_radius = 0.35f32;
+            let t = (light_dist / light_radius).clamp(0.0, 1.0);
+            let smooth = t * t * (3.0 - 2.0 * t);
+            (1.0 - smooth).powf(1.2)
+        };
+
+        let mut vertices_by_material: BTreeMap<MaterialId, Vec<BatchVertex>> = BTreeMap::new();
 
         self.world
             .for_each_render_mesh(|entity_id, mesh, material_id| {
-            let Some(transform) = self.world.transform(entity_id) else {
-                return;
-            };
+                let Some(transform) = self.world.transform(entity_id) else {
+                    return;
+                };
 
-            let Ok(vertices) = bytemuck::try_cast_slice::<u8, BatchVertex>(mesh.vertex_bytes)
-            else {
-                log_warn(&format!(
-                    "[RENDER] skipped mesh for entity={} due to incompatible vertex payload",
-                    entity_id
-                ));
-                return;
-            };
+                let Ok(vertices) = bytemuck::try_cast_slice::<u8, BatchVertex>(mesh.vertex_bytes)
+                else {
+                    log_warn(&format!(
+                        "[RENDER] skipped mesh for entity={} due to incompatible vertex payload",
+                        entity_id
+                    ));
+                    return;
+                };
 
-            let c = transform.rotation_rad.cos();
-            let s = transform.rotation_rad.sin();
+                let c = transform.rotation_rad.cos();
+                let s = transform.rotation_rad.sin();
+                let entity_light_pos = if self.webgl_compat {
+                    [
+                        nearest_bullet_light(transform.position_x, transform.position_y),
+                        0.0,
+                    ]
+                } else {
+                    nearest_bullet(transform.position_x, transform.position_y)
+                };
+
+                let material_vertices = vertices_by_material.entry(material_id).or_default();
+
+                material_vertices.extend(vertices.iter().map(|vertex| {
+                    let x = vertex.position[0] * transform.uniform_scale;
+                    let y = vertex.position[1] * transform.uniform_scale;
+
+                    let world_x = c * x - s * y + transform.position_x;
+                    let world_y = s * x + c * y + transform.position_y;
+
+                    BatchVertex {
+                        position: [world_x, world_y],
+                        color: vertex.color,
+                        barycentric: vertex.barycentric,
+                        light_pos: entity_light_pos,
+                        edge_mask: vertex.edge_mask,
+                    }
+                }));
+            });
+
+        self.append_overlay_vertices(&mut vertices_by_material);
+
+        let mut batch = Vec::new();
+        let mut draw_batches = Vec::new();
+        for (material_id, vertices) in vertices_by_material {
             let batch_start = batch.len() as u32;
-
-            batch.extend(vertices.iter().map(|vertex| {
-                let x = vertex.position[0] * transform.uniform_scale;
-                let y = vertex.position[1] * transform.uniform_scale;
-
-                let world_x = c * x - s * y + transform.position_x;
-                let world_y = s * x + c * y + transform.position_y;
-
-                BatchVertex {
-                    position: [world_x, world_y],
-                    color: vertex.color,
-                    barycentric: vertex.barycentric,
-                    light_pos: nearest_bullet(world_x, world_y),
-                    edge_mask: vertex.edge_mask,
-                }
-            }));
-
+            batch.extend(vertices);
             let batch_end = batch.len() as u32;
             draw_batches.push(DrawBatch {
                 material_id,
                 vertex_offset: batch_start,
                 vertex_count: batch_end.saturating_sub(batch_start),
             });
-        });
+        }
 
         (batch, draw_batches)
+    }
+
+    fn overlay_vertex_light_payload(&self, x: f32, y: f32) -> [f32; 2] {
+        if self.webgl_compat {
+            // WebGL shader path interprets light_pos.x as scalar light strength.
+            [0.95, 0.0]
+        } else {
+            [x, y]
+        }
+    }
+
+    fn push_overlay_rect(
+        &self,
+        vertices: &mut Vec<BatchVertex>,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+        color: [f32; 3],
+    ) {
+        let edge_mask = [0.0, 0.0, 0.0];
+        let top_left_light = self.overlay_vertex_light_payload(min_x, max_y);
+        let bottom_left_light = self.overlay_vertex_light_payload(min_x, min_y);
+        let bottom_right_light = self.overlay_vertex_light_payload(max_x, min_y);
+        let top_right_light = self.overlay_vertex_light_payload(max_x, max_y);
+        vertices.extend_from_slice(&[
+            BatchVertex {
+                position: [min_x, max_y],
+                color,
+                barycentric: [1.0, 0.0, 0.0],
+                // Overlay quads are rendered with the same shader as gameplay meshes.
+                // Setting per-vertex light_pos to the panel position makes interpolation
+                // track world_pos, yielding stable alpha/fill for UI geometry.
+                light_pos: top_left_light,
+                edge_mask,
+            },
+            BatchVertex {
+                position: [min_x, min_y],
+                color,
+                barycentric: [0.0, 1.0, 0.0],
+                light_pos: bottom_left_light,
+                edge_mask,
+            },
+            BatchVertex {
+                position: [max_x, min_y],
+                color,
+                barycentric: [0.0, 0.0, 1.0],
+                light_pos: bottom_right_light,
+                edge_mask,
+            },
+            BatchVertex {
+                position: [min_x, max_y],
+                color,
+                barycentric: [1.0, 0.0, 0.0],
+                light_pos: top_left_light,
+                edge_mask,
+            },
+            BatchVertex {
+                position: [max_x, min_y],
+                color,
+                barycentric: [0.0, 1.0, 0.0],
+                light_pos: bottom_right_light,
+                edge_mask,
+            },
+            BatchVertex {
+                position: [max_x, max_y],
+                color,
+                barycentric: [0.0, 0.0, 1.0],
+                light_pos: top_right_light,
+                edge_mask,
+            },
+        ]);
+    }
+
+    fn append_overlay_distortion(&self, vertices: &mut Vec<BatchVertex>, time_seconds: f32) {
+        const BAND_COUNT: u32 = 18;
+
+        // Layer thin animated strips across the scrim to suggest refractive flow.
+        // The offsets are intentionally modest to preserve UI readability.
+        for band in 0..BAND_COUNT {
+            let t0 = band as f32 / BAND_COUNT as f32;
+            let t1 = (band + 1) as f32 / BAND_COUNT as f32;
+            let min_y = -1.0 + t0 * 2.0;
+            let max_y = -1.0 + t1 * 2.0 + 0.004;
+
+            let phase = time_seconds * 1.6 + t0 * 7.5;
+            let flow_offset = phase.sin() * 0.028 + (phase * 0.65).cos() * 0.012;
+            let tone = 0.06 + 0.04 * (phase * 0.9).sin().abs();
+
+            self.push_overlay_rect(
+                vertices,
+                -1.05 + flow_offset,
+                min_y,
+                1.05 + flow_offset,
+                max_y,
+                [tone, tone + 0.02, tone + 0.06],
+            );
+        }
+
+        let ridge_count = 6;
+        for ridge in 0..ridge_count {
+            let ridge_t = ridge as f32 / ridge_count as f32;
+            let drift = (time_seconds * 0.55 + ridge_t * 5.0).sin() * 0.20;
+            let center_x = -0.85 + ridge_t * 1.7 + drift;
+            let ridge_width = 0.035 + 0.01 * (time_seconds * 1.2 + ridge_t * 3.2).cos().abs();
+            let shimmer = 0.12 + 0.05 * (time_seconds * 1.8 + ridge_t * 4.4).sin().abs();
+
+            self.push_overlay_rect(
+                vertices,
+                center_x - ridge_width,
+                -1.0,
+                center_x + ridge_width,
+                1.0,
+                [shimmer, shimmer + 0.02, shimmer + 0.07],
+            );
+        }
+
+        // Softly restore legibility after distortion bands.
+        self.push_overlay_rect(vertices, -1.0, -1.0, 1.0, 1.0, [0.05, 0.09, 0.14]);
+    }
+
+    fn append_overlay_vertices(
+        &self,
+        vertices_by_material: &mut BTreeMap<MaterialId, Vec<BatchVertex>>,
+    ) {
+        let overlays = self.control_plane.overlay_visibility();
+        let pinned_fps_hud = self.control_plane.is_fps_hud_pinned();
+        if !overlays.pause_menu
+            && !overlays.control
+            && !overlays.performance
+            && !overlays.notifications
+            && !self.game_over
+            && !pinned_fps_hud
+        {
+            return;
+        }
+
+        let overlay_vertices = vertices_by_material.entry(OVERLAY_MATERIAL_ID).or_default();
+        // Keep the control diagnostics panel readable by reserving full-screen
+        // distortion for the performance tab only.
+        let tab_overlay_active = overlays.performance;
+
+        if tab_overlay_active {
+            let overlay_time_seconds = self.frame_index as f32 / 75.0;
+            self.append_overlay_distortion(overlay_vertices, overlay_time_seconds);
+        }
+
+        if overlays.pause_menu {
+            let pause_outer_min_x = -0.34;
+            let pause_outer_max_x = 0.34;
+            let pause_outer_min_y = -0.20;
+            let pause_outer_max_y = 0.20;
+            let pause_inner_min_x = -0.30;
+            let pause_inner_max_x = 0.30;
+            let pause_inner_min_y = -0.16;
+            let pause_inner_max_y = 0.16;
+            let pause_label = "PAUSED";
+            let pause_label_glyph_size = 0.0145;
+            let pause_label_width = Self::overlay_text_width(pause_label, pause_label_glyph_size);
+            let pause_label_height = Self::overlay_text_height(pause_label_glyph_size);
+            let pause_label_start_x = pause_inner_min_x
+                + (pause_inner_max_x - pause_inner_min_x - pause_label_width) * 0.5;
+            let pause_label_top_y =
+                (pause_inner_min_y + pause_inner_max_y) * 0.5 + pause_label_height * 0.5;
+
+            self.push_overlay_rect(
+                overlay_vertices,
+                pause_outer_min_x,
+                pause_outer_min_y,
+                pause_outer_max_x,
+                pause_outer_max_y,
+                [0.10, 0.12, 0.20],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                pause_inner_min_x,
+                pause_inner_min_y,
+                pause_inner_max_x,
+                pause_inner_max_y,
+                [0.18, 0.22, 0.36],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                pause_label,
+                pause_label_start_x,
+                pause_label_top_y,
+                pause_label_glyph_size,
+                [0.86, 0.95, 0.98],
+            );
+        }
+
+        if self.game_over {
+            let game_over_outer_min_x = -0.44;
+            let game_over_outer_max_x = 0.44;
+            let game_over_outer_min_y = -0.22;
+            let game_over_outer_max_y = 0.22;
+            let game_over_inner_min_x = -0.40;
+            let game_over_inner_max_x = 0.40;
+            let game_over_inner_min_y = -0.18;
+            let game_over_inner_max_y = 0.18;
+            let game_over_content_min_x = game_over_inner_min_x + 0.05;
+            let game_over_content_max_x = game_over_inner_max_x - 0.05;
+            let game_over_content_width = game_over_content_max_x - game_over_content_min_x;
+
+            let line_one = "GAME OVER";
+            let line_one_glyph_size = Self::overlay_text_glyph_size_to_fit(
+                line_one,
+                game_over_content_width,
+                0.016,
+                0.006,
+            );
+            let line_one_width = Self::overlay_text_width(line_one, line_one_glyph_size);
+            let line_one_start_x =
+                game_over_content_min_x + (game_over_content_width - line_one_width) * 0.5;
+
+            let line_two = "PRESS R TO RESTART";
+            let line_two_glyph_size = Self::overlay_text_glyph_size_to_fit(
+                line_two,
+                game_over_content_width,
+                0.010,
+                0.0048,
+            );
+            let line_two_width = Self::overlay_text_width(line_two, line_two_glyph_size);
+            let line_two_start_x =
+                game_over_content_min_x + (game_over_content_width - line_two_width) * 0.5;
+
+            let line_one_height = Self::overlay_text_height(line_one_glyph_size);
+            let line_two_height = Self::overlay_text_height(line_two_glyph_size);
+            let line_gap = 0.022;
+            let total_height = line_one_height + line_gap + line_two_height;
+            let panel_center_y = (game_over_inner_min_y + game_over_inner_max_y) * 0.5;
+            let line_one_top_y = panel_center_y + total_height * 0.5;
+            let line_two_top_y = line_one_top_y - line_one_height - line_gap;
+
+            self.push_overlay_rect(
+                overlay_vertices,
+                game_over_outer_min_x,
+                game_over_outer_min_y,
+                game_over_outer_max_x,
+                game_over_outer_max_y,
+                [0.17, 0.08, 0.10],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                game_over_inner_min_x,
+                game_over_inner_min_y,
+                game_over_inner_max_x,
+                game_over_inner_max_y,
+                [0.33, 0.14, 0.18],
+            );
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                line_one,
+                line_one_start_x,
+                line_one_top_y,
+                line_one_glyph_size,
+                [0.98, 0.84, 0.64],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                line_two,
+                line_two_start_x,
+                line_two_top_y,
+                line_two_glyph_size,
+                [0.95, 0.90, 0.80],
+            );
+        }
+
+        if overlays.control {
+            // Outer border
+            self.push_overlay_rect(
+                overlay_vertices,
+                -0.98,
+                0.52,
+                -0.42,
+                0.96,
+                [0.38, 0.76, 0.96],
+            );
+            // Inner panel
+            self.push_overlay_rect(
+                overlay_vertices,
+                -0.94,
+                0.56,
+                -0.46,
+                0.92,
+                [0.10, 0.18, 0.30],
+            );
+
+            self.append_control_diagnostic_indicators(overlay_vertices);
+        }
+
+        if overlays.performance {
+            let panel_outer_min_x = -0.95;
+            let panel_outer_max_x = 0.95;
+            let panel_outer_min_y = -0.88;
+            let panel_outer_max_y = 0.94;
+            let panel_inner_min_x = -0.90;
+            let panel_inner_max_x = 0.90;
+            let panel_inner_min_y = -0.84;
+            let panel_inner_max_y = 0.90;
+
+            // Outer border
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_outer_min_x,
+                panel_outer_min_y,
+                panel_outer_max_x,
+                panel_outer_max_y,
+                [0.40, 0.84, 0.94],
+            );
+            // Inner panel
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_inner_min_x,
+                panel_inner_min_y,
+                panel_inner_max_x,
+                panel_inner_max_y,
+                [0.10, 0.17, 0.22],
+            );
+
+            // Section framing: faint dividers to separate graph and metrics regions.
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_inner_min_x + 0.03,
+                0.53,
+                panel_inner_max_x - 0.03,
+                0.535,
+                [0.24, 0.40, 0.50],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                -0.34,
+                -0.78,
+                -0.335,
+                0.50,
+                [0.22, 0.36, 0.46],
+            );
+            self.push_overlay_rect(
+                overlay_vertices,
+                0.22,
+                -0.78,
+                0.225,
+                0.50,
+                [0.22, 0.36, 0.46],
+            );
+
+            let graph_min_x = -0.84;
+            let graph_max_x = 0.84;
+            let graph_min_y = 0.58;
+            let graph_max_y = 0.76;
+            let graph_width = graph_max_x - graph_min_x;
+
+            self.push_overlay_rect(
+                overlay_vertices,
+                graph_min_x,
+                graph_min_y,
+                graph_max_x,
+                graph_max_y,
+                [0.15, 0.26, 0.33],
+            );
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "FPS GRAPH",
+                -0.84,
+                0.82,
+                0.0044,
+                [0.84, 0.95, 0.98],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "OBSERVABILITY",
+                -0.84,
+                0.50,
+                0.0044,
+                [0.84, 0.95, 0.98],
+            );
+
+            let fps_fill = (self.smoothed_fps / 120.0).clamp(0.0, 1.0);
+            let bar_min_x = graph_min_x + 0.02;
+            let bar_max_x = bar_min_x + (graph_width - 0.04) * fps_fill;
+            let bar_color = if self.smoothed_fps >= 55.0 {
+                [0.24, 0.90, 0.36]
+            } else if self.smoothed_fps >= 30.0 {
+                [0.94, 0.76, 0.18]
+            } else {
+                [0.90, 0.28, 0.26]
+            };
+
+            if bar_max_x > bar_min_x {
+                self.push_overlay_rect(
+                    overlay_vertices,
+                    bar_min_x,
+                    graph_min_y + 0.03,
+                    bar_max_x,
+                    graph_max_y - 0.03,
+                    bar_color,
+                );
+            }
+
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "0",
+                graph_min_x,
+                graph_min_y - 0.02,
+                0.0038,
+                [0.72, 0.86, 0.93],
+            );
+            self.append_overlay_text_line(
+                overlay_vertices,
+                "120",
+                graph_max_x - 0.08,
+                graph_min_y - 0.02,
+                0.0038,
+                [0.72, 0.86, 0.93],
+            );
+
+            let observability_lines = [
+                format!("FPS {}", self.smoothed_fps.round() as i32),
+                format!("TARGET {}", 60),
+                format!("FRAME {}", self.frame_index),
+                format!("TICS {}", self.fixed_tick_index),
+                format!("CLAMP {}", self.fixed_step_clamp_count),
+                format!(
+                    "PAUSED {}",
+                    diagnostics_bool_text(self.control_plane.is_runtime_paused())
+                ),
+                format!("SIM STOPPED {}", diagnostics_bool_text(self.game_over)),
+                format!("PEND {}", self.control_plane.pending_step_ticks()),
+                format!("SLOTS {}", self.input_diagnostics.slot_count),
+                format!("PADS {}", self.input_diagnostics.visible_gamepads),
+                format!("BTN {}", self.gamepad_button_states.len()),
+                format!("AXES {}", self.gamepad_axis_values.len()),
+            ];
+
+            for (index, line) in observability_lines.iter().enumerate() {
+                let column_index = index / 4;
+                let row_index = index % 4;
+                let stats_left_x = match column_index {
+                    0 => -0.84,
+                    1 => -0.28,
+                    _ => 0.28,
+                };
+                let stats_column_width = 0.50;
+                let stats_top_y = 0.45 - row_index as f32 * 0.19;
+
+                let glyph_size =
+                    Self::overlay_text_glyph_size_to_fit(line, stats_column_width, 0.0060, 0.0044);
+                let color = if index < 2 {
+                    [0.88, 0.96, 0.99]
+                } else {
+                    [0.74, 0.90, 0.96]
+                };
+
+                self.append_overlay_text_line(
+                    overlay_vertices,
+                    line,
+                    stats_left_x,
+                    stats_top_y,
+                    glyph_size,
+                    color,
+                );
+            }
+        }
+
+        if pinned_fps_hud && !overlays.performance {
+            self.append_pinned_fps_text(overlay_vertices);
+        }
+
+        if overlays.notifications {
+            let notifications = self.control_plane.notifications();
+            let panel_min_x = 0.36;
+            let panel_max_x = 0.98;
+            let panel_min_y = -0.96;
+            let panel_max_y = -0.52;
+            // Outer border
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_min_x,
+                panel_min_y,
+                panel_max_x,
+                panel_max_y,
+                [0.22, 0.30, 0.46],
+            );
+            // Inner panel
+            self.push_overlay_rect(
+                overlay_vertices,
+                panel_min_x + 0.04,
+                panel_min_y + 0.04,
+                panel_max_x - 0.04,
+                panel_max_y - 0.04,
+                [0.07, 0.11, 0.18],
+            );
+
+            for (index, message) in notifications.iter().rev().take(4).enumerate() {
+                let row_top = panel_max_y - 0.05 - index as f32 * 0.10;
+                let row_bottom = row_top - 0.08;
+                let row_min_x = panel_min_x + 0.05;
+                let row_max_x = panel_max_x - 0.05;
+                let row_width = row_max_x - row_min_x;
+                let text_color = match index {
+                    0 => [0.94, 0.98, 0.99],
+                    1 => [0.86, 0.93, 0.97],
+                    2 => [0.78, 0.88, 0.95],
+                    _ => [0.70, 0.82, 0.92],
+                };
+
+                let text_glyph_size =
+                    Self::overlay_text_glyph_size_to_fit(message, row_width - 0.04, 0.0034, 0.0022);
+                let text_width = Self::overlay_text_width(message, text_glyph_size);
+                let text_height = Self::overlay_text_height(text_glyph_size);
+                let text_start_x = row_min_x + (row_width - text_width) * 0.5;
+                let text_top_y = (row_top + row_bottom) * 0.5 + text_height * 0.5;
+
+                self.push_overlay_rect(
+                    overlay_vertices,
+                    row_min_x,
+                    row_bottom,
+                    row_max_x,
+                    row_top,
+                    [0.13, 0.20, 0.30],
+                );
+
+                self.append_overlay_text_line(
+                    overlay_vertices,
+                    message,
+                    text_start_x,
+                    text_top_y,
+                    text_glyph_size,
+                    text_color,
+                );
+            }
+        }
+    }
+
+    fn append_control_diagnostic_indicators(&self, vertices: &mut Vec<BatchVertex>) {
+        let diagnostics = self.input_diagnostics;
+        let panel_min_x = -0.92;
+        let panel_max_x = -0.36;
+        let panel_min_y = 0.47;
+        let panel_max_y = 0.85;
+        let content_min_x = panel_min_x + 0.03;
+        let content_max_x = panel_max_x - 0.03;
+        let content_width = content_max_x - content_min_x;
+
+        // Dedicated diagnostics card to separate text from scene/scrim noise.
+        // We layer the card fill to increase effective opacity on both WebGPU and WebGL.
+        self.push_overlay_rect(
+            vertices,
+            panel_min_x,
+            panel_min_y,
+            panel_max_x,
+            panel_max_y,
+            [0.05, 0.10, 0.16],
+        );
+        self.push_overlay_rect(
+            vertices,
+            panel_min_x,
+            panel_min_y,
+            panel_max_x,
+            panel_max_y,
+            [0.05, 0.10, 0.16],
+        );
+        self.push_overlay_rect(
+            vertices,
+            panel_min_x,
+            panel_min_y,
+            panel_max_x,
+            panel_max_y,
+            [0.05, 0.10, 0.16],
+        );
+
+        let heading_color = [0.90, 0.98, 0.99];
+        let text_color = [0.78, 0.93, 0.97];
+        let accent_color = [0.98, 0.88, 0.66];
+        let base_text_scale = 0.0052;
+        let line_step = 0.038;
+        let mut line_top_y = panel_max_y - 0.035;
+
+        let lines = [
+            "INPUT DIAG",
+            &format!(
+                "FOCUS {}",
+                diagnostics_bool_text(diagnostics.document_has_focus)
+            ),
+            &format!(
+                "VISIBLE {}",
+                diagnostics_bool_text(diagnostics.document_visible)
+            ),
+            &format!(
+                "API {}",
+                diagnostics_bool_text(diagnostics.gamepad_api_available)
+            ),
+            &format!(
+                "SECURE {}",
+                diagnostics_bool_text(diagnostics.secure_context)
+            ),
+            &format!("SLOTS {}", diagnostics.slot_count),
+            &format!("PADS {}", diagnostics.visible_gamepads),
+            &format!(
+                "HUD {}",
+                self.control_plane
+                    .hud_telemetry_mode()
+                    .label()
+                    .to_ascii_uppercase()
+            ),
+            "F TOGGLE HUD",
+        ];
+
+        for (index, line) in lines.iter().enumerate() {
+            let line_scale =
+                Self::overlay_text_glyph_size_to_fit(line, content_width, base_text_scale, 0.0038);
+            let line_width = Self::overlay_text_width(line, line_scale);
+            let line_start_x = content_min_x + (content_width - line_width) * 0.5;
+            let color = if index == 0 {
+                heading_color
+            } else if index == lines.len() - 1 {
+                accent_color
+            } else {
+                text_color
+            };
+
+            self.append_overlay_text_line(
+                vertices,
+                line,
+                line_start_x,
+                line_top_y,
+                line_scale,
+                color,
+            );
+
+            line_top_y -= line_step;
+        }
+    }
+
+    fn append_overlay_text_line(
+        &self,
+        vertices: &mut Vec<BatchVertex>,
+        text: &str,
+        start_x: f32,
+        top_y: f32,
+        glyph_size: f32,
+        color: [f32; 3],
+    ) {
+        let mut cursor_x = start_x;
+
+        for character in text.chars() {
+            let glyph_rows = overlay_glyph_5x5(character);
+
+            for (row_index, row_bits) in glyph_rows.into_iter().enumerate() {
+                for column_index in 0..5 {
+                    let bit_mask = 1 << (4 - column_index);
+                    if row_bits & bit_mask == 0 {
+                        continue;
+                    }
+
+                    let min_x = cursor_x + column_index as f32 * glyph_size;
+                    let max_x = min_x + glyph_size * 0.86;
+                    let row_top = top_y - row_index as f32 * glyph_size;
+                    let min_y = row_top - glyph_size * 0.86;
+
+                    self.push_overlay_rect(vertices, min_x, min_y, max_x, row_top, color);
+                }
+            }
+
+            cursor_x += glyph_size * 6.0;
+        }
+    }
+
+    fn overlay_text_width(text: &str, glyph_size: f32) -> f32 {
+        let glyph_count = text.chars().count() as f32;
+        if glyph_count <= 0.0 {
+            return 0.0;
+        }
+
+        // Each glyph advances by 6 units, while lit pixels span 4.86 units.
+        ((glyph_count - 1.0) * 6.0 + 4.86) * glyph_size
+    }
+
+    fn overlay_text_height(glyph_size: f32) -> f32 {
+        // Glyph rows occupy 4.86 units vertically (4 full steps + 0.86 fill).
+        4.86 * glyph_size
+    }
+
+    fn overlay_text_glyph_size_to_fit(
+        text: &str,
+        max_width: f32,
+        preferred_glyph_size: f32,
+        min_glyph_size: f32,
+    ) -> f32 {
+        if text.is_empty() {
+            return preferred_glyph_size.max(min_glyph_size);
+        }
+
+        let glyph_units = Self::overlay_text_width(text, 1.0);
+        if glyph_units <= 0.0 || max_width <= 0.0 {
+            return min_glyph_size;
+        }
+
+        let max_fit_size = max_width / glyph_units;
+        preferred_glyph_size.min(max_fit_size).max(min_glyph_size)
+    }
+
+    fn append_pinned_fps_text(&self, vertices: &mut Vec<BatchVertex>) {
+        let hud_text_x = 0.735;
+        let hud_text_top_y = 0.965;
+
+        let fps_text = format!("FPS: {}", self.smoothed_fps.round() as i32);
+        self.append_overlay_text_line(
+            vertices,
+            &fps_text,
+            hud_text_x,
+            hud_text_top_y,
+            0.005,
+            [0.86, 0.96, 0.98],
+        );
     }
 
     pub async fn new(
@@ -199,6 +1045,7 @@ impl State {
             .await
             .map_err(|error| RenderError::AdapterRequest(error.to_string()).into_js_value())?;
         let adapter_info = adapter.get_info();
+        let webgl_compat = adapter_info.backend == wgpu::Backend::Gl;
         log_info(&format!(
             "[RENDER] init: adapter acquired backend={:?} device_type={:?} driver='{}'",
             adapter_info.backend, adapter_info.device_type, adapter_info.driver
@@ -260,11 +1107,19 @@ impl State {
             RenderError::UnsupportedSurface("surface alpha mode selection failed").into_js_value()
         })?;
 
+        let render_scale = if webgl_compat {
+            WEBGL_RENDER_SCALE
+        } else {
+            1.0
+        };
+        let (surface_width, surface_height) =
+            Self::scaled_extent(size.width.max(1), size.height.max(1), render_scale);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: surface_width,
+            height: surface_height,
             present_mode,
             alpha_mode,
             view_formats: vec![],
@@ -273,8 +1128,13 @@ impl State {
 
         surface.configure(&device, &config);
         log_info(&format!(
-            "[RENDER] surface configured: format={:?} size={}x{} present_mode={:?} alpha_mode={:?}",
-            config.format, config.width, config.height, config.present_mode, config.alpha_mode
+            "[RENDER] surface configured: format={:?} size={}x{} present_mode={:?} alpha_mode={:?} scale={:.2}",
+            config.format,
+            config.width,
+            config.height,
+            config.present_mode,
+            config.alpha_mode,
+            render_scale
         ));
 
         log_info(&format!("[ROM] bootstrap start: rom_id='{}'", rom.rom_id()));
@@ -296,7 +1156,7 @@ impl State {
         let mut simulation = rom.create_simulation(&world, anchor_entity);
         simulation.update(0.0);
         log_info("[ROM] simulation created and initial update completed");
-        let render_data = rom.render_data();
+        let render_data = rom.render_data(webgl_compat);
         log_info(&format!(
             "[RENDER] render payload received: vertex_count={}",
             render_data.vertex_count
@@ -321,6 +1181,10 @@ impl State {
         Ok(Self {
             window,
             surface,
+            rom,
+            webgl_compat,
+            render_scale,
+            physics_config,
             world,
             anchor_entity,
             scheduler: Scheduler::new(physics_config),
@@ -329,9 +1193,10 @@ impl State {
             next_scheduler_log_frame: 0,
             fixed_time_accumulator_seconds: 0.0,
             fixed_step_clamp_count: 0,
+            smoothed_fps: 60.0,
             game_over: false,
-            simulation_paused: false,
-            pending_step_ticks: 0,
+            control_plane: ControlPlaneState::new(MAX_CONTROL_PLANE_NOTIFICATIONS),
+            input_diagnostics: InputDiagnosticsSnapshot::default(),
             logged_gamepad_devices: BTreeSet::new(),
             gamepad_button_states: BTreeMap::new(),
             gamepad_button_values: BTreeMap::new(),
@@ -339,6 +1204,39 @@ impl State {
             simulation,
             render_core,
         })
+    }
+
+    pub fn is_game_over(&self) -> bool {
+        self.game_over
+    }
+
+    pub fn reset_game(&mut self) {
+        log_info("[GAME] reset requested: rebuilding world and simulation state");
+
+        self.world = World::new();
+        self.anchor_entity = self.rom.bootstrap_world(&mut self.world);
+        self.simulation = self.rom.create_simulation(&self.world, self.anchor_entity);
+        self.simulation.update(0.0);
+
+        self.scheduler = Scheduler::new(self.physics_config);
+        self.frame_index = 0;
+        self.fixed_tick_index = 0;
+        self.next_scheduler_log_frame = 0;
+        self.fixed_time_accumulator_seconds = 0.0;
+        self.fixed_step_clamp_count = 0;
+        self.smoothed_fps = 60.0;
+        self.game_over = false;
+        self.control_plane.on_game_reset_complete();
+
+        self.logged_gamepad_devices.clear();
+        self.gamepad_button_states.clear();
+        self.gamepad_button_values.clear();
+        self.gamepad_axis_values.clear();
+
+        log_info(&format!(
+            "[GAME] reset complete: new anchor entity {}",
+            self.anchor_entity
+        ));
     }
 
     pub fn window(&self) -> &Window {
@@ -349,8 +1247,9 @@ impl State {
         if width == 0 || height == 0 {
             return;
         }
-
-        self.render_core.resize(&self.surface, width, height);
+        let (scaled_width, scaled_height) = Self::scaled_extent(width, height, self.render_scale);
+        self.render_core
+            .resize(&self.surface, scaled_width, scaled_height);
     }
 
     pub fn handle_key_event(&mut self, event: &KeyEvent) {
@@ -368,6 +1267,42 @@ impl State {
             key_code, is_pressed, event.repeat
         ));
 
+        if is_reserved_browser_key(key_code) {
+            log_info(&format!(
+                "[INPUT][KEYBOARD] reserved browser key={:?}, passing through",
+                key_code
+            ));
+            return;
+        }
+
+        if let Some((command, action)) =
+            self.control_plane
+                .process_key_event(key_code, is_pressed, event.repeat)
+        {
+            log_info(&format!(
+                "[CONTROL] command={} key={:?}",
+                command_label(command),
+                key_code
+            ));
+            if action == ControlPlaneAction::ResetRequested {
+                self.reset_game();
+            }
+            return;
+        }
+
+        log_info(&format!(
+            "[INPUT][KEYBOARD] key {:?} not bound to control, feeding to simulation",
+            key_code
+        ));
+
+        if !self.control_plane.allows_gameplay_input() {
+            log_info(&format!(
+                "[INPUT][KEYBOARD] key {:?} consumed by overlay context",
+                key_code
+            ));
+            return;
+        }
+
         self.simulation
             .handle_input_event(input_event_from_key_code(
                 key_code,
@@ -376,12 +1311,23 @@ impl State {
             ));
     }
 
+    pub fn set_control_binding(&mut self, command_name: &str, key_name: &str) -> bool {
+        self.control_plane
+            .set_control_binding(command_name, key_name)
+    }
+
     pub fn handle_mouse_button_event(&mut self, button: MouseButton, state: ElementState) {
         let is_pressed = state == ElementState::Pressed;
         log_info(&format!(
             "[INPUT][MOUSE] button={:?} pressed={}",
             button, is_pressed
         ));
+
+        if !self.control_plane.allows_gameplay_input() {
+            log_info("[INPUT][MOUSE] button input consumed by overlay context");
+            return;
+        }
+
         self.simulation
             .handle_input_event(input_event_from_mouse_button(button, is_pressed));
     }
@@ -392,11 +1338,20 @@ impl State {
             MouseScrollDelta::PixelDelta(position) => position.y as f32,
         };
 
+        if !self.control_plane.allows_gameplay_input() {
+            log_info("[INPUT][MOUSE] wheel input consumed by overlay context");
+            return;
+        }
+
         self.simulation
             .handle_input_event(input_event_from_mouse_wheel(value));
     }
 
     pub fn handle_cursor_moved_event(&mut self, x: f32, y: f32) {
+        if !self.control_plane.allows_gameplay_input() {
+            return;
+        }
+
         self.simulation
             .handle_input_event(input_event_from_cursor_position("x", x));
         self.simulation
@@ -408,16 +1363,7 @@ impl State {
             return;
         }
 
-        let should_tick = if self.simulation_paused {
-            if self.pending_step_ticks > 0 {
-                self.pending_step_ticks = self.pending_step_ticks.saturating_sub(1);
-                true
-            } else {
-                false
-            }
-        } else {
-            true
-        };
+        let should_tick = self.control_plane.should_run_fixed_tick();
 
         if !should_tick {
             return;
@@ -470,13 +1416,23 @@ impl State {
 
             let (p_x, p_y, l_z, e_linear, e_angular) = self.simulation_counters();
             log_info(&format!(
-                "[SIM] fixed_tick={} pairs_checked={} collisions={} proximity_enter={} proximity_exit={} despawned={} momentum=({:.4},{:.4}) angular_momentum={:.4} energy_linear={:.4} energy_angular={:.4}",
+                "[SIM] fixed_tick={} bodies={} candidates={} pairs_checked={} narrowphase_checks={} collisions={} proximity_enter={} proximity_exit={} despawned={} stage_ns(sync={}, compose={}, broadphase={}, narrowphase={}, resolve={}, reconcile={}, publish={}) momentum=({:.4},{:.4}) angular_momentum={:.4} energy_linear={:.4} energy_angular={:.4}",
                 self.fixed_tick_index,
+                report.body_count,
+                report.candidate_pair_count,
                 report.interaction_pairs_checked,
+                report.narrowphase_checks,
                 collisions,
                 proximity_enter,
                 proximity_exit,
                 report.despawned_entities.len(),
+                report.sync_ns,
+                report.compose_ns,
+                report.broadphase_ns,
+                report.narrowphase_ns,
+                report.resolve_ns,
+                report.reconcile_ns,
+                report.publish_ns,
                 p_x,
                 p_y,
                 l_z,
@@ -491,7 +1447,7 @@ impl State {
                 ));
             }
 
-            self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(60);
+            self.next_scheduler_log_frame = self.fixed_tick_index.saturating_add(600);
         }
     }
 
@@ -501,13 +1457,29 @@ impl State {
                 visible_gamepads: 0,
                 slot_count: 0,
                 document_has_focus: false,
+                document_visible: false,
+                secure_context: false,
+                gamepad_api_available: false,
             };
         };
+
+        let gamepad_api_available = js_sys::Reflect::has(
+            &window.navigator().into(),
+            &JsValue::from_str("getGamepads"),
+        )
+        .unwrap_or(false);
 
         let document_has_focus = window
             .document()
             .and_then(|document| document.has_focus().ok())
             .unwrap_or(true);
+
+        let document_visible = window
+            .document()
+            .map(|document| document.visibility_state() == web_sys::VisibilityState::Visible)
+            .unwrap_or(true);
+
+        let secure_context = window.is_secure_context();
 
         let Ok(gamepads) = window.navigator().get_gamepads() else {
             log_warn("[INPUT][GAMEPAD] navigator.getGamepads() failed");
@@ -515,6 +1487,9 @@ impl State {
                 visible_gamepads: 0,
                 slot_count: 0,
                 document_has_focus,
+                document_visible,
+                secure_context,
+                gamepad_api_available,
             };
         };
 
@@ -543,6 +1518,7 @@ impl State {
                     gamepad.buttons().length(),
                     gamepad.axes().length()
                 ));
+                self.control_plane.on_controller_connected(device_index);
             }
 
             let buttons = gamepad.buttons();
@@ -562,23 +1538,43 @@ impl State {
                     .copied()
                     .unwrap_or(false);
                 let previous_value = self.gamepad_button_values.get(&key).copied().unwrap_or(0.0);
+                let control = gamepad_button_control(button_index);
+                let mapped_control_command = gamepad_button_control_command(button_index);
 
                 if previous_pressed != is_pressed || (previous_value - value).abs() >= 0.01 {
                     log_info(&format!(
                         "[INPUT][GAMEPAD] dispatch button index={} control={} value={:.3} pressed={}",
-                        device_index,
-                        gamepad_button_control(button_index),
-                        value,
-                        is_pressed
+                        device_index, control, value, is_pressed
                     ));
-                    self.simulation.handle_input_event(InputEvent {
-                        source: "gamepad".to_owned(),
-                        control: gamepad_button_control(button_index),
-                        value,
-                        device_index: Some(device_index),
-                        is_pressed,
-                        is_repeat: false,
-                    });
+
+                    if let Some(command) = mapped_control_command {
+                        if is_pressed && !previous_pressed {
+                            let action = self.control_plane.apply_command(command);
+                            log_info(&format!(
+                                "[CONTROL][GAMEPAD] command={} button={} index={}",
+                                command_label(command),
+                                control,
+                                device_index
+                            ));
+
+                            if action == ControlPlaneAction::ResetRequested {
+                                self.reset_game();
+                            }
+                        }
+                    } else {
+                        if !self.control_plane.allows_gameplay_input() {
+                            continue;
+                        }
+
+                        self.simulation.handle_input_event(InputEvent {
+                            source: "gamepad".to_owned(),
+                            control,
+                            value,
+                            device_index: Some(device_index),
+                            is_pressed,
+                            is_repeat: false,
+                        });
+                    }
                 }
 
                 self.gamepad_button_states.insert(key, is_pressed);
@@ -604,14 +1600,16 @@ impl State {
                         value,
                         value.abs() >= 0.5
                     ));
-                    self.simulation.handle_input_event(InputEvent {
-                        source: "gamepad".to_owned(),
-                        control: gamepad_axis_control(axis_index),
-                        value,
-                        device_index: Some(device_index),
-                        is_pressed: value.abs() >= 0.5,
-                        is_repeat: false,
-                    });
+                    if self.control_plane.allows_gameplay_input() {
+                        self.simulation.handle_input_event(InputEvent {
+                            source: "gamepad".to_owned(),
+                            control: gamepad_axis_control(axis_index),
+                            value,
+                            device_index: Some(device_index),
+                            is_pressed: value.abs() >= 0.5,
+                            is_repeat: false,
+                        });
+                    }
 
                     if let Some((control, normalized_value)) =
                         gamepad_axis_semantic_alias(axis_index, value)
@@ -623,14 +1621,16 @@ impl State {
                             normalized_value,
                             normalized_value >= 0.5,
                         ));
-                        self.simulation.handle_input_event(InputEvent {
-                            source: "gamepad".to_owned(),
-                            control: control.to_owned(),
-                            value: normalized_value,
-                            device_index: Some(device_index),
-                            is_pressed: normalized_value >= 0.5,
-                            is_repeat: false,
-                        });
+                        if self.control_plane.allows_gameplay_input() {
+                            self.simulation.handle_input_event(InputEvent {
+                                source: "gamepad".to_owned(),
+                                control: control.to_owned(),
+                                value: normalized_value,
+                                device_index: Some(device_index),
+                                is_pressed: normalized_value >= 0.5,
+                                is_repeat: false,
+                            });
+                        }
                     }
                 }
 
@@ -644,6 +1644,20 @@ impl State {
             .retain(|key, _| seen_button_keys.contains_key(key));
         self.gamepad_axis_values
             .retain(|key, _| seen_axis_keys.contains_key(key));
+        let disconnected_indices: Vec<u32> = self
+            .logged_gamepad_devices
+            .iter()
+            .copied()
+            .filter(|device_index| {
+                !seen_button_keys
+                    .keys()
+                    .any(|(seen_index, _)| seen_index == device_index)
+                    && !seen_axis_keys
+                        .keys()
+                        .any(|(seen_index, _)| seen_index == device_index)
+            })
+            .collect();
+
         self.logged_gamepad_devices.retain(|device_index| {
             seen_button_keys
                 .keys()
@@ -653,16 +1667,30 @@ impl State {
                     .any(|(seen_index, _)| seen_index == device_index)
         });
 
+        for device_index in disconnected_indices {
+            self.control_plane.on_controller_disconnected(device_index);
+        }
+
         GamepadPollStats {
             visible_gamepads,
             slot_count,
             document_has_focus,
+            document_visible,
+            secure_context,
+            gamepad_api_available,
         }
     }
 
     pub fn update(&mut self, delta_seconds: f32) {
         self.frame_index = self.frame_index.saturating_add(1);
         let gamepad_stats = self.poll_gamepads();
+        self.input_diagnostics = InputDiagnosticsSnapshot::from_poll_stats(gamepad_stats);
+
+        if delta_seconds > 0.0 {
+            let instant_fps = (1.0 / delta_seconds).clamp(0.0, 240.0);
+            self.smoothed_fps = self.smoothed_fps * 0.90 + instant_fps * 0.10;
+        }
+
         let clamped_delta_seconds = delta_seconds.clamp(0.0, 0.25);
         self.fixed_time_accumulator_seconds += clamped_delta_seconds;
 
@@ -681,15 +1709,20 @@ impl State {
         }
 
         if self.frame_index % 120 == 0 {
+            let overlays = self.control_plane.overlay_visibility();
             log_info(&format!(
-                "[SIM] fixed-step summary frame={} ticks_this_frame={} accumulator={:.5} clamped_frames={} game_over={} paused={} pending_steps={}",
+                "[SIM] fixed-step summary frame={} ticks_this_frame={} accumulator={:.5} clamped_frames={} game_over={} paused={} pending_steps={} overlays(pause={},control={},perf={},notify={})",
                 self.frame_index,
                 ticks_this_frame,
                 self.fixed_time_accumulator_seconds,
                 self.fixed_step_clamp_count,
                 self.game_over,
-                self.simulation_paused,
-                self.pending_step_ticks
+                self.control_plane.is_runtime_paused(),
+                self.control_plane.pending_step_ticks(),
+                overlays.pause_menu,
+                overlays.control,
+                overlays.performance,
+                overlays.notifications
             ));
         }
 
@@ -697,27 +1730,28 @@ impl State {
             log_info(&format!(
                 "[INPUT] heartbeat frame={} visible_gamepads={} gamepad_slots={} document_has_focus={} tracked_gamepads={} tracked_buttons={} tracked_axes={}",
                 self.frame_index,
-                gamepad_stats.visible_gamepads,
-                gamepad_stats.slot_count,
-                gamepad_stats.document_has_focus,
+                self.input_diagnostics.visible_gamepads,
+                self.input_diagnostics.slot_count,
+                self.input_diagnostics.document_has_focus,
                 self.logged_gamepad_devices.len(),
                 self.gamepad_button_states.len(),
                 self.gamepad_axis_values.len()
             ));
 
-            if !gamepad_stats.document_has_focus {
+            if !self.input_diagnostics.document_has_focus {
                 log_warn(
                     "[INPUT][GAMEPAD] document is not focused; gamepad exposure is often blocked until focus is regained",
                 );
             }
 
-            if gamepad_stats.slot_count > 0 && gamepad_stats.visible_gamepads == 0 {
+            if self.input_diagnostics.slot_count > 0 && self.input_diagnostics.visible_gamepads == 0
+            {
                 log_warn(
                     "[INPUT][GAMEPAD] browser reports gamepad slots but all entries are null (permission policy, gesture exposure, or browser/device support issue)",
                 );
             }
 
-            if gamepad_stats.visible_gamepads == 0 {
+            if self.input_diagnostics.visible_gamepads == 0 {
                 log_warn(
                     "[INPUT][GAMEPAD] no visible gamepads from browser API; this can mean no device, no gamepad user gesture yet, or a stale wasm bundle",
                 );
@@ -819,6 +1853,16 @@ fn gamepad_button_control(button_index: usize) -> String {
     }
 }
 
+fn gamepad_button_control_command(button_index: usize) -> Option<ControlCommand> {
+    match button_index {
+        8 => Some(ControlCommand::ToggleOverlay),
+        9 => Some(ControlCommand::TogglePause),
+        4 => Some(ControlCommand::ToggleControl),
+        5 => Some(ControlCommand::TogglePerformance),
+        _ => None,
+    }
+}
+
 fn gamepad_axis_control(axis_index: usize) -> String {
     match axis_index {
         0 => "left_stick_x".to_owned(),
@@ -841,11 +1885,30 @@ fn normalize_gamepad_trigger_axis(value: f32) -> f32 {
     ((value.clamp(-1.0, 1.0) + 1.0) * 0.5).clamp(0.0, 1.0)
 }
 
+fn visible_gamepad_ratio(visible_gamepads: usize, slot_count: u32) -> f32 {
+    if slot_count == 0 {
+        return 0.0;
+    }
+
+    (visible_gamepads as f32 / slot_count as f32).clamp(0.0, 1.0)
+}
+
+fn normalize_count_for_overlay(value: usize, max_value: usize) -> f32 {
+    if max_value == 0 {
+        return 0.0;
+    }
+
+    (value as f32 / max_value as f32).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        gamepad_axis_control, gamepad_axis_semantic_alias, normalize_gamepad_trigger_axis,
+        gamepad_axis_control, gamepad_axis_semantic_alias, gamepad_button_control_command,
+        normalize_count_for_overlay, normalize_gamepad_trigger_axis, overlay_glyph_5x5,
+        visible_gamepad_ratio,
     };
+    use crate::renderer::control_plane::ControlCommand;
 
     #[test]
     fn trigger_axes_keep_raw_axis_names() {
@@ -871,5 +1934,58 @@ mod tests {
         assert!((normalize_gamepad_trigger_axis(-1.0) - 0.0).abs() < f32::EPSILON);
         assert!((normalize_gamepad_trigger_axis(0.0) - 0.5).abs() < f32::EPSILON);
         assert!((normalize_gamepad_trigger_axis(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn control_plane_buttons_map_to_expected_commands() {
+        assert_eq!(
+            gamepad_button_control_command(4),
+            Some(ControlCommand::ToggleControl)
+        );
+        assert_eq!(
+            gamepad_button_control_command(5),
+            Some(ControlCommand::TogglePerformance)
+        );
+        assert_eq!(
+            gamepad_button_control_command(8),
+            Some(ControlCommand::ToggleOverlay)
+        );
+        assert_eq!(
+            gamepad_button_control_command(9),
+            Some(ControlCommand::TogglePause)
+        );
+        assert_eq!(gamepad_button_control_command(0), None);
+    }
+
+    #[test]
+    fn visible_gamepad_ratio_returns_zero_when_no_slots_visible() {
+        assert!((visible_gamepad_ratio(0, 0) - 0.0).abs() < f32::EPSILON);
+        assert!((visible_gamepad_ratio(2, 0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn visible_gamepad_ratio_is_clamped() {
+        assert!((visible_gamepad_ratio(1, 2) - 0.5).abs() < f32::EPSILON);
+        assert!((visible_gamepad_ratio(5, 2) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn normalize_count_for_overlay_is_clamped() {
+        assert!((normalize_count_for_overlay(0, 8) - 0.0).abs() < f32::EPSILON);
+        assert!((normalize_count_for_overlay(4, 8) - 0.5).abs() < f32::EPSILON);
+        assert!((normalize_count_for_overlay(16, 8) - 1.0).abs() < f32::EPSILON);
+        assert!((normalize_count_for_overlay(1, 0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn overlay_font_returns_non_empty_for_known_glyph() {
+        let glyph = overlay_glyph_5x5('A');
+        assert!(glyph.iter().any(|row| *row != 0));
+    }
+
+    #[test]
+    fn overlay_font_supports_f_character_for_fps_toggle_hint() {
+        let glyph = overlay_glyph_5x5('F');
+        assert!(glyph.iter().any(|row| *row != 0));
     }
 }

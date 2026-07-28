@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use js_sys::Date;
@@ -5,7 +6,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys},
     window::Window,
 };
@@ -13,6 +14,61 @@ use winit::{
 use crate::{asset_manifest, renderer};
 
 const FRAME_LOG_INTERVAL: u64 = 120;
+
+#[derive(Default)]
+struct UiBridgeState {
+    game_over: bool,
+    reset_requested: bool,
+    pending_control_bindings: Vec<(String, String)>,
+}
+
+thread_local! {
+    static UI_BRIDGE_STATE: RefCell<UiBridgeState> = RefCell::new(UiBridgeState::default());
+}
+
+pub fn game_is_over() -> bool {
+    UI_BRIDGE_STATE.with(|bridge| bridge.borrow().game_over)
+}
+
+pub fn request_game_reset() {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge.borrow_mut().reset_requested = true;
+    });
+}
+
+pub fn request_control_binding(command: String, key: String) {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge
+            .borrow_mut()
+            .pending_control_bindings
+            .push((command, key));
+    });
+}
+
+fn publish_game_over(game_over: bool) {
+    UI_BRIDGE_STATE.with(|bridge| {
+        bridge.borrow_mut().game_over = game_over;
+    });
+}
+
+fn take_reset_request() -> bool {
+    UI_BRIDGE_STATE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        let requested = bridge.reset_requested;
+        bridge.reset_requested = false;
+        requested
+    })
+}
+
+fn take_pending_control_bindings() -> Vec<(String, String)> {
+    UI_BRIDGE_STATE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        bridge
+            .pending_control_bindings
+            .drain(..)
+            .collect::<Vec<(String, String)>>()
+    })
+}
 
 fn log_info(message: &str) {
     web_sys::console::log_1(&JsValue::from_str(message));
@@ -58,6 +114,7 @@ impl App {
 
 impl ApplicationHandler<renderer::State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::Wait);
         log_info("[APP] resumed: starting browser bootstrap");
         let mut window_attributes = Window::default_attributes();
 
@@ -169,6 +226,7 @@ impl ApplicationHandler<renderer::State> for App {
     #[allow(unused_mut)]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: renderer::State) {
         log_info("[APP] user event received: renderer state installed");
+        publish_game_over(false);
         event.window().request_redraw();
         event.resize(
             event.window().inner_size().width,
@@ -196,7 +254,11 @@ impl ApplicationHandler<renderer::State> for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 state.handle_key_event(&event);
             }
-            WindowEvent::MouseInput { state: button_state, button, .. } => {
+            WindowEvent::MouseInput {
+                state: button_state,
+                button,
+                ..
+            } => {
                 state.handle_mouse_button_event(button, button_state);
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -222,7 +284,29 @@ impl ApplicationHandler<renderer::State> for App {
                 self.frame_count = self.frame_count.saturating_add(1);
                 self.frame_delta_accumulator_seconds += f64::from(delta_seconds);
 
+                if self.frame_count <= 3 || self.frame_count % FRAME_LOG_INTERVAL == 0 {
+                    log_info(&format!(
+                        "[FRAME] redraw heartbeat frame={} dt_ms={:.3}",
+                        self.frame_count,
+                        delta_seconds * 1000.0
+                    ));
+                }
+
                 state.update(delta_seconds);
+                if take_reset_request() {
+                    state.reset_game();
+                }
+
+                for (command, key) in take_pending_control_bindings() {
+                    if !state.set_control_binding(&command, &key) {
+                        log_warn(&format!(
+                            "[CONTROL] rejected binding command='{}' key='{}'",
+                            command, key
+                        ));
+                    }
+                }
+
+                publish_game_over(state.is_game_over());
 
                 if let Err(error) = state.render() {
                     self.render_error_count = self.render_error_count.saturating_add(1);
@@ -243,18 +327,23 @@ impl ApplicationHandler<renderer::State> for App {
                         0.0
                     };
                     log_info(&format!(
-                        "[FRAME] summary frames={} avg_dt_ms={:.3} fps={:.2} render_errors={}",
+                        "[FRAME] summary frames={} avg_dt_ms={:.3} fps={:.2} render_errors={} game_over={}",
                         FRAME_LOG_INTERVAL,
                         avg_dt_seconds * 1000.0,
                         fps,
-                        self.render_error_count
+                        self.render_error_count,
+                        state.is_game_over()
                     ));
                     self.frame_delta_accumulator_seconds = 0.0;
                 }
-
-                state.window().request_redraw();
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            state.window().request_redraw();
         }
     }
 }

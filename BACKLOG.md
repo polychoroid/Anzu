@@ -184,12 +184,14 @@ input_profile:
 ### Milestone 4: Hardened Simulation Pipeline and Spatial Broadphase
 **Outcome**: A reusable tick pipeline composes world transforms and forces once per tick, profiles phase costs, and uses spatial indexing to keep collision checks efficient as entity counts grow.
 
-- [ ] Task 4.1: Define a tick pipeline contract that composes intent, applies transforms, runs physics, and reconciles results in explicit stages.
-- [ ] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
-- [ ] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
-- [ ] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
-- [ ] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
-- [ ] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
+- [x] Task 4.1: Define a tick pipeline contract that composes intent, applies transforms, runs physics, and reconciles results in explicit stages.
+- [x] Task 4.2: Add per-phase profiling for sync, compose, broadphase, narrowphase, reconcile, and render boundary costs.
+- [x] Task 4.3: Implement a spatial broadphase structure for candidate collision queries instead of all-pairs scanning.
+- [x] Task 4.4: Keep collision response as narrowphase-only work after spatial and proximity filtering.
+- [x] Task 4.5: Add regression tests for deterministic spatial query ordering and stable interaction results.
+- [x] Task 4.6: Document the pipeline contract so ROMs can compose forces and transforms without extra per-system passes.
+
+Progress note (2026-07-01): Slice A, Slice B, and Slice C are implemented in the scheduler with explicit stage timing/counter reporting, clarified compose/publish/reconcile boundaries, and a uniform-grid broadphase candidate feed. Validation included native + wasm `cargo check`, `cargo test simulation::tests:: -- --nocapture`, and `cargo test triangle_man::tests:: -- --nocapture`.
 
 **Demonstrates**:
 - Minimal tick passes and data movement
@@ -203,12 +205,18 @@ input_profile:
 **Outcome**: Collision handling moves from role-specific hardcoded branches to a data-driven outcome model supporting damage, despawn/replace behavior, and physically consistent fragment spawning.
 
 - [x] Task 4.5.1: Define collision outcome schema (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`) keyed by role/tag pairs.
-- [ ] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
+- [x] Task 4.5.2: Add deterministic damage/health integration path so collisions can reduce hit points without ad hoc role checks.
 - [x] Task 4.5.3: Add despawn-and-replace flow allowing collision outcomes to spawn one or more fragment entities.
-- [ ] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
+- [x] Task 4.5.4: Enforce linear momentum conservation when replacing a body with fragments; define bounded energy-loss policy via restitution.
 - [x] Task 4.5.5: Add deterministic tests verifying identical input/collision ordering yields identical damage, despawn, and fragment outcomes.
-- [ ] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
+- [x] Task 4.5.6: Add acceptance scenario: bullet-asteroid collision damages or fragments asteroid based on configured thresholds, with stable totals and no entity leaks.
 - [x] Task 4.5.7: Add edge-case regression coverage for fragment spawn near world bounds and clamp fragment spawn positions to avoid first-tick out-of-bounds culling.
+
+Status note: the live-body stress logs now show the broadphase ramp reaching a gameplay steady state rather than being pinned to the old low-30s plateau.
+
+Progress note (2026-07-03): Added scheduler regression coverage for repeated-run deterministic interaction output under grid broadphase workloads, introduced declarative collision actions for Triangle Man (`ignore`, `apply_damage`, `despawn`, `spawn_fragments`, `impulse_adjust`), added deterministic health/damage integration for asteroid collisions, switched fragment replacement to restitution-bounded momentum retention, and added a collision acceptance test proving damage-before-fragment threshold behavior with stable entity totals.
+
+Validation note (2026-07-03): Manual browser runs confirm asteroid health behavior works in both Firefox (WebGL path) and Chromium (WebGPU path), with observed runtime around ~75 fps.
 
 **Demonstrates**:
 - Collision behavior is configurable and scalable beyond hardcoded per-role logic
@@ -226,6 +234,8 @@ input_profile:
 - [ ] Task 5.3: Add lightweight render stats (draw calls, buffer uploads per frame)
 - [ ] Task 5.4: Create performance regression checklist for each milestone
 - [ ] Task 5.5: Require profiling evidence before introducing compute offload or complex scheduling
+- [ ] Task 5.5a: Document and verify the frame boundary contract (`acquire -> encode -> submit -> present`), including surface `lost/suboptimal/reconfigure` handling expectations.
+- [ ] Task 5.5b: Add boundary health instrumentation (`surface_reconfigure_count`, `present_fail_or_skip_count`, submit latency buckets, and frame pacing spike counters).
 
 **Demonstrates**:
 - Performance decisions are measured, not guessed
@@ -280,6 +290,73 @@ input_profile:
 - Materials become a durable extension seam for ROM-specific rendering styles
 
 **Priority**: P1 (Unlocks extensible visual effects)
+
+### Milestone 5.8: Engine Control Plane and Overlays (Core-First, Cross-Platform)
+**Outcome**: Pause/menu, control, performance, and notification overlays are owned by engine runtime core (not ROM logic and not HTML-only), so browser and future desktop frontends share one control-plane implementation.
+
+- [x] Task 5.8.1: Define shared control-plane command and overlay domain types in renderer core/shared module (`ControlCommand`, `OverlayPanel`, `OverlayVisibility`).
+- [x] Task 5.8.2: Add shared configurable binding parser/default map for engine control commands (`Esc`, `F1`, `F2`, `F3`, `R`) with runtime override support.
+- [x] Task 5.8.3: Intercept engine control commands before ROM input dispatch so pause/reset/control/perf/notification toggles are ROM-independent.
+- [x] Task 5.8.4: Render overlays in-engine (main pass) so UI is not dependent on DOM dialogs.
+- [x] Task 5.8.5: Move display/controller diagnostics from HTML diagnostics panel into engine control overlay.
+- [x] Task 5.8.6: Provide minimal performance overlay (FPS) in-engine.
+- [ ] Task 5.8.7: Provide notification overlay in-engine for control-plane and device events.
+- [x] Task 5.8.8: Remove HTML-owned reset/game-over/controller HUD dialogs from `docs/index.html` after overlay parity.
+- [x] Task 5.8.9: Define and document explicit input contexts (`GameplayContext`, `OverlayContext`) in control-plane contract, including command precedence and consumption rules.
+- [x] Task 5.8.10: Enforce modal capture while overlay context is open (consume gameplay controls, allow overlay navigation/toggles, suppress pause-toggle side effects while overlay context is active).
+- [x] Task 5.8.11: Add regression coverage for context gating across keyboard and controller paths (including pause suppression while overlay is visible and restored routing after overlay close).
+
+Progress note (2026-07-03): Initial control-plane command/keybind handling is implemented and now anchored in shared renderer module `src/renderer/control_plane.rs` for cross-platform reuse. Runtime mutable control-plane state ownership has been moved into shared `ControlPlaneState` (core-first) and the wasm adapter now feeds key/controller/reset events into that shared state machine instead of keeping a wasm-local duplicate. In-engine overlay rendering has begun: pause menu, control, performance (with FPS bar), and notifications panels are now generated as geometry batches and rendered inside the existing GPU pass (not DOM-dependent).
+
+Validation note (2026-07-03): Post-migration targeted suites remain green: `control_plane::tests` 8 passed, `simulation::tests` 5 passed, `triangle_man::tests` 13 passed. Overlay geometry is now wired and visible when toggles are active (F1: control, F2: perf, F3: notifications, Esc: pause).
+
+Validation note (2026-07-05): Input-context modal capture and pause suppression are now enforced through shared control-plane + wasm routing gates. Added regression coverage for context restore and pause recovery after overlay close (`closing_overlay_restores_gameplay_context`, `pause_toggle_recovers_after_overlay_context_closes`). Targeted run: `cargo test renderer::control_plane::tests:: -- --nocapture` => 17 passed, 0 failed.
+
+Validation note (2026-07-05): Input/display diagnostics are now engine-owned and rendered in the control scrim; HTML diagnostics HUD/toggle and remaining HTML game-over/reset overlays were removed from `docs/index.html`. Validation: `cargo check --target wasm32-unknown-unknown` passed after renderer diagnostics integration and shell cleanup.
+
+Validation note (2026-07-05): Chromium and Firefox manual smoke runs confirm in-engine overlays are visible and functional in the same interaction order (pause -> control diagnostics scrim -> performance overlay) while gameplay continues rendering. Console output in both browsers shows expected no-gamepad warnings and control-context consume logs with no blocking runtime errors.
+
+Acceptance note (input context): When overlay context is visible, gameplay input routing is blocked except explicit control-plane commands, and behavior remains deterministic and consistent across keyboard/controller paths.
+
+**Demonstrates**:
+- Control-plane behavior is engine-owned and frontend-agnostic
+- Browser and desktop runtimes can reuse one command/binding model
+- ROMs remain focused on gameplay while engine manages runtime UX controls
+
+**Priority**: P0 (Required for desktop parity and maintainable runtime UX)
+
+### Milestone 5.9: Font-Backed Engine Text Rendering
+**Outcome**: Engine overlays and HUD text render from imported font data through an atlas-backed text path instead of hardcoded glyph tables, while keeping simulation determinism isolated from presentation work.
+
+**Dependency note**: Build on Milestone 5.8 engine-owned overlays; do not reintroduce DOM-owned runtime UI for text presentation.
+
+**Recommended references**:
+- Preferred library: `glyphon` docs: <https://docs.rs/glyphon/latest/glyphon/>
+- `glyphon` repository and examples: <https://github.com/grovesNL/glyphon>
+- Concrete `glyphon` example (`hello-world.rs`): <https://github.com/grovesNL/glyphon/blob/main/examples/hello-world.rs>
+- `wgpu` API reference: <https://docs.rs/wgpu/latest/wgpu/>
+- `wgpu` graphics-work encapsulation guidance: <https://github.com/gfx-rs/wgpu/wiki/Encapsulating-Graphics-Work>
+- Vulkan text-overlay reference sample (atlas/bitmap path): <https://github.com/SaschaWillems/Vulkan/tree/master/examples/textoverlay>
+
+- [ ] Task 5.9.1: Define an engine-owned text rendering seam that separates string/layout preparation from render-pass encoding.
+- [ ] Task 5.9.2: Replace the hardcoded glyph-table overlay path with atlas-backed font rendering for engine overlays and HUD text only.
+- [ ] Task 5.9.3: Start with one embedded font and a constrained character-set policy suitable for current diagnostics, pause/menu, and notification overlays.
+- [ ] Task 5.9.4: Keep text render-only so font loading, layout, and caching do not affect deterministic simulation behavior or replay outcomes.
+- [ ] Task 5.9.5: Add profiling and observability for glyph atlas preparation cost, cache growth, first-use hitch behavior, and text draw-call/batch impact.
+- [ ] Task 5.9.6: Add acceptance checks for readability and stable behavior across Chromium WebGPU, Firefox WebGL fallback, resize events, and browser scale-factor changes.
+
+**First-slice exclusions**:
+- No multi-font fallback or localization commitment in this slice.
+- No complex-script shaping requirement in this slice.
+- No ROM-authored text widget/layout system in this slice.
+- No manifest-driven font streaming or residency policy in this slice.
+
+**Demonstrates**:
+- Engine text quality improves without expanding gameplay/simulation scope.
+- Overlay text remains engine-owned and cross-platform.
+- Font integration is measurable and bounded before broader UI/content ambitions.
+
+**Priority**: P1 (Improves runtime UX after overlay ownership is established)
 
 ### Milestone 6: Session Support & Basic Multiplayer (Shared Sessions)
 **Outcome**: Multiple browser clients can join the same session and see each other's triangle positions updated in (near) real-time. This milestone proves session lifecycle, basic transport, and authoritative state propagation.
@@ -362,6 +439,7 @@ input_profile:
 
 - [ ] Task 1.5.1: Define ROM manifest schema v1 (`rom_id`, `version`, `entry_scene`, `assets`, `scenes`, `controller_maps`, `entity_templates`)
 - [ ] Task 1.5.2: Add sprite/animation asset types and metadata conventions to manifest schema
+- [ ] Task 1.5.2a: Define a later manifest-managed font asset shape (`font_id`, source/hash metadata, intended usage, fallback chain) for engine and ROM text once residency/versioning infrastructure exists.
 - [ ] Task 1.5.3: Define scene reference records and controller-map reference records
 - [ ] Task 1.5.4: Define entity template schema linking assets, interaction config, and controller maps
 - [ ] Task 1.5.5: Implement ROM manifest parser validation for required fields and duplicate IDs

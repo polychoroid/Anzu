@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use web_time::Instant;
 
 use crate::ecs::{EntityId, World};
 use crate::input::InputEvent;
@@ -32,6 +33,7 @@ pub struct PhysicsConfig {
     pub world_max_x: f32,
     pub world_min_y: f32,
     pub world_max_y: f32,
+    pub broadphase_cell_size: f32,
     pub default_restitution: f32,
     pub default_friction: f32,
 }
@@ -43,6 +45,7 @@ impl Default for PhysicsConfig {
             world_max_x: 1.0,
             world_min_y: -1.0,
             world_max_y: 1.0,
+            broadphase_cell_size: 0.5,
             default_restitution: 0.72,
             default_friction: 0.22,
         }
@@ -68,6 +71,19 @@ pub struct SchedulerFrameReport {
     pub interaction_events: Vec<InteractionEvent>,
     pub despawned_entities: Vec<EntityId>,
     pub interaction_pairs_checked: u32,
+    pub body_count: u32,
+    pub candidate_pair_count: u32,
+    pub narrowphase_checks: u32,
+    pub collisions_resolved: u32,
+    pub proximity_enter_count: u32,
+    pub proximity_exit_count: u32,
+    pub sync_ns: u64,
+    pub compose_ns: u64,
+    pub broadphase_ns: u64,
+    pub narrowphase_ns: u64,
+    pub resolve_ns: u64,
+    pub reconcile_ns: u64,
+    pub publish_ns: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +119,8 @@ pub struct Scheduler {
     physics_config: PhysicsConfig,
 }
 
+const BROADPHASE_GRID_SWITCH_BODY_COUNT: usize = 128;
+
 impl Scheduler {
     pub fn new(physics_config: PhysicsConfig) -> Self {
         Self {
@@ -118,12 +136,15 @@ impl Scheduler {
             return report;
         }
 
+        let compose_stage_start = Instant::now();
         for (_, transform) in world.transforms_mut() {
             transform.position_x += transform.velocity_x * delta_seconds;
             transform.position_y += transform.velocity_y * delta_seconds;
             transform.rotation_rad += transform.angular_velocity * delta_seconds;
         }
+        report.compose_ns = elapsed_ns_nonzero(compose_stage_start);
 
+        let sync_stage_start = Instant::now();
         let mut entities: Vec<BodyState> = Vec::new();
         for (entity_id, collider) in world.polygon_colliders_iter() {
             if collider.local_vertices.len() < 3 {
@@ -179,61 +200,118 @@ impl Scheduler {
                 true
             }
         });
+        report.body_count = saturating_u32(entities.len());
+        report.sync_ns = elapsed_ns_nonzero(sync_stage_start);
 
-        let mut current_proximity_pairs = BTreeSet::new();
-        for i in 0..entities.len() {
-            for j in (i + 1)..entities.len() {
-                report.interaction_pairs_checked =
-                    report.interaction_pairs_checked.saturating_add(1);
+        let broadphase_stage_start = Instant::now();
+        let mut candidate_pairs: Vec<(usize, usize)> = Vec::new();
 
-                let entity_a = entities[i].entity_id;
-                let entity_b = entities[j].entity_id;
-                let pair = (entity_a.min(entity_b), entity_a.max(entity_b));
-
-                let (left, right) = entities.split_at_mut(j);
-                let state_a = &mut left[i];
-                let state_b = &mut right[0];
-
-                let dx = state_b.position_x - state_a.position_x;
-                let dy = state_b.position_y - state_a.position_y;
-                let distance_sq = dx * dx + dy * dy;
-                let proximity_distance = state_a.proximity_radius + state_b.proximity_radius;
-                if distance_sq <= proximity_distance * proximity_distance {
-                    current_proximity_pairs.insert(pair);
-                    if !self.previous_proximity_pairs.contains(&pair) {
-                        report.interaction_events.push(InteractionEvent {
-                            entity_a: pair.0,
-                            entity_b: pair.1,
-                            kind: InteractionEventKind::ProximityEnter,
-                        });
+        if entities.len() <= BROADPHASE_GRID_SWITCH_BODY_COUNT {
+            for a in 0..entities.len() {
+                for b in (a + 1)..entities.len() {
+                    candidate_pairs.push((a, b));
+                }
+            }
+        } else {
+            let cell_size = sanitize_cell_size(self.physics_config.broadphase_cell_size);
+            let mut broadphase_cells: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
+            for (index, body) in entities.iter().enumerate() {
+                let (min_cell_x, max_cell_x, min_cell_y, max_cell_y) =
+                    broadphase_cell_bounds(body, cell_size);
+                for cell_y in min_cell_y..=max_cell_y {
+                    for cell_x in min_cell_x..=max_cell_x {
+                        broadphase_cells
+                            .entry((cell_x, cell_y))
+                            .or_default()
+                            .push(index);
                     }
                 }
-
-                let Some(manifold) = sat_polygon_collision(state_a, state_b) else {
-                    continue;
-                };
-
-                report.interaction_events.push(InteractionEvent {
-                    entity_a,
-                    entity_b,
-                    kind: InteractionEventKind::Collision,
-                });
-
-                if state_a.is_sensor || state_b.is_sensor {
-                    continue;
-                }
-
-                positional_correction(
-                    state_a,
-                    state_b,
-                    manifold.normal_x,
-                    manifold.normal_y,
-                    manifold.penetration,
-                );
-                apply_contact_impulse(state_a, state_b, manifold);
             }
+
+            for occupant_indices in broadphase_cells.values() {
+                for a in 0..occupant_indices.len() {
+                    for b in (a + 1)..occupant_indices.len() {
+                        let index_a = occupant_indices[a];
+                        let index_b = occupant_indices[b];
+                        candidate_pairs.push((index_a.min(index_b), index_a.max(index_b)));
+                    }
+                }
+            }
+            candidate_pairs.sort_unstable();
+            candidate_pairs.dedup();
         }
 
+        report.candidate_pair_count = saturating_u32(candidate_pairs.len());
+        report.broadphase_ns = elapsed_ns_nonzero(broadphase_stage_start);
+
+        let mut current_proximity_pairs = BTreeSet::new();
+        for pair in candidate_pairs {
+            report.interaction_pairs_checked = report.interaction_pairs_checked.saturating_add(1);
+            let index_a = pair.0;
+            let index_b = pair.1;
+            let Some((state_a, state_b)) = body_pair_mut(&mut entities, index_a, index_b) else {
+                continue;
+            };
+
+            let canonical_pair = (
+                state_a.entity_id.min(state_b.entity_id),
+                state_a.entity_id.max(state_b.entity_id),
+            );
+
+            let dx = state_b.position_x - state_a.position_x;
+            let dy = state_b.position_y - state_a.position_y;
+            let distance_sq = dx * dx + dy * dy;
+            let proximity_distance = state_a.proximity_radius + state_b.proximity_radius;
+            if distance_sq <= proximity_distance * proximity_distance {
+                current_proximity_pairs.insert(canonical_pair);
+                if !self.previous_proximity_pairs.contains(&canonical_pair) {
+                    report.interaction_events.push(InteractionEvent {
+                        entity_a: canonical_pair.0,
+                        entity_b: canonical_pair.1,
+                        kind: InteractionEventKind::ProximityEnter,
+                    });
+                    report.proximity_enter_count = report.proximity_enter_count.saturating_add(1);
+                }
+            }
+
+            let narrowphase_start = Instant::now();
+            report.narrowphase_checks = report.narrowphase_checks.saturating_add(1);
+            let Some(manifold) = sat_polygon_collision(state_a, state_b) else {
+                report.narrowphase_ns = report
+                    .narrowphase_ns
+                    .saturating_add(elapsed_ns_nonzero(narrowphase_start));
+                continue;
+            };
+            report.narrowphase_ns = report
+                .narrowphase_ns
+                .saturating_add(elapsed_ns_nonzero(narrowphase_start));
+
+            report.interaction_events.push(InteractionEvent {
+                entity_a: canonical_pair.0,
+                entity_b: canonical_pair.1,
+                kind: InteractionEventKind::Collision,
+            });
+
+            if state_a.is_sensor || state_b.is_sensor {
+                continue;
+            }
+
+            let resolve_start = Instant::now();
+            positional_correction(
+                state_a,
+                state_b,
+                manifold.normal_x,
+                manifold.normal_y,
+                manifold.penetration,
+            );
+            apply_contact_impulse(state_a, state_b, manifold);
+            report.resolve_ns = report
+                .resolve_ns
+                .saturating_add(elapsed_ns_nonzero(resolve_start));
+            report.collisions_resolved = report.collisions_resolved.saturating_add(1);
+        }
+
+        let early_reconcile_stage_start = Instant::now();
         for pair in &self.previous_proximity_pairs {
             if !current_proximity_pairs.contains(pair) {
                 report.interaction_events.push(InteractionEvent {
@@ -241,10 +319,15 @@ impl Scheduler {
                     entity_b: pair.1,
                     kind: InteractionEventKind::ProximityExit,
                 });
+                report.proximity_exit_count = report.proximity_exit_count.saturating_add(1);
             }
         }
         self.previous_proximity_pairs = current_proximity_pairs;
+        report.reconcile_ns = report
+            .reconcile_ns
+            .saturating_add(elapsed_ns_nonzero(early_reconcile_stage_start));
 
+        let publish_stage_start = Instant::now();
         for body in &entities {
             if let Some(transform) = world.transform_mut(body.entity_id) {
                 transform.position_x = body.position_x;
@@ -254,7 +337,9 @@ impl Scheduler {
                 transform.angular_velocity = body.angular_velocity;
             }
         }
+        report.publish_ns = elapsed_ns_nonzero(publish_stage_start);
 
+        let late_reconcile_stage_start = Instant::now();
         let mut despawn_ids: BTreeSet<EntityId> = out_of_bounds_entities.into_iter().collect();
         for (entity_id, lifecycle) in world.lifecycles_mut() {
             lifecycle.ttl_seconds -= delta_seconds;
@@ -272,8 +357,83 @@ impl Scheduler {
             world.despawn(entity_id);
             report.despawned_entities.push(entity_id);
         }
+        report.reconcile_ns = report
+            .reconcile_ns
+            .saturating_add(elapsed_ns_nonzero(late_reconcile_stage_start));
 
         report
+    }
+}
+
+fn elapsed_ns_nonzero(start: Instant) -> u64 {
+    let elapsed = start.elapsed().as_nanos();
+    if elapsed == 0 {
+        1
+    } else if elapsed > u64::MAX as u128 {
+        u64::MAX
+    } else {
+        elapsed as u64
+    }
+}
+
+fn saturating_u32(value: usize) -> u32 {
+    if value > u32::MAX as usize {
+        u32::MAX
+    } else {
+        value as u32
+    }
+}
+
+fn sanitize_cell_size(value: f32) -> f32 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        PhysicsConfig::default().broadphase_cell_size
+    }
+}
+
+fn grid_cell_index(value: f32, cell_size: f32) -> i32 {
+    let quantized = (value / cell_size).floor();
+    if !quantized.is_finite() {
+        0
+    } else if quantized < i32::MIN as f32 {
+        i32::MIN
+    } else if quantized > i32::MAX as f32 {
+        i32::MAX
+    } else {
+        quantized as i32
+    }
+}
+
+fn broadphase_cell_bounds(state: &BodyState, cell_size: f32) -> (i32, i32, i32, i32) {
+    let radius = state.proximity_radius.max(0.0);
+    let min_x = state.position_x - radius;
+    let max_x = state.position_x + radius;
+    let min_y = state.position_y - radius;
+    let max_y = state.position_y + radius;
+
+    (
+        grid_cell_index(min_x, cell_size),
+        grid_cell_index(max_x, cell_size),
+        grid_cell_index(min_y, cell_size),
+        grid_cell_index(max_y, cell_size),
+    )
+}
+
+fn body_pair_mut(
+    entities: &mut [BodyState],
+    index_a: usize,
+    index_b: usize,
+) -> Option<(&mut BodyState, &mut BodyState)> {
+    if index_a == index_b {
+        return None;
+    }
+    if index_a < index_b {
+        let (left, right) = entities.split_at_mut(index_b);
+        Some((&mut left[index_a], &mut right[0]))
+    } else {
+        let (left, right) = entities.split_at_mut(index_a);
+        Some((&mut right[0], &mut left[index_b]))
     }
 }
 
@@ -340,6 +500,9 @@ fn apply_contact_impulse(
     let rvx = vel_b_x - vel_a_x;
     let rvy = vel_b_y - vel_a_y;
     let vel_along_normal = rvx * nx + rvy * ny;
+    if !vel_along_normal.is_finite() {
+        return;
+    }
     if vel_along_normal >= 0.0 {
         return;
     }
@@ -351,6 +514,9 @@ fn apply_contact_impulse(
         + state_b.inverse_mass
         + ra_cross_n * ra_cross_n * state_a.inverse_moment_of_inertia
         + rb_cross_n * rb_cross_n * state_b.inverse_moment_of_inertia;
+    if !inv_mass_sum.is_finite() {
+        return;
+    }
     if inv_mass_sum <= 1e-6 {
         return;
     }
@@ -373,6 +539,9 @@ fn apply_contact_impulse(
     let tangent_x_raw = rvx - vel_along_normal * nx;
     let tangent_y_raw = rvy - vel_along_normal * ny;
     let tangent_len_sq = tangent_x_raw * tangent_x_raw + tangent_y_raw * tangent_y_raw;
+    if !tangent_len_sq.is_finite() {
+        return;
+    }
     if tangent_len_sq <= 1e-8 {
         return;
     }
@@ -388,13 +557,28 @@ fn apply_contact_impulse(
         + state_b.inverse_mass
         + ra_cross_t * ra_cross_t * state_a.inverse_moment_of_inertia
         + rb_cross_t * rb_cross_t * state_b.inverse_moment_of_inertia;
+    if !inv_mass_t.is_finite() {
+        return;
+    }
     if inv_mass_t <= 1e-6 {
         return;
     }
 
     let jt_unclamped = -vel_tangent / inv_mass_t;
     let mu = (state_a.friction * state_b.friction).sqrt();
-    let jt = jt_unclamped.clamp(-jn * mu, jn * mu);
+    if !jt_unclamped.is_finite() || !mu.is_finite() || !jn.is_finite() {
+        return;
+    }
+    let min_jt = -jn * mu;
+    let max_jt = jn * mu;
+    if !min_jt.is_finite() || !max_jt.is_finite() {
+        return;
+    }
+    let jt = if min_jt <= max_jt {
+        jt_unclamped.clamp(min_jt, max_jt)
+    } else {
+        jt_unclamped.clamp(max_jt, min_jt)
+    };
     let friction_x = jt * tx;
     let friction_y = jt * ty;
 
@@ -530,7 +714,7 @@ impl Default for Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionEventKind, Scheduler};
+    use super::{InteractionEventKind, PhysicsConfig, Scheduler};
     use crate::ecs::{CollisionBounds, Lifecycle, PolygonCollider, RigidBody, Transform, World};
 
     const TRIANGLE_POLY: [[f32; 2]; 3] = [[-0.5, -0.5], [0.5, -0.5], [0.0, 0.6]];
@@ -594,14 +778,18 @@ mod tests {
         let mut scheduler = Scheduler::default();
         let report = scheduler.update_world(&mut world, 1.0 / 60.0);
 
-        assert!(report
-            .interaction_events
-            .iter()
-            .any(|event| event.kind == InteractionEventKind::Collision));
-        assert!(report
-            .interaction_events
-            .iter()
-            .any(|event| event.kind == InteractionEventKind::ProximityEnter));
+        assert!(
+            report
+                .interaction_events
+                .iter()
+                .any(|event| event.kind == InteractionEventKind::Collision)
+        );
+        assert!(
+            report
+                .interaction_events
+                .iter()
+                .any(|event| event.kind == InteractionEventKind::ProximityEnter)
+        );
     }
 
     #[test]
@@ -634,5 +822,226 @@ mod tests {
         assert!(world.collision_bounds(entity).is_none());
         assert!(world.rigid_body(entity).is_none());
         assert!(world.lifecycle(entity).is_none());
+    }
+
+    #[test]
+    fn uniform_grid_broadphase_dedupes_and_keeps_pair_order_stable() {
+        let mut world = World::new();
+        let entity_a = world.spawn();
+        let entity_b = world.spawn();
+        let entity_c = world.spawn();
+
+        world.set_transform(
+            entity_a,
+            Transform {
+                position_x: -3.0,
+                position_y: 0.0,
+                ..Default::default()
+            },
+        );
+        world.set_transform(
+            entity_b,
+            Transform {
+                position_x: 0.0,
+                position_y: 0.0,
+                ..Default::default()
+            },
+        );
+        world.set_transform(
+            entity_c,
+            Transform {
+                position_x: 3.0,
+                position_y: 0.0,
+                ..Default::default()
+            },
+        );
+
+        for entity in [entity_a, entity_b, entity_c] {
+            world.set_polygon_collider(
+                entity,
+                PolygonCollider {
+                    local_vertices: &TRIANGLE_POLY,
+                },
+            );
+            world.set_collision_bounds(
+                entity,
+                CollisionBounds {
+                    proximity_radius: 6.0,
+                },
+            );
+            world.set_rigid_body(entity, RigidBody::default());
+        }
+
+        let mut scheduler = Scheduler::new(PhysicsConfig {
+            world_min_x: -10.0,
+            world_max_x: 10.0,
+            world_min_y: -10.0,
+            world_max_y: 10.0,
+            broadphase_cell_size: 0.5,
+            ..PhysicsConfig::default()
+        });
+
+        let report = scheduler.update_world(&mut world, 1.0 / 60.0);
+
+        assert_eq!(report.candidate_pair_count, 3);
+        assert_eq!(report.interaction_pairs_checked, 3);
+
+        let proximity_pairs: Vec<(u32, u32)> = report
+            .interaction_events
+            .iter()
+            .filter(|event| event.kind == InteractionEventKind::ProximityEnter)
+            .map(|event| (event.entity_a, event.entity_b))
+            .collect();
+        assert!(!proximity_pairs.is_empty());
+
+        let mut sorted_unique_pairs = proximity_pairs.clone();
+        sorted_unique_pairs.sort_unstable();
+        sorted_unique_pairs.dedup();
+        assert_eq!(proximity_pairs, sorted_unique_pairs);
+
+        for (entity_a, entity_b) in proximity_pairs {
+            assert!(entity_a < entity_b);
+        }
+    }
+
+    #[test]
+    fn scheduler_report_includes_stage_timings_and_counters() {
+        let mut world = World::new();
+        let entity_a = world.spawn();
+        let entity_b = world.spawn();
+
+        world.set_transform(
+            entity_a,
+            Transform {
+                position_x: -0.2,
+                position_y: 0.0,
+                velocity_x: 0.0,
+                velocity_y: 0.0,
+                ..Default::default()
+            },
+        );
+        world.set_transform(
+            entity_b,
+            Transform {
+                position_x: 0.2,
+                position_y: 0.0,
+                velocity_x: 0.0,
+                velocity_y: 0.0,
+                ..Default::default()
+            },
+        );
+
+        world.set_polygon_collider(
+            entity_a,
+            PolygonCollider {
+                local_vertices: &TRIANGLE_POLY,
+            },
+        );
+        world.set_polygon_collider(
+            entity_b,
+            PolygonCollider {
+                local_vertices: &TRIANGLE_POLY,
+            },
+        );
+        world.set_collision_bounds(
+            entity_a,
+            CollisionBounds {
+                proximity_radius: 0.8,
+            },
+        );
+        world.set_collision_bounds(
+            entity_b,
+            CollisionBounds {
+                proximity_radius: 0.8,
+            },
+        );
+        world.set_rigid_body(entity_a, RigidBody::default());
+        world.set_rigid_body(entity_b, RigidBody::default());
+
+        let mut scheduler = Scheduler::default();
+        let report = scheduler.update_world(&mut world, 1.0 / 60.0);
+
+        assert!(report.sync_ns > 0);
+        assert!(report.compose_ns > 0);
+        assert!(report.broadphase_ns > 0);
+        assert!(report.narrowphase_ns > 0);
+        assert!(report.resolve_ns > 0);
+        assert!(report.reconcile_ns > 0);
+        assert!(report.publish_ns > 0);
+        assert!(report.reconcile_ns >= 2);
+
+        assert_eq!(report.body_count, 2);
+        assert!(report.candidate_pair_count >= 1);
+        assert!(report.narrowphase_checks >= 1);
+    }
+
+    #[test]
+    fn repeated_runs_keep_interaction_results_deterministic() {
+        fn build_world() -> World {
+            let mut world = World::new();
+            for y in 0..12 {
+                for x in 0..12 {
+                    let entity = world.spawn();
+                    world.set_transform(
+                        entity,
+                        Transform {
+                            position_x: -2.4 + x as f32 * 0.4,
+                            position_y: -2.4 + y as f32 * 0.4,
+                            ..Default::default()
+                        },
+                    );
+                    world.set_polygon_collider(
+                        entity,
+                        PolygonCollider {
+                            local_vertices: &TRIANGLE_POLY,
+                        },
+                    );
+                    world.set_collision_bounds(
+                        entity,
+                        CollisionBounds {
+                            proximity_radius: 0.72,
+                        },
+                    );
+                    world.set_rigid_body(entity, RigidBody::default());
+                }
+            }
+            world
+        }
+
+        let mut world_a = build_world();
+        let mut world_b = build_world();
+        let mut scheduler_a = Scheduler::new(PhysicsConfig {
+            world_min_x: -10.0,
+            world_max_x: 10.0,
+            world_min_y: -10.0,
+            world_max_y: 10.0,
+            broadphase_cell_size: 0.5,
+            ..PhysicsConfig::default()
+        });
+        let mut scheduler_b = Scheduler::new(PhysicsConfig {
+            world_min_x: -10.0,
+            world_max_x: 10.0,
+            world_min_y: -10.0,
+            world_max_y: 10.0,
+            broadphase_cell_size: 0.5,
+            ..PhysicsConfig::default()
+        });
+
+        let report_a = scheduler_a.update_world(&mut world_a, 1.0 / 60.0);
+        let report_b = scheduler_b.update_world(&mut world_b, 1.0 / 60.0);
+
+        assert_eq!(report_a.candidate_pair_count, report_b.candidate_pair_count);
+        assert_eq!(
+            report_a.interaction_pairs_checked,
+            report_b.interaction_pairs_checked
+        );
+        assert_eq!(report_a.narrowphase_checks, report_b.narrowphase_checks);
+        assert_eq!(report_a.collisions_resolved, report_b.collisions_resolved);
+        assert_eq!(
+            report_a.proximity_enter_count,
+            report_b.proximity_enter_count
+        );
+        assert_eq!(report_a.proximity_exit_count, report_b.proximity_exit_count);
+        assert_eq!(report_a.interaction_events, report_b.interaction_events);
     }
 }

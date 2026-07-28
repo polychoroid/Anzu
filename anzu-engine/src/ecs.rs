@@ -191,8 +191,7 @@ impl World {
         material_id: MaterialId,
     ) {
         self.meshes.remove(entity_id);
-        self.mesh_instances
-            .insert(entity_id, MeshInstance { asset_id, material_id });
+            self.mesh_instances.insert(entity_id, MeshInstance { asset_id, material_id });
     }
 
     pub fn for_each_render_mesh<F>(&self, mut callback: F)
