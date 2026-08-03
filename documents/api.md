@@ -51,3 +51,13 @@ This document describes the current public runtime surfaces and module responsib
 - World state and GPU state remain isolated for predictable extension into ECS and data-driven systems.
 - Material contract: visual differences should flow through `MaterialDefinition` parameters and `material_id` assignment rather than geometry-format churn.
 - Collision outcome contract: role-pair policy selection determines hitbox vs solid behavior and despawn/fragment replacement decisions during reconciliation.
+
+- Asset ingestion contract:
+	- `data-loader` decodes source formats (`.glb` or `.obj` + `.mtl` + textures).
+	- `asset-provider` canonicalizes decoded content into runtime records and exposes stable handles.
+	- Runtime modules request model data from `asset-provider` by handle, not by direct file access.
+	- Physics consumes canonical physics mesh records from `asset-provider` to build `BodyState`.
+
+- Multi-format parity contract:
+	- GLB and OBJ/MTL import paths must produce equivalent canonical mesh records for equivalent geometry.
+	- Canonical records must include deterministic local-space physics mesh geometry and construction-time mass property inputs.

@@ -186,6 +186,50 @@ At frame level, preserve explicit boundaries:
 
 These boundaries make profiling and future backend behavior (WebGPU/WebGL fallback) easier to reason about.
 
+## Hybrid Offload Guidance (CPU + GPU)
+
+Use a hybrid model when body counts and interaction cost grow beyond comfortable CPU-only limits.
+
+Recommended split:
+
+1. CPU stages:
+   - Input normalization and ROM intent composition.
+   - Spatial indexing and deterministic candidate generation when this reduces transfer volume.
+   - Reconcile/policy decisions (spawn, despawn, role routing, game rules).
+2. GPU stages:
+   - Dense pair/neighborhood interaction kernels over packed body buffers.
+   - Integration and constraint iterations where data-parallel work dominates.
+   - Render-side consumption of stabilized body state.
+
+Data shape requirements for GPU compute:
+
+- Prefer contiguous arrays (SoA/AoS buffers with stable IDs) over pointer-heavy structures.
+- Prefer flat `pair_list` or offset-indexed neighbor ranges over general graph pointers.
+- Keep shared geometry immutable and indexed by shape IDs; do not store rigid-body vertex sets in hash-table form.
+
+Wasm transfer guardrails:
+
+- Keep body-state buffers GPU-resident across frames where possible.
+- Upload only control deltas and candidate sets needed for the current tick.
+- Read back only minimal gameplay outputs (for example event summaries, selected transforms, counters).
+- Avoid full-state upload + full-state readback per frame for large-N simulations unless profiling proves it acceptable.
+
+Required transfer metrics:
+
+- `upload_bytes_per_frame`
+- `readback_bytes_per_frame`
+- `upload_ops_per_frame`
+- `readback_ops_per_frame`
+- `gpu_compute_ns`
+- `cpu_wait_on_gpu_ns`
+
+Acceptance gate before enabling hybrid path by default:
+
+- Hybrid path improves end-to-end frame time versus CPU baseline in representative scenes.
+- Determinism checks pass with fixed seeds and stable candidate ordering.
+- Transfer bytes and synchronization waits stay within target budget at expected body counts.
+- Fallback path remains functional when compute capability is reduced.
+
 ## Stepwise Implementation Plan
 
 ### Status Update (2026-07-01)

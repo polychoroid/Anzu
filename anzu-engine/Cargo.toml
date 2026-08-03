@@ -6,43 +6,76 @@ description = "Anzu simulation engine"
 repository = "https://github.com/polychoroid/Anzu"
 license = "MIT"
 
+# [dependencies]
+# cfg-if = "1"
+# # Browser-first WebGPU (native WebGPU in supported browsers)
+# wgpu = "29.0.3"
+# winit = "0.30.13"
+# wasm-bindgen = "0.2.126"
+# wasm-bindgen-futures = "0.4.76"
+# js-sys = "0.3.77"
+# web-sys = { version = "0.3.103", features = [
+#     "Window",
+#     "Document",
+#     "HtmlCanvasElement",
+#     "Element",
+#     "console",
+#     "Navigator",
+#     "Gamepad",
+#     "GamepadButton",
+#     "Request",
+#     "Response",
+#     "WebSocket",
+#     "Performance",
+# ] }
+# serde = { version = "1.0.228", features = ["derive"] }
+# serde_json = "1.0.150"
+# console_error_panic_hook = "0.1.7"
+# tracing = "0.1.44"
+# futures = "0.3.32"
+# web-time = "1.1.0"
+# bytemuck = { version = "1.25.1", features = ["derive"] }
+
+# [lib]
+# crate-type = ["cdylib"]
+
+# [features]
+# # No default features to keep the build minimal. Add optional features later as needed.
+# default = []
+
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# # Browser WebGPU with WebGL fallback when WebGPU is unavailable in the browser.
+# wgpu = { version = "29.0.3", features = ["webgl"] }
+
+# [profile.release]
+# strip = true
+
 [dependencies]
-cfg-if = "1"
-# Browser-first WebGPU (native WebGPU in supported browsers)
-wgpu = "29.0.3"
-winit = "0.30.13"
-wasm-bindgen = "0.2.126"
-wasm-bindgen-futures = "0.4.76"
-js-sys = "0.3.77"
-web-sys = { version = "0.3.103", features = [
-    "Window",
-    "Document",
-    "HtmlCanvasElement",
-    "Element",
-    "console",
-    "Navigator",
-    "Gamepad",
-    "GamepadButton",
-    "Request",
-    "Response",
-    "WebSocket",
-    "Performance",
-] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-console_error_panic_hook = "0.1.7"
-tracing = "0.1.44"
-futures = "0.3.32"
-web-time = "1.1.0"
-bytemuck = { version = "1.25.0", features = ["derive"] }
+anyhow = "1.0.104"
+winit = { version = "0.30.13", features = ["android-native-activity"]}
+env_logger = "0.11.11"
+log = "0.4.33"
+wgpu = "30.0.0"
+pollster = "1.0.1"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+nalgebra = { version = "0.35.0", features = ["bytemuck"] }
+
+[dependencies.image]
+version = "0.25.10"
+default-features = false
+features = ["png", "jpeg"]
 
 [lib]
-crate-type = ["cdylib"]
-
-[features]
-# No default features to keep the build minimal. Add optional features later as needed.
-default = []
+crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Browser WebGPU with WebGL fallback when WebGPU is unavailable in the browser.
-wgpu = { version = "29.0.3", features = ["webgl"] }
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+wgpu = { version = "30.0", features = ['webgl']}
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
+web-sys = { version = "0.3.103", features = [
+    "Document",
+    "Window",
+    "Element",
+]}

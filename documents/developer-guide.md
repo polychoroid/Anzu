@@ -117,12 +117,58 @@ wasm-pack build --target web --out-dir ../docs/pkg --release
   cd anzu-engine && cargo check --target wasm32-unknown-unknown
   ```
 
+### Brief Tutorial: Unit Testing with `simulation/physics.rs`
+
+This module is a good unit-test target because it has deterministic math helpers (`get_box_inertia`) and state construction behavior (`BodyState::new`) that can be validated without browser runtime setup.
+
+1. Pick pure or near-pure behavior first.
+- Best first tests: `BodyState::get_box_inertia` and `BodyState::default`.
+- These tests verify stable physics config math and default state assumptions.
+
+2. Add a local test module in `anzu-engine/src/simulation/physics.rs`.
+- Use a `#[cfg(test)] mod tests` block at the bottom of the file.
+- Import only what you need from `super` and `nalgebra`.
+
+3. Start with one numeric assertion on inertia.
+- Example shape: mass = 12.0, extents = (2, 4, 6).
+- Expected diagonal inertia values:
+  - $I_x = m(y^2 + z^2)/12 = 52$
+  - $I_y = m(x^2 + z^2)/12 = 40$
+  - $I_z = m(x^2 + y^2)/12 = 20$
+- Assert matrix diagonal entries with a small epsilon (for example `1e-5`).
+
+4. Add a default-construction assertion.
+- Validate that `BodyState::default()` succeeds and produces finite values for inverse mass/inertia.
+- This catches accidental regressions such as division-by-zero paths or invalid mesh-derived extents.
+
+5. Run focused tests during iteration.
+```bash
+cd anzu-engine
+cargo test simulation::physics:: -- --nocapture
+```
+
+Note on console output during tests:
+- `println!` and `eprintln!` are allowed in unit tests.
+- Rust test harness captures output by default and only shows it on failure.
+- Use `-- --nocapture` to stream test output while tests run.
+
+6. Expand coverage only after the first tests pass.
+- Add edge tests for zero/near-zero mass behavior if the design should support it.
+- Add tests for mesh-driven spatial properties only when deterministic fixtures are available.
+
+Minimal starter checklist:
+- One passing test for `get_box_inertia` numeric correctness.
+- One passing test for `BodyState::default` baseline validity.
+- One negative or edge-case test documenting expected behavior for invalid inputs.
+
 ## Conventions
 
 Runtime pipeline continuation:
 - See `documents/runtime-execution-recommendations.md` for staged implementation guidance and a next-session resume checklist for Milestone 4 runtime execution work.
 
 - **Rust style:** Follow standard Rust idioms; use `cargo fmt` and `cargo clippy` to maintain consistency.
+- **Terminology baseline:** Treat Anzu as a simulation and visualization system first. Consider games a domain profile built on top of that core.
+- **Glossary source of truth:** Use the shared terms in `documents/architecture.md` (`Core Glossary`) for naming docs, APIs, and module boundaries.
 - **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
@@ -163,3 +209,32 @@ Runtime pipeline continuation:
   - Add doc comments (`///`) to public functions and types in Rust.
   - Keep README files in each module directory up-to-date with build/run instructions.
   - Link to external resources (wgpu docs, WebGPU spec) when relevant.
+
+## GLB Physics Mesh Ingestion Guidance
+
+Decision:
+- Use GLB as the source package, but canonicalize imported geometry into a dedicated physics mesh representation before solver use.
+
+Why:
+- Display mesh data and physics mesh data have different requirements (materials, normals, tangents, skinning vs collision shape and mass property construction).
+- GLB primitives often use index formats and scene-node transforms that should be normalized into engine-owned local-space geometry before broadphase/narrowphase processing.
+
+Recommended contract:
+1. Treat GLB as input transport only. Build canonical local-space physics mesh records during import.
+2. Keep physics mesh topology immutable at runtime unless a topology mutation path is explicitly requested.
+3. Store one shared shape entry per unique physics mesh and reference it from body state via shape id.
+4. Keep body state for transform/motion/material overrides separate from shared shape geometry.
+5. Persist construction-time mass properties with the shape record; derive per-body inverse mass and inverse inertia from policy.
+
+Blender export profile (baseline):
+1. Apply object transforms before export so local-space geometry is stable.
+2. Triangulate geometry during export to avoid importer-side ambiguity.
+3. Export unit scale consistently and document expected world units.
+4. Exclude non-physics helper meshes from collision ingestion by naming convention or metadata tag.
+
+Import validation checklist:
+1. Verify vertex/index counts and index range validity after decode.
+2. Reject or repair degenerate triangles before physics mesh registration.
+3. Compute and assert finite centroid, extents, and mass properties.
+4. Confirm deterministic canonicalization for repeated imports of identical content.
+5. Log shape id reuse ratio to validate shared-geometry behavior.

@@ -1,0 +1,24 @@
+# Blender 5.2.0 LTS MTL File: 'donut.blend'
+# www.blender.org
+
+newmtl Material
+Ka 1.000000 1.000000 1.000000
+Kd 0.643207 0.110473 0.199038
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Ns anzu-engine/src/roms/files/textures/Poliigon_FoodGlazeStrawberry_10739/2K/Poliigon_FoodGlazeStrawberry_10739_Roughness.jpg
+map_Bump -bm 1.000000 anzu-engine/src/roms/files/textures/Poliigon_FoodGlazeStrawberry_10739/2K/Poliigon_FoodGlazeStrawberry_10739_Normal.png
+
+newmtl Material.001
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd anzu-engine/src/roms/files/textures/Poliigon_FoodPastryDonut_10737/2K/Poliigon_FoodPastryDonut_10737_BaseColor.jpg
+map_Ns anzu-engine/src/roms/files/textures/Poliigon_FoodPastryDonut_10737/2K/Poliigon_FoodPastryDonut_10737_Roughness.jpg
+map_Bump -bm 1.000000 anzu-engine/src/roms/files/textures/Poliigon_FoodPastryDonut_10737/2K/Poliigon_FoodPastryDonut_10737_Normal.png

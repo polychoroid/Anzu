@@ -4,6 +4,8 @@ Purpose
 - This project uses `wgpu` as a serious learning target, not only as a dependency.
 - Agents working on the engine must explain `wgpu` usage factually, concretely, and in a way that helps the user learn the real architecture.
 - When proposing code, design changes, or explanations, agents should act as if the user wants to understand both the local engine code and the upstream `wgpu` model.
+- For response structure and cost controls, apply `.github/instructions/universal-structured-response.instructions.md`.
+- For term consistency, use wgpu-scoped entries in `.github/response-dictionary.md`.
 
 Primary expectation
 - Treat `wgpu` knowledge as source-grounded engineering knowledge.
@@ -125,6 +127,11 @@ Performance guidance agents should apply
 - Use measured evidence from this repo when available before speculating.
 
 Engine-specific guidance for Anzu
+- Terminology consistency:
+	- Treat Anzu as a simulation and visualization system.
+	- Treat games as one domain profile, not as the engine definition.
+	- Prefer domain-neutral terms in architecture explanations (`entity`, `state`, `solver`, `runtime pipeline`, `render extraction`, `adapter`).
+	- Align language with the project glossary in `documents/architecture.md` (`Core Glossary`).
 - Keep simulation logic and render logic separate.
 - Adapter layers must stay thin.
 - Do not let wasm/browser glue absorb core runtime or extraction policy.

@@ -4,6 +4,9 @@ Purpose
 - This project treats Rust itself as a primary learning target, not just an implementation language.
 - Agents must use canonical Rust forms from the Rust Book and explain them clearly.
 - Recommendations must balance performance with ease of reading and long-term maintainability.
+- Terminology baseline: treat Anzu as a simulation and visualization system; treat games as one domain profile built on top of the core.
+- For response structure and cost controls, apply `.github/instructions/universal-structured-response.instructions.md`.
+- For term consistency, use Rust-scoped entries in `.github/response-dictionary.md`.
 
 Primary expectation
 - Treat Rust guidance as source-grounded engineering guidance, not style folklore.
@@ -141,3 +144,4 @@ Project-specific expectation
 - Leave code easier to read than you found it.
 - Keep Rust changes teachable: future readers should understand ownership, lifetimes, and data flow directly from the code.
 - Favor architecture that scales from current 2D needs toward larger 3D workloads without abandoning canonical Rust design.
+- Keep type and module naming aligned with domain-neutral glossary terms in `documents/architecture.md` (`Core Glossary`), especially for core runtime and simulation boundaries.

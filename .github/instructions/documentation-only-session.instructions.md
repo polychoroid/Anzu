@@ -7,6 +7,10 @@ applyTo: ["README.md", "BACKLOG.md", "documents/**/*.md", ".github/**/*instructi
 
 Use this instruction when the session intent is learning, explanation, planning, audit writeups, or documentation maintenance.
 
+Universal response policy
+- Apply `.github/instructions/universal-structured-response.instructions.md` to all responses and doc edits in this mode.
+- Use terms from `.github/response-dictionary.md` where applicable.
+
 ## Required behavior
 - Do not create, edit, or refactor source code files.
 - Do not modify build scripts, config files, or dependency manifests unless they are documentation files.
@@ -29,3 +33,6 @@ Respond with a documentation-first alternative:
 - Separate facts from assumptions.
 - Include acceptance criteria when adding plans/tasks.
 - Keep edits scoped to the user request; avoid unrelated rewrites.
+- Ask narrowing questions first when scope is broad.
+- Default to short mode unless the user requests detail.
+- Keep citations compact and defer deep references unless requested.

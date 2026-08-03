@@ -7,6 +7,10 @@ description: Use when the user asks for expert, factual analysis or recommendati
 
 A skill for producing high-confidence, evidence-driven technical analysis and advice.
 
+Policy bindings
+- Apply `.github/instructions/universal-structured-response.instructions.md`.
+- Use scoped terms from `.github/response-dictionary.md`.
+
 ## Focus
 
 - Architecture decomposition: boundaries, layering, ownership, interfaces, extension seams.
@@ -29,6 +33,7 @@ A skill for producing high-confidence, evidence-driven technical analysis and ad
   - Provide confidence level (`high`, `medium`, `low`).
   - Offer verification steps to close the gap.
 - Prefer measurable recommendations over opinion-only guidance.
+- Keep evidence compact by default and defer deep citation until requested.
 
 ## WGPU and Vulkan Requirements
 
@@ -53,12 +58,16 @@ Also check and call out:
 
 Provide advice in this structure unless the user asks otherwise:
 
-1. Problem framing and assumptions
-2. Evidence summary
-3. Recommended approach
-4. Alternatives and tradeoffs
-5. Risks and edge cases
-6. Validation plan (tests, profiling, acceptance checks)
+1. Narrowing questions (only if scope is broad)
+2. Problem framing and assumptions
+3. Evidence summary
+4. Recommended approach
+5. Alternatives and tradeoffs
+6. Risks and edge cases
+7. Validation plan (tests, profiling, acceptance checks)
+
+Default mode
+- Use short mode unless the user requests detail.
 
 ## Guardrails
 
