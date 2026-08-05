@@ -154,8 +154,8 @@ impl BodyState {
         initial_force: Option<ForceVector>,
     ) -> Self {
         let mesh = match mesh_type {
-            MeshType::BuiltIn(primitive) => mesh_provider::get_primitive_mesh(&primitive),
-            MeshType::FromFile(_file) => mesh_provider::get_primitive_mesh(&Primitive::Cube), // mesh loading is not supported yet
+            MeshType::BuiltIn(primitive) => mesh_provider::get_primitive_mesh_ref(&primitive),
+            MeshType::FromFile(_file) => mesh_provider::get_primitive_mesh_ref(&Primitive::Cube), // mesh loading is not supported yet
         };
 
         let motion_vector = match initial_motion {
@@ -168,7 +168,7 @@ impl BodyState {
             None => ForceVector::default(),
         };
 
-        let spacial_properties = Self::calculate_spacial_properties(&mesh);
+        let spacial_properties = Self::calculate_spacial_properties(mesh);
 
         let inertia = Self::get_box_inertia(&mass, &spacial_properties.extents);
 

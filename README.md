@@ -89,6 +89,7 @@ Full implementation roadmap is tracked in `BACKLOG.md`:
 - [Microsoft PIX on Windows (profiling and diagnostics)](https://devblogs.microsoft.com/pix/)
 - [Rust Style Guide](https://doc.rust-lang.org/style-guide/)
 - [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
+- [jeremychone-channel Rust Builder and TypeState examples](https://github.com/jeremychone-channel/rust-builder)
 - [wgpu crate documentation](https://docs.rs/wgpu/latest/wgpu/)
 - [Vulkan Specification (Khronos)](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html)
 - [Vulkan Guide (Khronos)](https://github.khronos.org/Vulkan-Site/guide/latest/)

@@ -49,6 +49,21 @@ python3 -m http.server --directory ../docs 8000
 3. Open:
 - http://localhost:8000/index.html
 
+Automated wasm smoke check
+
+Use this quick command sequence to catch common wasm runtime regressions before manual browser testing:
+
+```bash
+cargo test && \
+cargo check --target wasm32-unknown-unknown && \
+wasm-pack build --target web --out-dir ../docs/pkg --release
+```
+
+Expected result:
+- all tests pass
+- wasm check succeeds
+- `docs/pkg` is regenerated without build errors
+
 Alternative lower-level build:
 
 ```bash
