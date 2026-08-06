@@ -21,10 +21,12 @@
 				"ms-vscode.wasm-dwarf-debugging",
 				"fill-labs.dependi",
 				"PolyMeilex.wgsl",
-				"thekaasking.copilot-pdf-utilities"
+				"thekaasking.copilot-pdf-utilities",
+				"RooVeterinaryInc.roo-cline"
 			]
 		}
 	},
+	"runArgs": ["--network=host"],
 	"forwardPorts": [8000, 8080],
 	"postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo --version && rustc --version && cargo install wasm-pack --locked --force && cargo install cargo-wgsl && cargo install cargo-deny --locked --force && wasm-pack --version && cargo-deny --version",
 	"mounts": [
