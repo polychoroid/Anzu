@@ -1,5 +1,4 @@
 pub mod assets;
-pub mod display;
 pub mod execution;
 pub mod roms;
 pub mod simulation;
@@ -136,6 +135,7 @@ impl State {
         )?;
 
         let mut runtime_state = RuntimeState::new();
+        runtime_state.set_body_state(rom.take_body_state());
         if let Some(initial_command) = rom.next_render_command() {
             match queue_background_color_command(&mut runtime_state, initial_command) {
                 Ok(true) => {}
@@ -214,7 +214,12 @@ impl State {
             &self.content_renderer,
             &mut encoder,
             &view,
+            self.config.width,
+            self.config.height,
+            self.rom.projection_mode(),
             clear_color,
+            &self.runtime_state,
+            &self.queue,
         );
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -237,9 +242,13 @@ impl State {
         }
     }
 
-    fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::KeyP, true) => {
+                let projection_mode = self.rom.toggle_projection_mode();
+                log::info!("projection mode switched to {:?}", projection_mode);
+            }
             _ => {}
         }
     }

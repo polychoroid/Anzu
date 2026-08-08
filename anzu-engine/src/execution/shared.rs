@@ -5,7 +5,9 @@ pub type RuntimeInstant = std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 pub type RuntimeInstant = web_time::Instant;
 
-use nalgebra::Vector4;
+use nalgebra::{Matrix4, Vector4};
+
+use crate::simulation::physics::BodyState;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BackgroundColor {
@@ -83,6 +85,8 @@ pub struct RuntimeState {
     frame_count: u64,
     background_color: BackgroundColor,
     queued_background_color: Option<BackgroundColor>,
+    body_state: BodyState,
+    animation_step_index: u64,
 }
 
 pub struct FrameScheduler {
@@ -107,6 +111,8 @@ impl RuntimeState {
             frame_count: 0,
             background_color: default_background_color(),
             queued_background_color: None,
+            body_state: BodyState::default(),
+            animation_step_index: 0,
         }
     }
 
@@ -136,6 +142,22 @@ impl RuntimeState {
         self.background_color
     }
 
+    pub fn set_body_state(&mut self, body_state: BodyState) {
+        self.body_state = body_state;
+    }
+
+    pub fn body_state(&self) -> &BodyState {
+        &self.body_state
+    }
+
+    pub fn transform_matrix(&self) -> Matrix4<f32> {
+        self.body_state.runtime_transform(self.animation_step_index)
+    }
+
+    pub fn apply_animation_step(&mut self) {
+        self.animation_step_index += 1;
+    }
+
     pub fn begin_frame(&mut self, now: RuntimeInstant) -> FrameStepPlan {
         if let Some(next_color) = self.queued_background_color.take() {
             self.background_color = next_color;
@@ -152,6 +174,11 @@ impl RuntimeState {
         let plan = self
             .scheduler
             .plan_frame(self.frame_count, self.accumulated_time);
+
+        for _ in 0..plan.step_count {
+            self.apply_animation_step();
+        }
+
         self.accumulated_time = plan.remaining_time;
         plan
     }
@@ -184,6 +211,7 @@ impl FrameScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simulation::physics::MotionVector;
 
     #[test]
     fn scheduler_plans_a_single_step_for_steady_delta() {
@@ -290,6 +318,51 @@ mod tests {
         let vector = color.to_vector4();
 
         assert_eq!(vector, Vector4::new(0.8, 0.2, 0.1, 1.0));
+    }
+
+    #[test]
+    fn runtime_state_applies_motion_to_transform_matrix() {
+        let mut runtime = RuntimeState::new();
+        runtime.set_body_state(BodyState::new_with_runtime_transform(
+            1.0,
+            crate::assets::MeshType::BuiltIn(crate::assets::mesh_provider::Primitive::Cube),
+            Some(MotionVector {
+                linear: nalgebra::Vector3::zeros(),
+                angular: nalgebra::Vector3::new(0.0, 1.0, 0.0),
+            }),
+            None,
+            Some(Box::new(|body, step_index| {
+                let phase = step_index as f32 * 0.1;
+                let motion = body.motion_vector();
+                let rotation = nalgebra::Rotation3::from_euler_angles(0.0, motion.angular.y * phase, 0.0);
+                let mut matrix = nalgebra::Matrix4::identity();
+                matrix
+                    .fixed_view_mut::<3, 3>(0, 0)
+                    .copy_from(&rotation.to_homogeneous().fixed_view::<3, 3>(0, 0));
+                matrix
+            })),
+        ));
+
+        runtime.apply_animation_step();
+
+        let transform = runtime.transform_matrix();
+        let expected_rotation = nalgebra::Rotation3::from_euler_angles(0.0, 0.1, 0.0).to_homogeneous();
+        assert!((transform[(0, 0)] - expected_rotation[(0, 0)]).abs() < 1e-6);
+        assert!((transform[(1, 1)] - expected_rotation[(1, 1)]).abs() < 1e-6);
+        assert!((transform[(0, 1)] - expected_rotation[(0, 1)]).abs() < 1e-6);
+        assert!((transform[(1, 0)] - expected_rotation[(1, 0)]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn runtime_state_keeps_identity_when_motion_is_zero() {
+        let mut runtime = RuntimeState::new();
+        runtime.set_body_state(BodyState::default());
+
+        runtime.apply_animation_step();
+
+        let transform = runtime.transform_matrix();
+        assert_eq!(transform[(0, 3)], 0.0);
+        assert_eq!(transform[(1, 3)], 0.0);
     }
 
     #[test]

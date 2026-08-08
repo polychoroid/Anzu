@@ -7,9 +7,25 @@ mod backend;
 #[path = "pipeline_builder.rs"]
 mod pipeline_builder;
 
+use nalgebra::{Isometry3, Orthographic3, Perspective3, Point3, Vector3};
 use wgpu::util::DeviceExt;
 
-use crate::execution::shared::BackgroundColor;
+use crate::execution::shared::{BackgroundColor, RuntimeState};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectionMode {
+    Perspective,
+    Isometric,
+}
+
+impl ProjectionMode {
+    pub fn next(self) -> Self {
+        match self {
+            ProjectionMode::Perspective => ProjectionMode::Isometric,
+            ProjectionMode::Isometric => ProjectionMode::Perspective,
+        }
+    }
+}
 
 pub use material::{BlendMode, MaterialDefinition, MaterialUniform, MaterialUniformLayout};
 
@@ -82,6 +98,8 @@ pub struct TexturedMeshRenderer {
     pub geometry: GeometryGpu,
     pub texture: TextureGpu,
     pub pipeline: PipelineGpu,
+    pub uniform_buffer: wgpu::Buffer,
+    pub uniform_bind_group: wgpu::BindGroup,
 }
 
 fn validate_textured_mesh_contract(mesh: &TexturedMesh) -> anyhow::Result<()> {
@@ -229,6 +247,37 @@ pub fn create_textured_mesh_renderer(
         label: Some("Textured Mesh Bind Group"),
     });
 
+    let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Textured Mesh Uniform Buffer"),
+        size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let uniform_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("Textured Mesh Uniform Bind Group Layout"),
+        });
+
+    let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &uniform_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        }],
+        label: Some("Textured Mesh Uniform Bind Group"),
+    });
+
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Textured Mesh Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
@@ -236,7 +285,10 @@ pub fn create_textured_mesh_renderer(
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Textured Mesh Pipeline Layout"),
-        bind_group_layouts: &[Some(&texture_bind_group_layout)],
+        bind_group_layouts: &[
+            Some(&texture_bind_group_layout),
+            Some(&uniform_bind_group_layout),
+        ],
         immediate_size: 0,
     });
 
@@ -288,6 +340,8 @@ pub fn create_textured_mesh_renderer(
             bind_group: texture_bind_group,
         },
         pipeline: PipelineGpu { render_pipeline },
+        uniform_buffer,
+        uniform_bind_group,
     })
 }
 
@@ -346,7 +400,12 @@ pub fn encode_textured_mesh_pass(
     renderer: &TexturedMeshRenderer,
     encoder: &mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
+    surface_width: u32,
+    surface_height: u32,
+    projection_mode: ProjectionMode,
     clear_color: BackgroundColor,
+    runtime_state: &RuntimeState,
+    queue: &wgpu::Queue,
 ) {
     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Textured Mesh Pass"),
@@ -370,8 +429,43 @@ pub fn encode_textured_mesh_pass(
         multiview_mask: None,
     });
 
+    let aspect_ratio = surface_width.max(1) as f32 / surface_height.max(1) as f32;
+    let view_projection_matrix = match projection_mode {
+        ProjectionMode::Perspective => {
+            Perspective3::new(aspect_ratio, std::f32::consts::FRAC_PI_4, 0.1, 10.0).to_homogeneous()
+        }
+        ProjectionMode::Isometric => {
+            let scale = 0.9;
+            let target = Point3::new(0.0, 0.0, -2.0);
+            let projection_matrix = Orthographic3::new(
+                -scale * aspect_ratio,
+                scale * aspect_ratio,
+                -scale,
+                scale,
+                0.1,
+                10.0,
+            )
+            .to_homogeneous();
+            let view_matrix = Isometry3::look_at_rh(
+                &Point3::new(2.5, 2.5, 2.5),
+                &target,
+                &Vector3::y_axis(),
+            )
+            .to_homogeneous();
+            projection_matrix * view_matrix
+        }
+    };
+    let model_matrix = view_projection_matrix * runtime_state.transform_matrix();
+    let uniform_data: [[f32; 4]; 4] = model_matrix.into();
+    queue.write_buffer(
+        &renderer.uniform_buffer,
+        0,
+        bytemuck::cast_slice(&[uniform_data]),
+    );
+
     render_pass.set_pipeline(&renderer.pipeline.render_pipeline);
     render_pass.set_bind_group(0, &renderer.texture.bind_group, &[]);
+    render_pass.set_bind_group(1, &renderer.uniform_bind_group, &[]);
     render_pass.set_vertex_buffer(0, renderer.geometry.vertex_buffer.slice(..));
     render_pass.set_index_buffer(
         renderer.geometry.index_buffer.slice(..),
@@ -536,16 +630,23 @@ mod tests {
             label: Some("textured-pass-encoder"),
         });
 
+        let runtime = crate::execution::shared::RuntimeState::new();
+
         encode_textured_mesh_pass(
             &renderer,
             &mut encoder,
             &view,
+            4,
+            4,
+            ProjectionMode::Perspective,
             BackgroundColor {
                 r: 0.0,
                 g: 0.0,
                 b: 0.0,
                 a: 1.0,
             },
+            &runtime,
+            &queue,
         );
 
         queue.submit(std::iter::once(encoder.finish()));

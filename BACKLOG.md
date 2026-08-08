@@ -305,7 +305,27 @@ This backlog is the active plan for a simulation and visualization system.
     - Risk: policy leakage if engine starts owning texture-catalog logic. Mitigation: keep content mapping in ROM layer only.
     - Risk: shader/layout mismatch for UV bindings can fail pipeline creation. Mitigation: add layout-compat tests early.
     - Open question resolved by refinement: ROM owns texture definitions and identifiers; engine remains content-agnostic for catalog policy.
-- [ ] Feature 1.5: Animate baseline transform at fixed timestep
+- [x] Feature 1.5: Animate baseline transform at fixed timestep
+  - Outcome: The texture demo now animates a single ROM-owned tetrahedron at the fixed-step boundary. The ROM owns the body state and transform closure, the runtime consumes the body state on each fixed step, and the renderer applies a view-projection matrix so the object stays centered and visible.
+  - Implemented behavior:
+    - `TextureDemoRom` owns the body state and projection mode.
+    - `P` toggles between `Perspective` and `Isometric` projection modes at runtime.
+    - `render.rs` builds the projection matrix and combines it with the runtime transform before upload.
+    - The isometric view is framed on the tetrahedron's world-space center so it renders in the middle of the screen.
+  - Validation:
+    - `cd /workspaces/Anzu/anzu-engine && cargo test --lib -- --nocapture`
+    - Result: 37 tests passed, 0 failed.
+  - Notes:
+    - The old clarification questions are closed by implementation: motion is ROM-provided, the primitive is the tetrahedron, and projection mode is user-toggleable.
+- [ ] Feature 1.5b: Add N-body animation support for multiple bodies
+  - Outcome: The runtime can animate multiple bodies simultaneously using BodyState-backed motion data, while preserving the current single-body render path as a baseline.
+  - Scope:
+    - In scope: multiple body instances, per-body motion updates, render-time mapping from body state to transform data, and a clear path for future expansion beyond the current single-body implementation.
+    - Non-goals: full physics solver integration, collision response, or generalized scene graph abstraction.
+  - Constraints and assumptions:
+    - This feature is intentionally scoped as the next step after the current single-body animation work.
+    - The implementation should preserve the existing BodyState/RuntimeState ownership boundaries and avoid introducing a new abstraction unless it is clearly justified by the multi-body requirement.
+    - Planning for this feature will be completed separately once the current single-body milestone is settled.
 - [ ] Feature 1.6: Handle surface resize, reconfigure, and present lifecycle safely
 - [ ] Feature 1.7: Maintain explicit frame contract acquire -> encode -> submit -> present
 - [ ] Feature 1.8: Split app shell state from runtime orchestration state
@@ -373,11 +393,19 @@ And architecture terms match the core glossary in `documents/architecture.md`
 ## Initiative 2: ECS, Objects, and Extraction Boundaries
 - [ ] Feature 2.1: ECS world with stable entity identity and component storage
 - [ ] Feature 2.2: ObjectSpec domain with predefined catalog templates
+  - Contract: `ObjectSpec` is an identifier-only catalog template resolved at profile load or entity spawn. It does not embed mutable `BodyState`, `DisplayState`, light, or material values.
+  - Ownership: ROM manifests own template identifiers and content policy; engine registries resolve those identifiers into stable resource handles.
 - [ ] Feature 2.3: ObjectRuntime domain with resolved resource handles and lifecycle state
+  - Contract: `ObjectRuntime` binds entity identity, its originating object-spec identifier, resolved engine resource handles, and lifecycle state.
+  - Ownership: simulation, display, and light state remain separate ECS components; `ObjectRuntime` does not become their mutation owner.
 - [ ] Feature 2.4: BodyState and DisplayState split per object
+  - Contract: `BodyState` and `DisplayState` are distinct per-entity components. Simulation owns their mutation, while render extraction reads a stabilized snapshot.
 - [ ] Feature 2.5: Light attachments with explicit emitter specs
+  - Contract: light attachments are optional ECS component data referencing explicit emitter specs. They do not own renderer or GPU resources.
 - [ ] Feature 2.6: Extractor emits frame packet from ECS/object snapshot
+  - Contract: extraction emits drawable and light records that are distinct from `DisplayState` and other ECS component schemas.
 - [ ] Feature 2.7: Render consumes frame packet only, without direct ECS schema coupling
+  - Contract: extracted frame records are the renderer's only object-state input; renderer code does not query ECS components directly.
 
 ## Initiative 3: Physics Foundation
 - [ ] Feature 3.1: Canonical BodyState schema with motion, force, and mass properties
@@ -406,9 +434,13 @@ And architecture terms match the core glossary in `documents/architecture.md`
 
 ## Initiative 6: Materials, Lights, and Render Composition
 - [ ] Feature 6.1: Material registry with data-defined material ids
+  - Contract: the existing `execution::material::MaterialDefinition` is the seed for the engine-owned registry. This feature must not introduce a competing generic `Material` domain type without an explicit migration.
 - [ ] Feature 6.2: Multi-material object rendering via submesh ranges
 - [ ] Feature 6.3: Emitter model supporting directional, point, spot, area, environment, and surface emission
+  - Contract: `EmitterType` contains exactly `Directional`, `Point`, `Spot`, `Area`, `Environment`, and `Surface` for this feature's acceptance scope.
+  - Ownership: emitter specs are simulation/ECS data; extracted light records translate them for renderer consumption without transferring mutation ownership.
 - [ ] Feature 6.4: Surface response model separated from emitter records
+  - Contract: emitter records contain emission data only. Material definitions own surface-response properties independently.
 - [ ] Feature 6.5: Pipeline keying and variant cache
 - [ ] Feature 6.6: Composite render passes for emissive and post-process effects
 - [ ] Feature 6.7: Low-poly visual strategy support through shading-first enhancement
@@ -476,6 +508,7 @@ And architecture terms match the core glossary in `documents/architecture.md`
   - Constraints and assumptions:
     - Engine runtime remains content-agnostic and only consumes validated manifest payloads.
     - ROM remains owner of content policy; engine owns generic validation, transport, and execution plumbing.
+    - ROM manifest identifiers remain distinct from engine-owned resource handles and are translated at the profile-load boundary.
     - Manifest format must be deterministic and versioned for forward migration compatibility.
     - Failure mode is fail-fast at ROM/profile load boundary with explicit error taxonomy.
   - Acceptance criteria:
@@ -495,6 +528,7 @@ And architecture terms match the core glossary in `documents/architecture.md`
     - ROM remains owner of content policy and source payloads.
     - Engine remains owner of provider storage, validation, residency bookkeeping, and runtime handles.
     - Provider registries must be content-agnostic and reusable across profiles.
+    - After registration, simulation and render paths reference engine resource handles only and do not retain ROM manifest payload dependencies.
   - Acceptance criteria:
     - A texture-demo profile can register mesh, texture, and material records through engine providers before first render.
     - Runtime simulation/render paths reference provider handles only (no direct ROM payload dependency in frame loop).
@@ -506,7 +540,7 @@ And architecture terms match the core glossary in `documents/architecture.md`
     - Non-goals: runtime asset streaming/eviction and live asset edits.
   - Constraints and assumptions:
     - Packing copies needed for GPU-interleaved layout are allowed during load stage only.
-    - Frame rendering may only reference prepared GPU resources and handles.
+    - Frame rendering may only reference startup-prepared GPU resources and engine resource handles.
     - Any additional packing during frame execution is treated as regression unless explicitly approved.
   - Acceptance criteria:
     - Startup path creates required GPU resources exactly once for texture-demo baseline content.

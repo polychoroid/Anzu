@@ -1,6 +1,8 @@
 use crate::assets::{Mesh, MeshType, mesh_provider, mesh_provider::Primitive};
-use nalgebra::{Matrix3, SymmetricEigen, Vector3};
+use nalgebra::{Matrix3, Matrix4, SymmetricEigen, Vector3};
 use std::default::Default;
+
+pub type RuntimeTransformFn = Box<dyn Fn(&BodyState, u64) -> Matrix4<f32>>;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -58,9 +60,29 @@ pub struct BodyState {
     force_vector: ForceVector,
     spacial_properties: SpacialProperties,
     mass_properties: MassProperties,
+    runtime_transform_fn: RuntimeTransformFn,
 }
 
 impl BodyState {
+    pub fn motion_vector(&self) -> MotionVector {
+        self.motion_vector
+    }
+
+    fn default_runtime_transform(body: &BodyState, step_index: u64) -> Matrix4<f32> {
+        let phase = step_index as f32 * 0.06;
+        let rotation =
+            nalgebra::Rotation3::from_euler_angles(0.0, body.motion_vector.angular.y * phase, 0.0);
+        let mut matrix = Matrix4::identity();
+        matrix
+            .fixed_view_mut::<3, 3>(0, 0)
+            .copy_from(&rotation.to_homogeneous().fixed_view::<3, 3>(0, 0));
+        matrix
+    }
+
+    pub fn runtime_transform(&self, step_index: u64) -> Matrix4<f32> {
+        (self.runtime_transform_fn)(self, step_index)
+    }
+
     fn get_box_inertia(mass: &f32, extents: &Vector3<f32>) -> Matrix3<f32> {
         let x = extents.x;
         let y = extents.y;
@@ -153,6 +175,16 @@ impl BodyState {
         initial_motion: Option<MotionVector>,
         initial_force: Option<ForceVector>,
     ) -> Self {
+        Self::new_with_runtime_transform(mass, mesh_type, initial_motion, initial_force, None)
+    }
+
+    pub fn new_with_runtime_transform(
+        mass: f32,
+        mesh_type: MeshType,
+        initial_motion: Option<MotionVector>,
+        initial_force: Option<ForceVector>,
+        runtime_transform_fn: Option<RuntimeTransformFn>,
+    ) -> Self {
         let mesh = match mesh_type {
             MeshType::BuiltIn(primitive) => mesh_provider::get_primitive_mesh_ref(&primitive),
             MeshType::FromFile(_file) => mesh_provider::get_primitive_mesh_ref(&Primitive::Cube), // mesh loading is not supported yet
@@ -177,6 +209,11 @@ impl BodyState {
             None => Matrix3::<f32>::zeros(),
         };
 
+        let runtime_transform_fn = match runtime_transform_fn {
+            Some(transform_fn) => transform_fn,
+            None => Box::new(Self::default_runtime_transform),
+        };
+
         return BodyState {
             physics_mesh_id: mesh.id,
             motion_vector: motion_vector,
@@ -188,6 +225,7 @@ impl BodyState {
                 inertia: inertia,
                 inverse_inertia: inverse_inertia,
             },
+            runtime_transform_fn,
         };
     }
 }
