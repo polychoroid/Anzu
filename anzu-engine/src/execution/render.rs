@@ -8,6 +8,7 @@ mod backend;
 mod pipeline_builder;
 
 use nalgebra::{Isometry3, Orthographic3, Perspective3, Point3, Vector3};
+use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
 use crate::execution::shared::{BackgroundColor, RuntimeState};
@@ -98,6 +99,12 @@ pub struct TexturedMeshRenderer {
     pub geometry: GeometryGpu,
     pub texture: TextureGpu,
     pub pipeline: PipelineGpu,
+    pub uniform_buffer: wgpu::Buffer,
+    pub uniform_bind_group: wgpu::BindGroup,
+    pub uniform_bind_group_layout: wgpu::BindGroupLayout,
+}
+
+pub struct BodyUniformSlot {
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
 }
@@ -342,6 +349,7 @@ pub fn create_textured_mesh_renderer(
         pipeline: PipelineGpu { render_pipeline },
         uniform_buffer,
         uniform_bind_group,
+        uniform_bind_group_layout,
     })
 }
 
@@ -396,6 +404,96 @@ pub fn create_textured_mesh_renderer_from_mesh(
     create_textured_mesh_renderer(device, queue, surface_format, &textured_mesh, texture_bytes)
 }
 
+/// Allocates a `GeometryGpu` for each `(mesh_id, mesh, vertex_colors)` triple and returns
+/// a map keyed by mesh_id so the render pass can look up geometry per body.
+pub fn create_geometry_map(
+    device: &wgpu::Device,
+    specs: &[(u32, &crate::assets::Mesh, &[[f32; 4]])],
+) -> anyhow::Result<HashMap<u32, GeometryGpu>> {
+    let mut map = HashMap::new();
+    for (mesh_id, mesh, vertex_colors) in specs {
+        let indices = mesh
+            .indices()
+            .ok_or_else(|| anyhow::anyhow!("mesh {mesh_id} requires indices"))?;
+
+        let uvs = mesh
+            .uv
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("mesh {mesh_id} requires UV coordinates"))?;
+
+        if mesh.points.len() != vertex_colors.len() {
+            anyhow::bail!(
+                "mesh {mesh_id}: point/color cardinality mismatch: {} points vs {} colors",
+                mesh.points.len(),
+                vertex_colors.len()
+            );
+        }
+
+        let vertices: Vec<TexturedVertex> = mesh
+            .points
+            .iter()
+            .enumerate()
+            .map(|(i, point)| TexturedVertex {
+                position: [point.x, point.y, point.z],
+                color: vertex_colors[i],
+                uv: uvs[i],
+            })
+            .collect();
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("Body Geometry Vertex Buffer mesh={mesh_id}")),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("Body Geometry Index Buffer mesh={mesh_id}")),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        map.insert(
+            *mesh_id,
+            GeometryGpu {
+                vertex_buffer,
+                index_buffer,
+                index_count: indices.len() as u32,
+            },
+        );
+    }
+    Ok(map)
+}
+
+pub fn create_body_uniform_slots(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    count: usize,
+) -> Vec<BodyUniformSlot> {
+    (0..count)
+        .map(|index| {
+            let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("Textured Mesh Body Uniform Buffer {index}")),
+                size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+                label: Some(&format!("Textured Mesh Body Uniform Bind Group {index}")),
+            });
+
+            BodyUniformSlot {
+                uniform_buffer,
+                uniform_bind_group,
+            }
+        })
+        .collect()
+}
+
 pub fn encode_textured_mesh_pass(
     renderer: &TexturedMeshRenderer,
     encoder: &mut wgpu::CommandEncoder,
@@ -406,6 +504,8 @@ pub fn encode_textured_mesh_pass(
     clear_color: BackgroundColor,
     runtime_state: &RuntimeState,
     queue: &wgpu::Queue,
+    body_uniform_slots: &[BodyUniformSlot],
+    body_geometry_map: &HashMap<u32, GeometryGpu>,
 ) {
     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Textured Mesh Pass"),
@@ -446,32 +546,47 @@ pub fn encode_textured_mesh_pass(
                 10.0,
             )
             .to_homogeneous();
-            let view_matrix = Isometry3::look_at_rh(
-                &Point3::new(2.5, 2.5, 2.5),
-                &target,
-                &Vector3::y_axis(),
-            )
-            .to_homogeneous();
+            let view_matrix =
+                Isometry3::look_at_rh(&Point3::new(2.5, 2.5, 2.5), &target, &Vector3::y_axis())
+                    .to_homogeneous();
             projection_matrix * view_matrix
         }
     };
-    let model_matrix = view_projection_matrix * runtime_state.transform_matrix();
-    let uniform_data: [[f32; 4]; 4] = model_matrix.into();
-    queue.write_buffer(
-        &renderer.uniform_buffer,
-        0,
-        bytemuck::cast_slice(&[uniform_data]),
-    );
+    let body_transforms = runtime_state.body_transforms();
+    let body_mesh_ids = runtime_state.body_mesh_ids();
+    if body_transforms.len() != body_uniform_slots.len() {
+        log::warn!(
+            "body transform count {} does not match uniform slot count {}; drawing available bodies",
+            body_transforms.len(),
+            body_uniform_slots.len()
+        );
+    }
 
     render_pass.set_pipeline(&renderer.pipeline.render_pipeline);
     render_pass.set_bind_group(0, &renderer.texture.bind_group, &[]);
-    render_pass.set_bind_group(1, &renderer.uniform_bind_group, &[]);
-    render_pass.set_vertex_buffer(0, renderer.geometry.vertex_buffer.slice(..));
-    render_pass.set_index_buffer(
-        renderer.geometry.index_buffer.slice(..),
-        wgpu::IndexFormat::Uint16,
-    );
-    render_pass.draw_indexed(0..renderer.geometry.index_count, 0, 0..1);
+
+    for (index, body_matrix) in body_transforms.iter().enumerate() {
+        let Some(slot) = body_uniform_slots.get(index) else {
+            break;
+        };
+
+        let mesh_id = body_mesh_ids.get(index).copied().unwrap_or(0);
+        let geometry = body_geometry_map
+            .get(&mesh_id)
+            .unwrap_or(&renderer.geometry);
+
+        let model_matrix = view_projection_matrix * body_matrix;
+        let uniform_data: [[f32; 4]; 4] = model_matrix.into();
+        queue.write_buffer(
+            &slot.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[uniform_data]),
+        );
+        render_pass.set_bind_group(1, &slot.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, geometry.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(geometry.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..geometry.index_count, 0, 0..1);
+    }
 }
 
 #[cfg(test)]
@@ -647,6 +762,8 @@ mod tests {
             },
             &runtime,
             &queue,
+            &[],
+            &std::collections::HashMap::new(),
         );
 
         queue.submit(std::iter::once(encoder.finish()));

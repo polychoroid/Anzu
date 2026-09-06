@@ -318,15 +318,81 @@ This backlog is the active plan for a simulation and visualization system.
   - Notes:
     - The old clarification questions are closed by implementation: motion is ROM-provided, the primitive is the tetrahedron, and projection mode is user-toggleable.
 - [ ] Feature 1.5b: Add N-body animation support for multiple bodies
-  - Outcome: The runtime can animate multiple bodies simultaneously using BodyState-backed motion data, while preserving the current single-body render path as a baseline.
+  - Outcome: The runtime animates multiple ROM-owned bodies simultaneously, each driven by its own transform closure, while the renderer issues one draw call per body using shared mesh and texture GPU resources.
   - Scope:
-    - In scope: multiple body instances, per-body motion updates, render-time mapping from body state to transform data, and a clear path for future expansion beyond the current single-body implementation.
-    - Non-goals: full physics solver integration, collision response, or generalized scene graph abstraction.
+    - In scope: multiple body instances, per-body transform evaluation during fixed-step updates, render-time mapping from body state to transform data, instanced rendering of the shared tetrahedron mesh, and a clear path for future expansion beyond the current single-body implementation.
+    - Non-goals: full physics solver integration, collision response, generalized scene-graph abstraction, or per-body mesh/texture differentiation.
   - Constraints and assumptions:
-    - This feature is intentionally scoped as the next step after the current single-body animation work.
-    - The implementation should preserve the existing BodyState/RuntimeState ownership boundaries and avoid introducing a new abstraction unless it is clearly justified by the multi-body requirement.
-    - Planning for this feature will be completed separately once the current single-body milestone is settled.
+    - The current single-body implementation in `RuntimeState`, `TextureDemoRom`, and `render.rs` remains the baseline contract that this feature extends.
+    - `BodyState` is not `Copy`/`Clone`, so the runtime must hold owned body entries rather than duplicate the state object by value.
+    - The implementation should preserve the existing `BodyState`/`RuntimeState` ownership boundaries and avoid introducing a new simulation abstraction unless the multi-body requirement clearly justifies it.
+    - The initial multi-body ROM scene displays one instance of each Platonic solid distributed across the screen, using the same shared texture and distinct phase offsets so the bodies are visually distinguishable.
+  - Milestones:
+    - M1: Replace the single-body ownership path in runtime state with a body collection and expose transform evaluation for all bodies.
+    - M2: Extend the renderer to allocate one uniform slot per body and draw all bodies in a single render pass.
+    - M3: Extend the ROM startup content to emit multiple bodies and wire the shell/runtime path to the new multi-body seam.
+  - File-by-file implementation contract:
+    - [anzu-engine/src/execution/shared.rs](anzu-engine/src/execution/shared.rs)
+      - Action: modify
+      - Why: the current `RuntimeState` stores a single `BodyState` and one animation step index; multi-body support requires a body collection and transform evaluation for each entry.
+      - Structs/enums:
+        - `struct BodyEntry { state: BodyState, step_index: u64 }`
+      - Functions/methods:
+        - `fn set_bodies(&mut self, bodies: Vec<BodyState>)`
+        - `fn bodies(&self) -> &[BodyState]`
+        - `fn body_transforms(&self) -> Vec<Matrix4<f32>>`
+        - `fn apply_animation_step(&mut self)` increments each body's step index in the same fixed-step pass.
+      - Ownership notes: `RuntimeState` owns the body collection and per-body step counters; it does not own GPU resources.
+    - [anzu-engine/src/execution/render.rs](anzu-engine/src/execution/render.rs)
+      - Action: modify
+      - Why: the current pass writes one transform to one uniform buffer and issues one draw; multi-body rendering needs one uniform slot per body and a looped draw path.
+      - Structs/enums:
+        - `struct BodyUniformSlot { uniform_buffer: wgpu::Buffer, uniform_bind_group: wgpu::BindGroup }`
+      - Functions/methods:
+        - `fn create_body_uniform_slots(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, count: usize) -> Vec<BodyUniformSlot>`
+        - `fn encode_multi_body_textured_mesh_pass(...)` writes each body transform to its slot and issues `draw_indexed` for that body within the same render pass.
+      - Ownership notes: the shared geometry, pipeline, and texture resources stay on `TexturedMeshRenderer`, while the per-body uniform slots are owned by the shell/render integration layer.
+    - [anzu-engine/src/roms/texture_demo.rs](anzu-engine/src/roms/texture_demo.rs)
+      - Action: modify
+      - Why: the ROM currently owns one body state; the startup path should emit multiple bodies with distinct phase offsets.
+      - Structs/enums:
+        - `struct TextureDemoRom { bodies: Vec<BodyState>, ... }`
+      - Functions/methods:
+        - `fn take_bodies(&mut self) -> Vec<BodyState>` replaces the single-body take path.
+        - `fn initial_bodies() -> Vec<BodyState>` constructs the initial multi-body scene with one instance of each Platonic solid, distributed across the screen and driven by distinct transform closures.
+      - Ownership notes: ROM owns scenario body definitions; the shell calls `take_bodies()` once at startup.
+    - [anzu-engine/src/lib.rs](anzu-engine/src/lib.rs)
+      - Action: modify
+      - Why: the shell currently wires a single body into runtime state and one uniform buffer into the renderer. It must be updated to feed the multi-body path.
+      - Functions/methods:
+        - `State::new(...)` calls `runtime_state.set_bodies(rom.take_bodies())` and allocates uniform slots matching the body count.
+        - `State::render(...)` passes the transform list and slot list into the new multi-body render pass entry point.
+      - Ownership notes: app shell remains the orchestrator; it does not define transform or mesh policy.
+  - Execution flow and ownership boundaries:
+    - `TextureDemoRom::new()` constructs the startup body collection with distinct transform closures.
+    - `State::new()` transfers the body collection into `RuntimeState`, then allocates one uniform slot per body.
+    - Each fixed-step frame causes runtime to evaluate transforms for all bodies and the renderer to issue one draw call per body using the shared mesh and texture bind resources.
+    - Shared geometry, pipeline, and texture bind resources are created once; only per-body transform data changes each frame.
+  - Validation plan:
+    - Unit tests:
+      - `runtime_state_sets_multiple_bodies_and_exposes_transform_count`
+      - `runtime_state_body_transforms_match_body_count`
+      - `texture_demo_rom_take_bodies_returns_expected_body_count`
+      - `texture_demo_rom_bodies_have_distinct_phase_offsets`
+    - Build checks:
+      - `cd /workspaces/Anzu/anzu-engine && cargo test`
+      - `cd /workspaces/Anzu/anzu-engine && cargo check --target wasm32-unknown-unknown`
+    - Manual browser smoke:
+      - verify multiple tetrahedra are visible simultaneously with distinct rotation trajectories.
+      - verify the existing projection toggle and background-color behavior remain intact.
+  - Risks and open questions:
+    - Risk: count mismatches between body transforms and uniform slots could cause a draw-time mismatch. Mitigation: add a defensive runtime assertion or warning when counts diverge.
+    - Risk: overlapping bodies may obscure each other if projection placement is not carefully chosen. Mitigation: use distinct X offsets and confirm in smoke testing.
+    - Open question resolved by this plan: the first multi-body ROM scene will use shared geometry/textures and distinct phase offsets, with one instance of each Platonic solid distributed across the screen rather than introducing richer per-body asset differentiation yet.
 - [ ] Feature 1.6: Handle surface resize, reconfigure, and present lifecycle safely
+  - Follow-up scope addition:
+    - Replace panic-path surface creation and setup calls with typed error boundaries and recoverable fallback behavior.
+    - Acceptance criterion: no unwrap or expect in the surface acquire/reconfigure path in [anzu-engine/src/lib.rs](anzu-engine/src/lib.rs) and the future render-backend boundary.
 - [ ] Feature 1.7: Maintain explicit frame contract acquire -> encode -> submit -> present
 - [ ] Feature 1.8: Split app shell state from runtime orchestration state
 - [ ] Feature 1.9: Split simulation-owned state from render backend state

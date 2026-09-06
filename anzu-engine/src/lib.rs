@@ -16,13 +16,15 @@ use winit::{
     window::Window,
 };
 
-use crate::execution::shared::{RuntimeInstant, RuntimeState};
+use crate::assets::mesh_provider::get_primitive_mesh_ref;
 use crate::execution::render::{
-    create_textured_mesh_renderer_from_mesh, encode_textured_mesh_pass, TexturedMeshRenderer,
+    BodyUniformSlot, TexturedMeshRenderer, create_body_uniform_slots, create_geometry_map,
+    create_textured_mesh_renderer_from_mesh, encode_textured_mesh_pass,
 };
+use crate::execution::shared::{RuntimeInstant, RuntimeState};
 use crate::execution::{BackgroundColor, BackgroundColorError};
 use crate::roms::texture_demo::{TextureDemoRenderCommand, TextureDemoRom};
-use crate::assets::mesh_provider::get_primitive_mesh_ref;
+use std::collections::HashMap;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -43,6 +45,8 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     content_renderer: TexturedMeshRenderer,
+    body_uniform_slots: Vec<BodyUniformSlot>,
+    body_geometry_map: HashMap<u32, crate::execution::render::GeometryGpu>,
     is_surface_configured: bool,
     window: Arc<Window>,
     runtime_state: RuntimeState,
@@ -135,7 +139,24 @@ impl State {
         )?;
 
         let mut runtime_state = RuntimeState::new();
-        runtime_state.set_body_state(rom.take_body_state());
+        let bodies = rom.take_bodies();
+        let body_uniform_slots = create_body_uniform_slots(
+            &device,
+            &content_renderer.uniform_bind_group_layout,
+            bodies.len(),
+        );
+        runtime_state.set_bodies(bodies);
+
+        let body_specs = TextureDemoRom::startup_body_specs();
+        let geometry_specs: Vec<(u32, &crate::assets::Mesh, &[[f32; 4]])> = body_specs
+            .iter()
+            .map(|(primitive, colors)| {
+                let mesh = get_primitive_mesh_ref(primitive);
+                (mesh.id, mesh, colors.as_slice())
+            })
+            .collect();
+        let body_geometry_map = create_geometry_map(&device, &geometry_specs)?;
+
         if let Some(initial_command) = rom.next_render_command() {
             match queue_background_color_command(&mut runtime_state, initial_command) {
                 Ok(true) => {}
@@ -157,6 +178,8 @@ impl State {
             queue,
             config,
             content_renderer,
+            body_uniform_slots,
+            body_geometry_map,
             is_surface_configured: false,
             window,
             runtime_state,
@@ -220,6 +243,8 @@ impl State {
             clear_color,
             &self.runtime_state,
             &self.queue,
+            &self.body_uniform_slots,
+            &self.body_geometry_map,
         );
 
         self.queue.submit(std::iter::once(encoder.finish()));

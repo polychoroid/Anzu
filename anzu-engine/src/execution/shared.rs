@@ -78,6 +78,11 @@ fn validate_channel(channel: &'static str, value: f64) -> Result<(), BackgroundC
     Err(BackgroundColorError::ChannelOutOfRange { channel, value })
 }
 
+struct BodyEntry {
+    state: BodyState,
+    step_index: u64,
+}
+
 pub struct RuntimeState {
     scheduler: FrameScheduler,
     last_frame_at: Option<RuntimeInstant>,
@@ -85,8 +90,7 @@ pub struct RuntimeState {
     frame_count: u64,
     background_color: BackgroundColor,
     queued_background_color: Option<BackgroundColor>,
-    body_state: BodyState,
-    animation_step_index: u64,
+    bodies: Vec<BodyEntry>,
 }
 
 pub struct FrameScheduler {
@@ -111,8 +115,10 @@ impl RuntimeState {
             frame_count: 0,
             background_color: default_background_color(),
             queued_background_color: None,
-            body_state: BodyState::default(),
-            animation_step_index: 0,
+            bodies: vec![BodyEntry {
+                state: BodyState::default(),
+                step_index: 0,
+            }],
         }
     }
 
@@ -143,19 +149,49 @@ impl RuntimeState {
     }
 
     pub fn set_body_state(&mut self, body_state: BodyState) {
-        self.body_state = body_state;
+        self.set_bodies(vec![body_state]);
+    }
+
+    pub fn set_bodies(&mut self, bodies: Vec<BodyState>) {
+        self.bodies = bodies
+            .into_iter()
+            .map(|state| BodyEntry { state, step_index: 0 })
+            .collect();
     }
 
     pub fn body_state(&self) -> &BodyState {
-        &self.body_state
+        self.bodies
+            .first()
+            .map(|entry| &entry.state)
+            .expect("runtime state should contain at least one body")
+    }
+
+    pub fn body_count(&self) -> usize {
+        self.bodies.len()
+    }
+
+    pub fn body_mesh_ids(&self) -> Vec<u32> {
+        self.bodies.iter().map(|entry| entry.state.mesh_id()).collect()
+    }
+
+    pub fn body_transforms(&self) -> Vec<Matrix4<f32>> {
+        self.bodies
+            .iter()
+            .map(|entry| entry.state.runtime_transform(entry.step_index))
+            .collect()
     }
 
     pub fn transform_matrix(&self) -> Matrix4<f32> {
-        self.body_state.runtime_transform(self.animation_step_index)
+        self.body_transforms()
+            .first()
+            .copied()
+            .unwrap_or_else(Matrix4::identity)
     }
 
     pub fn apply_animation_step(&mut self) {
-        self.animation_step_index += 1;
+        for entry in &mut self.bodies {
+            entry.step_index += 1;
+        }
     }
 
     pub fn begin_frame(&mut self, now: RuntimeInstant) -> FrameStepPlan {
@@ -211,6 +247,7 @@ impl FrameScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets::{MeshType, mesh_provider::Primitive};
     use crate::simulation::physics::MotionVector;
 
     #[test]
@@ -279,6 +316,20 @@ mod tests {
 
         assert_eq!(plan.step_count, 3);
         assert!(plan.remaining_time >= Duration::ZERO);
+    }
+
+    #[test]
+    fn runtime_state_sets_multiple_bodies_and_exposes_transform_count() {
+        let mut runtime = RuntimeState::new();
+        let bodies = vec![
+            BodyState::new(1.0, MeshType::BuiltIn(Primitive::Tetrahedron), None, None),
+            BodyState::new(1.0, MeshType::BuiltIn(Primitive::Cube), None, None),
+        ];
+
+        runtime.set_bodies(bodies);
+
+        assert_eq!(runtime.body_count(), 2);
+        assert_eq!(runtime.body_transforms().len(), 2);
     }
 
     #[test]

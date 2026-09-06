@@ -68,6 +68,19 @@ impl BodyState {
         self.motion_vector
     }
 
+    pub fn mesh_id(&self) -> u32 {
+        self.physics_mesh_id
+    }
+
+    pub fn extents(&self) -> Vector3<f32> {
+        self.spacial_properties.extents
+    }
+
+    pub fn axes(&self) -> Matrix3<f32> {
+        self.spacial_properties.axes
+    }
+
+    // This is just a place holder.
     fn default_runtime_transform(body: &BodyState, step_index: u64) -> Matrix4<f32> {
         let phase = step_index as f32 * 0.06;
         let rotation =
@@ -112,7 +125,7 @@ impl BodyState {
 
         assert!(n > 0);
 
-        return (1 / n) as f32 * mesh.points.iter().sum::<Vector3<f32>>();
+        return (1.0 / (n as f32)) as f32 * mesh.points.iter().sum::<Vector3<f32>>();
     }
 
     fn calculate_covarience_matrix(mesh: &Mesh, centroid: &Vector3<f32>) -> Matrix3<f32> {
@@ -131,8 +144,8 @@ impl BodyState {
         covarience_matrix_eigen_vectors: &Matrix3<f32>,
         mesh: &Mesh,
     ) -> Vector3<f32> {
-        let mut min = Vector3::<f32>::zeros();
-        let mut max = Vector3::<f32>::zeros();
+        let mut min = Vector3::<f32>::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let mut max = Vector3::<f32>::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
 
         for p in mesh.points.iter() {
             let local = covarience_matrix_eigen_vectors.transpose() * (p - centroid);
@@ -214,6 +227,8 @@ impl BodyState {
             None => Box::new(Self::default_runtime_transform),
         };
 
+        let inverse_mass = if mass < 0.0 { 0.0 } else { 1.0 / mass };
+
         return BodyState {
             physics_mesh_id: mesh.id,
             motion_vector: motion_vector,
@@ -221,7 +236,7 @@ impl BodyState {
             spacial_properties: spacial_properties,
             mass_properties: MassProperties {
                 mass,
-                inverse_mass: 1.0 / mass,
+                inverse_mass: inverse_mass,
                 inertia: inertia,
                 inverse_inertia: inverse_inertia,
             },

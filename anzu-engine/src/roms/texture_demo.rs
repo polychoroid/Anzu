@@ -1,4 +1,4 @@
-use nalgebra::{Rotation3, Translation3, Vector3, Vector4};
+use nalgebra::{Matrix4, Rotation3, Translation3, Vector3, Vector4};
 
 use crate::assets::mesh_provider::Primitive;
 use crate::execution::render::ProjectionMode;
@@ -40,7 +40,7 @@ const TETRAHEDRON_VERTEX_COLORS: [[f32; 4]; 4] = [
 pub struct TextureDemoRom {
     queued_command: Option<TextureDemoRenderCommand>,
     emitted_initial_command: bool,
-    body_state: Option<BodyState>,
+    bodies: Option<Vec<BodyState>>,
     projection_mode: ProjectionMode,
 }
 
@@ -50,21 +50,7 @@ impl TextureDemoRom {
             queued_command: None,
             emitted_initial_command: false,
             projection_mode: Self::content().projection_mode,
-            body_state: Some(BodyState::new_with_runtime_transform(
-                1.0,
-                crate::assets::MeshType::BuiltIn(Primitive::Tetrahedron),
-                Some(MotionVector {
-                    linear: Vector3::zeros(),
-                    angular: Vector3::new(0.0, 1.0, 0.0),
-                }),
-                None,
-                Some(Box::new(|_body, step_index| {
-                    let phase = step_index as f32 * 0.06;
-                    let rotation = Rotation3::from_euler_angles(0.0, phase, 0.0);
-                    let translation = Translation3::new(0.0, 0.0, -2.0).to_homogeneous();
-                    translation * rotation.to_homogeneous()
-                })),
-            )),
+            bodies: Some(Self::initial_bodies()),
         }
     }
 
@@ -103,7 +89,7 @@ impl TextureDemoRom {
     }
 
     pub fn body_state(&self) -> Option<&BodyState> {
-        self.body_state.as_ref()
+        self.bodies.as_ref().and_then(|bodies| bodies.first())
     }
 
     pub fn projection_mode(&self) -> ProjectionMode {
@@ -115,10 +101,85 @@ impl TextureDemoRom {
         self.projection_mode
     }
 
-    pub fn take_body_state(&mut self) -> BodyState {
-        self.body_state
+    pub fn take_bodies(&mut self) -> Vec<BodyState> {
+        self.bodies
             .take()
-            .expect("texture demo ROM should initialize its body state")
+            .expect("texture demo ROM should initialize its body states")
+    }
+
+    fn initial_bodies() -> Vec<BodyState> {
+        // Scene layout: each entry is (primitive, world-space xz position).
+        // The tetrahedron is centered; the others occupy the four cardinal diagonals.
+        // "NW/SW" = negative-x, "NE/SE" = positive-x; "N/NE" = negative-z, "S/SW" = positive-z
+        // (in view-space with the isometric camera pointing from +x+y+z toward origin).
+        let spread = 1.0_f32;
+        let layout: [(Primitive, f32, f32); 5] = [
+            (Primitive::Tetrahedron, 0.0, 0.0),         // center
+            (Primitive::Cube, -spread, -spread),        // NW
+            (Primitive::Octahedron, spread, -spread),   // NE
+            (Primitive::Dodecahedron, -spread, spread), // SW
+            (Primitive::Icosahedron, spread, spread),   // SE
+        ];
+
+        // All bodies are normalized to fit inside this display radius.
+        let target_radius = 0.35_f32;
+
+        layout
+            .into_iter()
+            .map(|(primitive, tx, tz)| {
+                BodyState::new_with_runtime_transform(
+                    1.0,
+                    crate::assets::MeshType::BuiltIn(primitive),
+                    Some(MotionVector {
+                        linear: Vector3::zeros(),
+                        angular: Vector3::new(0.0, 1.0, 0.0),
+                    }),
+                    None,
+                    Some(Box::new(move |body, step_index| {
+                        // Scale: normalize the mesh so its longest axis fits target_radius.
+                        let extents = body.extents();
+                        let max_extent = extents.x.max(extents.y).max(extents.z).max(f32::EPSILON);
+                        let scale = target_radius / max_extent;
+
+                        // Alignment: rotate so the body's principal eigenvector aligns with world X.
+                        // axes() columns are eigenvectors; column 0 is the principal axis.
+                        let axes = body.axes();
+                        let principal = axes.column(0);
+                        let world_x = Vector3::x();
+                        let alignment = Rotation3::rotation_between(&principal, &world_x)
+                            .unwrap_or(Rotation3::identity());
+
+                        // Animation: spin around world Y.
+                        let phase = step_index as f32 * 0.04;
+                        let spin = Rotation3::from_axis_angle(&Vector3::y_axis(), phase);
+
+                        // Scene placement at depth -2.0 from the isometric camera target.
+                        let translation = Translation3::new(tx, 0.0, tz - 2.0).to_homogeneous();
+
+                        let scale_matrix = Matrix4::new_scaling(scale);
+                        translation
+                            * spin.to_homogeneous()
+                            * alignment.to_homogeneous()
+                            * scale_matrix
+                    })),
+                )
+            })
+            .collect()
+    }
+
+    /// Returns `(primitive, vertex_colors_per_vertex)` for each body, in the same order
+    /// as `initial_bodies()`. The shell uses these to build per-body GPU geometry buffers.
+    pub fn startup_body_specs() -> Vec<(Primitive, Vec<[f32; 4]>)> {
+        [
+            (Primitive::Tetrahedron, 4usize),
+            (Primitive::Cube, 8),
+            (Primitive::Octahedron, 6),
+            (Primitive::Dodecahedron, 20),
+            (Primitive::Icosahedron, 12),
+        ]
+        .into_iter()
+        .map(|(primitive, vertex_count)| (primitive, vec![[1.0_f32, 1.0, 1.0, 1.0]; vertex_count]))
+        .collect()
     }
 
     pub fn next_render_command(&mut self) -> Option<TextureDemoRenderCommand> {
@@ -222,6 +283,56 @@ mod tests {
     }
 
     #[test]
+    fn rom_take_bodies_returns_expected_body_count() {
+        let mut rom = TextureDemoRom::new();
+
+        let bodies = rom.take_bodies();
+
+        assert_eq!(bodies.len(), 5);
+    }
+
+    #[test]
+    fn rom_bodies_are_the_five_platonic_solids_in_order() {
+        let mut rom = TextureDemoRom::new();
+
+        let bodies = rom.take_bodies();
+        let mesh_ids: Vec<u32> = bodies.iter().map(|b| b.mesh_id()).collect();
+
+        assert_eq!(
+            mesh_ids,
+            vec![
+                11, // Tetrahedron
+                12, // Cube
+                14, // Octahedron
+                16, // Dodecahedron
+                15, // Icosahedron
+            ],
+            "bodies must be the five Platonic solids in the declared order"
+        );
+    }
+
+    #[test]
+    fn rom_bodies_have_distinct_phase_offsets() {
+        let mut rom = TextureDemoRom::new();
+
+        let bodies = rom.take_bodies();
+        let transforms = bodies
+            .iter()
+            .map(|body| body.runtime_transform(2))
+            .collect::<Vec<_>>();
+
+        assert_eq!(transforms.len(), 5);
+        assert!(transforms.iter().enumerate().all(|(index, transform)| {
+            if index == 0 {
+                true
+            } else {
+                (transform[(0, 0)] - transforms[0][(0, 0)]).abs() > 1e-6
+                    || (transform[(1, 1)] - transforms[0][(1, 1)]).abs() > 1e-6
+            }
+        }));
+    }
+
+    #[test]
     fn startup_content_resolves_brick_texture_bytes() {
         let startup = TextureDemoRom::startup_content();
 
@@ -230,14 +341,16 @@ mod tests {
     }
 
     #[test]
-    fn rom_initializes_body_state_with_custom_runtime_transform() {
+    fn rom_body_transform_is_non_identity_and_animates() {
         let rom = TextureDemoRom::new();
         let body_state = rom.body_state().expect("body state should be initialized");
 
-        let transform = body_state.runtime_transform(2);
-        let expected = nalgebra::Rotation3::from_euler_angles(0.0, 0.12, 0.0).to_homogeneous();
+        let t0 = body_state.runtime_transform(0);
+        let t10 = body_state.runtime_transform(10);
 
-        assert!((transform[(0, 0)] - expected[(0, 0)]).abs() < 1e-6);
-        assert!((transform[(1, 1)] - expected[(1, 1)]).abs() < 1e-6);
+        // Transform at step 0 should not be the identity (scale + alignment are applied).
+        assert_ne!(t0, nalgebra::Matrix4::identity());
+        // Transform should change as the animation advances.
+        assert_ne!(t0, t10);
     }
 }
