@@ -4,6 +4,12 @@ Purpose
 - Keep language consistent across agent chat and written output.
 - Control vocabulary scope by domain.
 
+ASD-STE100 scope
+- This dictionary governs Anzu-specific technical terms and terms from other named domains.
+- Use ASD-STE100 Issue 9 to select and use common English words. Do not copy its general word list into this file.
+- Keep API names, code identifiers, file names, and protocol labels exact. Explain them on first use when the audience needs it.
+- Add new Anzu terms to Pending Terms. Approve them through pull request review before broad use.
+
 Usage rules
 - Use Approved Terms in responses.
 | asset manifest | anzu | Manifest model for asset records and runtime settings | Relevant to asset tooling and validation |
