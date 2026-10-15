@@ -3,16 +3,54 @@
 This backlog is the active plan for a simulation and visualization system.
 
 ## Status Baseline
-- Implementation status: Not started
-- Scope note: Ignore generated legacy implementation details under clanker_code for completion status
-- Tracking rule: Every feature below is planned and unchecked
+- Implementation status: Runtime prototype in progress; no backlog feature is complete based on `anzu-runtime/src/main.rs`.
+- Scope note: Use only behavior in `anzu-runtime/src/main.rs` as completion evidence for this status reset. Do not credit archived engine code or plans.
+- Tracking rule: Mark a feature complete only when its stated outcome and acceptance criteria are implemented and validated.
+
+## Priority Override: Establish Performance Baselines (Start Now)
+- Decision: implement runtime performance monitoring before further performance-sensitive engine or rendering work.
+- Working sequence:
+  1. Feature 9.1: Frame boundary instrumentation and health counters.
+  2. Feature 9.6: Unified benchmark output for simulation and extraction phases.
+  3. Resume the current geometry-loading priority sequence.
+- Rationale: active runtime diagnostics do not currently provide a repeatable frame/stage performance baseline. Archived profiler code is not active implementation evidence.
+- Scope boundary: first establish repeatable CPU timing and workload counters. Add GPU timing only where the active backend supports it. Keep low-cost counters separate from sampled or opt-in detailed timing.
+- Acceptance gate: performance-sensitive changes must compare against a recorded baseline on the same representative workload, and report timing distributions, work counts, and measurement overhead.
+
+## Priority Override: Blender Geometry Loading (Next Up)
+- Decision: prioritize loading arbitrary geometry exported from Blender and add streaming residency support for large scenes.
+- Why:
+  - Generated object paths are not meeting runtime quality expectations.
+  - Importing external geometry is now the fastest path to useful content iteration.
+  - Large-scene domain profile requirements need bounded storage -> RAM -> GPU resource residency flow.
+- Working sequence (ordered):
+  1. Feature 11.5: Externalized ROM content manifests with schema validation and runtime loading.
+  2. Feature 11.6: ROM-to-engine asset provider registration (mesh, texture, material).
+  3. Feature 10.1: Asset class taxonomy (critical, scaled_optional, reused, streaming).
+  4. Feature 10.2: Residency state machine (queued, loading, resident, eviction pending, evicted).
+  5. Feature 10.3: Streaming queues with bounded per-frame upload budgets.
+  6. Feature 9.3: Upload budget and pipeline-switch telemetry.
+  7. Feature 10.4: Budget-aware quality fallback before correctness-impacting eviction.
+  8. Feature 10.5: Residency and eviction observability per asset class.
+  9. Feature 11.7: Startup-only asset staging and pack-once GPU upload contract.
+  10. Feature 2.2: ObjectSpec domain with predefined catalog templates.
+  11. Feature 2.3: ObjectRuntime domain with resolved resource handles and lifecycle state.
+  12. Feature 2.6: Extractor emits frame packet from ECS/object snapshot.
+  13. Feature 2.7: Render consumes frame packet only, without direct ECS schema coupling.
+  14. Feature 5.5: Unified import pipeline that emits display and physics assets.
+- Scope boundary for this reprioritization:
+  - Target format for first pass: Blender-exported GLB assets loaded through ROM manifests.
+  - Near-term extension: bounded resource residency path for large scenes under Feature 10.x.
+  - Non-goals for first pass: editor hot-reload and per-object material authoring UI.
+- Dependency note:
+  - Feature 1.5b remains planned, but is sequenced after this asset-loading and resource residency track so body-count expansion builds on real imported geometry and stable budgets.
 
 ## Personas
 - Developer
 - Simulation User
 
 ## Initiative 1: Runtime and Frame Lifecycle
-- [x] Feature 1.1: Initialize runtime in browser host with stable frame loop
+- [ ] Feature 1.1: Initialize runtime in browser host with stable frame loop
   - Outcome: The browser host starts with a canvas-backed runtime, produces the first frame without a crash, and maintains stable pacing across resize, tab visibility changes, and short suspend/resume events.
   - Scope:
     - In scope: browser canvas bootstrap, wasm-ready app-shell state, explicit redraw pacing, bounded delta handling, fixed-step accumulation with a max-step cap, safe surface reconfiguration, and an explicit acquire -> encode -> submit -> present frame contract.
@@ -68,7 +106,7 @@ This backlog is the active plan for a simulation and visualization system.
     - Risk: redraw ownership can be duplicated if both shell and renderer request redraws. The plan should keep redraw scheduling in the shell/runtime boundary and not in render code.
     - Risk: browser suspend/resume may produce large deltas. The plan should clamp them and limit catch-up steps.
     - Open question resolved by this plan: the feature should use a minimal renderer split now, not a full extraction stack; later features can expand into `RenderExtractionState` and `SimulationState`.
-- [x] Feature 1.2: Clear frame to configurable background color
+- [ ] Feature 1.2: Clear frame to configurable background color
   - Outcome: The runtime clears each frame with a configurable background color instead of a hardcoded literal, with ROM-driven runtime updates and explicit validation/error behavior.
   - Scope:
     - In scope: a typed background-color config model, runtime setter path, ROM-issued clear-color updates, render-pass integration using runtime-owned clear state, and unit tests for defaults/validation/update flow.
@@ -152,7 +190,7 @@ This backlog is the active plan for a simulation and visualization system.
     - Risk: in current architecture `lib.rs` still hosts the render pass; later migration features must relocate this path into execution render backend without duplicating clear-color ownership.
     - Risk: if ROM command cadence is per-frame, unnecessary state writes may occur; setter should be idempotent where practical.
     - Open question resolved by this plan: ROM uses ROM-local command types with shell translation, while runtime remains source of truth for validated clear-color state.
-- [x] Feature 1.3: Render baseline triangle geometry
+- [ ] Feature 1.3: Render baseline triangle geometry
   - Outcome: The runtime renders a centered, CCW triangle using engine mesh-provider geometry and a color-only pipeline, with per-vertex color attributes and no texture sampling in the active path.
   - Scope:
     - In scope: consume triangle geometry from `assets::mesh_provider`, keep indexed draw path, introduce baseline color-only shader/pipeline state, and remove active texture loading/bind-group usage from the frame path.
@@ -245,7 +283,7 @@ This backlog is the active plan for a simulation and visualization system.
     - Risk: partial render migration could duplicate responsibilities between shell and execution render modules if boundaries are not enforced in signatures.
     - Risk: mismatched shader IO vs vertex layout will fail pipeline creation at runtime; tests should cover layout assumptions early.
     - Open question resolved by refinement: use mesh-provider geometry + indexed draw + per-vertex color shader with fixed orange/teal/indigo mapping, execution shader as single active source, and active texture path removed in Feature 1.3.
-- [x] Feature 1.4: Apply texture to baseline geometry
+- [ ] Feature 1.4: Apply texture to baseline geometry
   - Outcome: The runtime renders the baseline triangle with ROM-owned texture content and UV mapping while preserving indexed draw, runtime clear-color behavior, and shell-orchestration boundaries.
   - Scope:
     - In scope: ROM-owned texture identifiers and ROM-local asset resolution, UV-enabled baseline geometry contract, textured shader and pipeline path, texture upload and sampler bind-group setup, startup texture selection, and validation for UV and texture contracts.
@@ -305,7 +343,7 @@ This backlog is the active plan for a simulation and visualization system.
     - Risk: policy leakage if engine starts owning texture-catalog logic. Mitigation: keep content mapping in ROM layer only.
     - Risk: shader/layout mismatch for UV bindings can fail pipeline creation. Mitigation: add layout-compat tests early.
     - Open question resolved by refinement: ROM owns texture definitions and identifiers; engine remains content-agnostic for catalog policy.
-- [x] Feature 1.5: Animate baseline transform at fixed timestep
+- [ ] Feature 1.5: Animate baseline transform at fixed timestep
   - Outcome: The texture demo now animates a single ROM-owned tetrahedron at the fixed-step boundary. The ROM owns the body state and transform closure, the runtime consumes the body state on each fixed step, and the renderer applies a view-projection matrix so the object stays centered and visible.
   - Implemented behavior:
     - `TextureDemoRom` owns the body state and projection mode.
@@ -318,77 +356,81 @@ This backlog is the active plan for a simulation and visualization system.
   - Notes:
     - The old clarification questions are closed by implementation: motion is ROM-provided, the primitive is the tetrahedron, and projection mode is user-toggleable.
 - [ ] Feature 1.5b: Add N-body animation support for multiple bodies
-  - Outcome: The runtime animates multiple ROM-owned bodies simultaneously, each driven by its own transform closure, while the renderer issues one draw call per body using shared mesh and texture GPU resources.
+  - Outcome: The runtime animates several ROM-owned bodies at the same fixed-step boundary, each body keeps its own transform closure and frame counter, and the renderer emits one indexed draw per body using shared geometry and texture resources.
   - Scope:
-    - In scope: multiple body instances, per-body transform evaluation during fixed-step updates, render-time mapping from body state to transform data, instanced rendering of the shared tetrahedron mesh, and a clear path for future expansion beyond the current single-body implementation.
-    - Non-goals: full physics solver integration, collision response, generalized scene-graph abstraction, or per-body mesh/texture differentiation.
+    - In scope: multi-body startup state, per-body transform evaluation, one uniform slot per body, render loop iteration over all body transforms, and ROM scene layout with multiple Platonic solids distributed across the screen.
+    - Non-goals: full physics solver integration, collision response, generalized scene-graph abstraction, or per-body material differentiation.
   - Constraints and assumptions:
     - The current single-body implementation in `RuntimeState`, `TextureDemoRom`, and `render.rs` remains the baseline contract that this feature extends.
-    - `BodyState` is not `Copy`/`Clone`, so the runtime must hold owned body entries rather than duplicate the state object by value.
-    - The implementation should preserve the existing `BodyState`/`RuntimeState` ownership boundaries and avoid introducing a new simulation abstraction unless the multi-body requirement clearly justifies it.
-    - The initial multi-body ROM scene displays one instance of each Platonic solid distributed across the screen, using the same shared texture and distinct phase offsets so the bodies are visually distinguishable.
+    - `BodyState` remains owned by the runtime and is not duplicated by value. The runtime holds body entries and per-body step counters rather than cloning state.
+    - This feature should not introduce a new simulation abstraction; it should extend the established `BodyState` + `RuntimeState` pattern.
+    - The startup scene should display one instance of each Platonic solid with distinct phase offsets and a shared texture, producing a clear visual distinction without introducing per-body asset routing yet.
   - Milestones:
-    - M1: Replace the single-body ownership path in runtime state with a body collection and expose transform evaluation for all bodies.
-    - M2: Extend the renderer to allocate one uniform slot per body and draw all bodies in a single render pass.
-    - M3: Extend the ROM startup content to emit multiple bodies and wire the shell/runtime path to the new multi-body seam.
+    - M1: Replace the single-body ownership path with a body collection and confirm transform evaluation for every entry in the same fixed-step pass.
+    - M2: Add per-body uniform slots and a render pass loop that writes transform data and draws each body in order.
+    - M3: Extend ROM startup content to emit the full multi-body set and wire shell/runtime integration to the new body collection seam.
   - File-by-file implementation contract:
     - [anzu-engine/src/execution/shared.rs](anzu-engine/src/execution/shared.rs)
       - Action: modify
-      - Why: the current `RuntimeState` stores a single `BodyState` and one animation step index; multi-body support requires a body collection and transform evaluation for each entry.
+      - Why: the runtime already contains `BodyEntry`, `set_bodies`, `body_transforms`, and `apply_animation_step`; this feature should finish the multi-body contract and make the body collection the canonical runtime representation.
       - Structs/enums:
         - `struct BodyEntry { state: BodyState, step_index: u64 }`
       - Functions/methods:
         - `fn set_bodies(&mut self, bodies: Vec<BodyState>)`
         - `fn bodies(&self) -> &[BodyState]`
+        - `fn body_count(&self) -> usize`
         - `fn body_transforms(&self) -> Vec<Matrix4<f32>>`
-        - `fn apply_animation_step(&mut self)` increments each body's step index in the same fixed-step pass.
-      - Ownership notes: `RuntimeState` owns the body collection and per-body step counters; it does not own GPU resources.
+        - `fn apply_animation_step(&mut self)`
+      - Ownership notes: `RuntimeState` owns the body collection and per-body step counters; it does not own GPU or renderer state.
     - [anzu-engine/src/execution/render.rs](anzu-engine/src/execution/render.rs)
       - Action: modify
-      - Why: the current pass writes one transform to one uniform buffer and issues one draw; multi-body rendering needs one uniform slot per body and a looped draw path.
+      - Why: enable one uniform buffer and one draw call per body while leaving the shared mesh and texture resources on the textured renderer.
       - Structs/enums:
         - `struct BodyUniformSlot { uniform_buffer: wgpu::Buffer, uniform_bind_group: wgpu::BindGroup }`
       - Functions/methods:
         - `fn create_body_uniform_slots(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, count: usize) -> Vec<BodyUniformSlot>`
-        - `fn encode_multi_body_textured_mesh_pass(...)` writes each body transform to its slot and issues `draw_indexed` for that body within the same render pass.
-      - Ownership notes: the shared geometry, pipeline, and texture resources stay on `TexturedMeshRenderer`, while the per-body uniform slots are owned by the shell/render integration layer.
+        - `fn encode_multi_body_textured_mesh_pass(...)` writes each transform and issues one `draw_indexed` per body within a single pass.
+      - Ownership notes: geometry, pipeline, sampler, and texture resources stay on `TexturedMeshRenderer`; only per-body transform data is reuploaded each frame.
     - [anzu-engine/src/roms/texture_demo.rs](anzu-engine/src/roms/texture_demo.rs)
       - Action: modify
-      - Why: the ROM currently owns one body state; the startup path should emit multiple bodies with distinct phase offsets.
+      - Why: the ROM should own the full initial body collection and return it once at startup for the runtime to ingest.
       - Structs/enums:
-        - `struct TextureDemoRom { bodies: Vec<BodyState>, ... }`
+        - `struct TextureDemoRom { bodies: Option<Vec<BodyState>>, ... }`
       - Functions/methods:
-        - `fn take_bodies(&mut self) -> Vec<BodyState>` replaces the single-body take path.
-        - `fn initial_bodies() -> Vec<BodyState>` constructs the initial multi-body scene with one instance of each Platonic solid, distributed across the screen and driven by distinct transform closures.
-      - Ownership notes: ROM owns scenario body definitions; the shell calls `take_bodies()` once at startup.
+        - `fn take_bodies(&mut self) -> Vec<BodyState>`
+        - `fn initial_bodies() -> Vec<BodyState>`
+        - `fn startup_body_specs() -> Vec<(Primitive, Vec<[f32; 4]>)>`
+      - Ownership notes: ROM is the source of the scenario layout and transform closures; shell and runtime simply consume the resulting body list.
     - [anzu-engine/src/lib.rs](anzu-engine/src/lib.rs)
       - Action: modify
-      - Why: the shell currently wires a single body into runtime state and one uniform buffer into the renderer. It must be updated to feed the multi-body path.
+      - Why: app shell should build the runtime body collection once, allocate one uniform slot per body, and pass the transform list into the multi-body render entry point.
       - Functions/methods:
-        - `State::new(...)` calls `runtime_state.set_bodies(rom.take_bodies())` and allocates uniform slots matching the body count.
-        - `State::render(...)` passes the transform list and slot list into the new multi-body render pass entry point.
-      - Ownership notes: app shell remains the orchestrator; it does not define transform or mesh policy.
+        - `State::new(...)` seeds `runtime_state.set_bodies(rom.take_bodies())` and creates `body_uniform_slots` sized to the body count.
+        - `State::render(...)` calls the multi-body render helper and passes the transform list and slot list into the render path.
+      - Ownership notes: shell remains the orchestrator; it does not define body motion policy or mesh semantics.
   - Execution flow and ownership boundaries:
     - `TextureDemoRom::new()` constructs the startup body collection with distinct transform closures.
-    - `State::new()` transfers the body collection into `RuntimeState`, then allocates one uniform slot per body.
-    - Each fixed-step frame causes runtime to evaluate transforms for all bodies and the renderer to issue one draw call per body using the shared mesh and texture bind resources.
-    - Shared geometry, pipeline, and texture bind resources are created once; only per-body transform data changes each frame.
+    - `State::new()` transfers the body collection into `RuntimeState` and matches it to the number of per-body render slots.
+    - Each fixed-step tick increments each body’s step index and produces a transform snapshot for all bodies.
+    - The renderer writes one transform per body to its uniform slot and issues a draw call for that body in the same pass.
+    - Shared mesh, pipeline, and texture resources are created once; only body transform data changes each frame.
   - Validation plan:
     - Unit tests:
       - `runtime_state_sets_multiple_bodies_and_exposes_transform_count`
       - `runtime_state_body_transforms_match_body_count`
       - `texture_demo_rom_take_bodies_returns_expected_body_count`
       - `texture_demo_rom_bodies_have_distinct_phase_offsets`
+      - `render_pass_iterates_over_all_body_uniform_slots_without_mismatches`
     - Build checks:
       - `cd /workspaces/Anzu/anzu-engine && cargo test`
       - `cd /workspaces/Anzu/anzu-engine && cargo check --target wasm32-unknown-unknown`
     - Manual browser smoke:
-      - verify multiple tetrahedra are visible simultaneously with distinct rotation trajectories.
-      - verify the existing projection toggle and background-color behavior remain intact.
+      - verify five bodies are visible simultaneously with divergent motion patterns.
+      - verify the projection toggle and background-color behavior remain intact.
   - Risks and open questions:
-    - Risk: count mismatches between body transforms and uniform slots could cause a draw-time mismatch. Mitigation: add a defensive runtime assertion or warning when counts diverge.
-    - Risk: overlapping bodies may obscure each other if projection placement is not carefully chosen. Mitigation: use distinct X offsets and confirm in smoke testing.
-    - Open question resolved by this plan: the first multi-body ROM scene will use shared geometry/textures and distinct phase offsets, with one instance of each Platonic solid distributed across the screen rather than introducing richer per-body asset differentiation yet.
+    - Risk: body-transform count mismatches between runtime and render slots can cause incorrect draws or hidden bodies. Mitigation: assert that the counts match before rendering and log an error early.
+    - Risk: body overlap or poor projection placement can hide some objects. Mitigation: distribute bodies across X/Z offsets and validate in smoke testing.
+    - Open question resolved by this plan: the initial multi-body scene is a shared-geometry/shared-texture system with distinct phase offsets rather than a richer per-body asset or material model.
 - [ ] Feature 1.6: Handle surface resize, reconfigure, and present lifecycle safely
   - Follow-up scope addition:
     - Replace panic-path surface creation and setup calls with typed error boundaries and recoverable fallback behavior.
@@ -548,18 +590,77 @@ And architecture terms match the core glossary in `documents/architecture.md`
 
 ## Initiative 9: Performance, Determinism, and Quality Gates
 - [ ] Feature 9.1: Frame boundary instrumentation and health counters
+  - Outcome: active runtime emits repeatable frame-level and workload measurements that establish a baseline for later optimization.
+  - Initial measurements: frame duration, fixed-tick count, dropped/clamped time, and available simulation/extraction work counts.
+  - Instrumentation policy: keep low-cost counters available continuously; sample or explicitly enable high-resolution stage timings. Measure and report instrumentation overhead.
+  - Acceptance criteria:
+    - Baseline output identifies target, backend, workload, warm-up, and sample count.
+    - Timing summaries report p50, p95, and p99 with workload counts.
+    - CPU stage timing is distinct from GPU timing. Unsupported GPU timing is reported as unavailable, not inferred from CPU submission time.
+    - A repeat run on the same target and workload produces comparable results, with noise and limitations stated.
 - [ ] Feature 9.2: Deterministic replay regression suite
 - [ ] Feature 9.3: Upload budget and pipeline-switch telemetry
+  - Outcome: runtime emits per-frame streaming and pipeline-churn telemetry so budget tuning is evidence-driven.
+  - Metrics (required):
+    - `upload_bytes_per_frame`
+    - `upload_jobs_per_frame`
+    - `decode_jobs_per_frame`
+    - `activation_jobs_per_frame`
+    - `gpu_resident_bytes`
+    - `eviction_count_per_frame`
+    - `pipeline_switch_count_per_frame`
+    - `visible_missing_asset_count`
+  - Acceptance criteria:
+    - Metrics are available in both native and wasm builds.
+    - A 5-minute traversal run produces stable metric output without missing samples.
+    - Budget overruns emit structured warnings with asset class and queue tier labels.
 - [ ] Feature 9.4: Startup-to-first-frame budget checks
 - [ ] Feature 9.5: Warning-free CI gate for runtime-critical modules
 - [ ] Feature 9.6: Unified benchmark output for simulation and extraction phases
+  - Outcome: benchmark runs produce comparable, machine-readable simulation and render-extraction measurements.
+  - Acceptance criteria:
+    - Output includes phase timing distributions, work counts, target/backend, workload parameters, warm-up, sample count, and instrumentation mode.
+    - Before/after results use the same workload and record raw output.
+    - Performance claims separate algorithmic changes from layout/copy/allocation changes and report measurement overhead.
 
 ## Initiative 10: Asset Streaming and Residency Management
 - [ ] Feature 10.1: Asset class taxonomy (critical, scaled_optional, reused, streaming)
 - [ ] Feature 10.2: Residency state machine (queued, loading, resident, eviction pending, evicted)
 - [ ] Feature 10.3: Streaming queues with bounded per-frame upload budgets
+  - Default budgets (v1):
+    - wasm: `max_upload_bytes_per_frame = 4 MiB`
+    - native: `max_upload_bytes_per_frame = 16 MiB`
+    - `max_upload_jobs_per_frame = 32`
+    - `max_decode_jobs_per_frame = 2` (wasm) / `4` (native)
+    - `max_activation_jobs_per_frame = 32`
+  - Queue tiers and priority:
+    - `critical_stream`: visible-now assets only.
+    - `normal_decode`: near-field prefetch assets.
+    - `background_cleanup`: eviction and compaction tasks.
+  - Acceptance criteria:
+    - Upload and decode work never exceeds configured per-frame caps.
+    - Traversal under load maintains simulation tick continuity without upload-triggered stalls.
+    - Queue starvation protection guarantees at least one `critical_stream` job admission per frame when pending.
 - [ ] Feature 10.4: Budget-aware quality fallback before correctness-impacting eviction
+  - Fallback policy order:
+    1. Reduce optional texture resolution.
+    2. Reduce optional mesh LOD.
+    3. Disable non-critical material features.
+    4. Evict `scaled_optional` before `reused` before `critical`.
+  - Acceptance criteria:
+    - Under forced memory pressure, fallback activates before evicting `critical` assets.
+    - Quality recovery occurs automatically when pressure clears and budgets permit.
+    - Fallback transitions are deterministic for identical traversal inputs.
 - [ ] Feature 10.5: Residency and eviction observability per asset class
+  - Required counters by class (`critical`, `scaled_optional`, `reused`, `streaming`):
+    - resident count
+    - resident bytes
+    - load latency p50/p95
+    - eviction count
+    - reactivation count
+  - Acceptance criteria:
+    - Counters are queryable at runtime and captured in benchmark output.
+    - Eviction thrash detection triggers warning when an asset is evicted and reactivated more than 3 times in 60 seconds.
 
 ## Initiative 11: Platform Topology and ROM/Module Boundaries
 - [ ] Feature 11.1: Host/guest service contract (input, render extraction, audio events, storage, lifecycle)
@@ -568,6 +669,17 @@ And architecture terms match the core glossary in `documents/architecture.md`
 - [ ] Feature 11.4: Namespace isolation for persisted profile data
 - [ ] Feature 11.5: Externalized ROM content manifests with schema validation and runtime loading
   - Outcome: ROM content definitions (objects, geometry selectors, colors, textures, and profile-specific startup configuration) are loaded from external manifest data instead of hardcoded Rust literals.
+  - Blender export profile checklist (first pass):
+    - Export format is GLB (`.glb`) from Blender.
+    - Transform is applied before export (location/rotation/scale baked).
+    - Unit scale is consistent across all exported objects in the profile.
+    - Triangulation is applied before export.
+    - Mesh normals are exported and validated as present.
+    - UV0 is present for textured meshes.
+    - Object names are stable and unique per manifest package.
+    - Material slot names are stable and deterministic.
+    - Texture paths are relative to ROM content root, not absolute filesystem paths.
+    - A startup scene manifest references only assets that exist in `anzu-engine/src/roms/files/objects` and `anzu-engine/src/roms/files/textures`.
   - Scope:
     - In scope: manifest schema for ROM content, parser/loader path, validation errors with actionable diagnostics, and runtime wiring so ROM startup content comes from manifest payloads.
     - Non-goals: remote/network manifest loading, hot-reload tooling, and cross-profile live editing UI.
@@ -577,10 +689,131 @@ And architecture terms match the core glossary in `documents/architecture.md`
     - ROM manifest identifiers remain distinct from engine-owned resource handles and are translated at the profile-load boundary.
     - Manifest format must be deterministic and versioned for forward migration compatibility.
     - Failure mode is fail-fast at ROM/profile load boundary with explicit error taxonomy.
+  - Manifest schema contract (v1, implementation-ready):
+    - File: `anzu-engine/src/roms/files/manifest/texture_demo.scene.json`
+    - Top-level required fields:
+      - `manifest_version: "1"`
+      - `profile_id: string`
+      - `objects: ObjectRecord[]`
+      - `textures: TextureRecord[]`
+      - `startup_scene: StartupScene`
+    - `ObjectRecord` required fields:
+      - `object_asset_id: string` (unique across objects)
+      - `source: { kind: "glb", path: string }` (path relative to `anzu-engine/src/roms/files/objects`)
+      - `default_material_id: string`
+      - `generate_body: bool`
+    - `TextureRecord` required fields:
+      - `texture_id: string` (unique across textures)
+      - `path: string` (relative to `anzu-engine/src/roms/files/textures`)
+      - `color_space: "srgb" | "linear"`
+    - `StartupScene` required fields:
+      - `instances: StartupInstance[]`
+    - `StartupInstance` required fields:
+      - `instance_id: string` (unique in scene)
+      - `object_asset_id: string` (must resolve to `objects[].object_asset_id`)
+      - `transform: { translation: [f32; 3], rotation_euler_deg: [f32; 3], scale: [f32; 3] }`
+      - `texture_id: string` (must resolve to `textures[].texture_id`)
+      - `animation: { mode: "none" | "orbit" | "spin", phase_offset: f32 }`
+    - Determinism rules:
+      - Object, texture, and instance arrays are consumed in declared order.
+      - Duplicate IDs are hard errors.
+      - Unknown fields are rejected in strict mode for v1.
+    - Compact example (`texture_demo.scene.json`):
+      ```json
+      {
+        "manifest_version": "1",
+        "profile_id": "texture_demo",
+        "objects": [
+          {
+            "object_asset_id": "tetra_a",
+            "source": { "kind": "glb", "path": "platonic/tetrahedron.glb" },
+            "default_material_id": "mat_default",
+            "generate_body": true
+          }
+        ],
+        "textures": [
+          {
+            "texture_id": "checker_01",
+            "path": "checker/checker_01.png",
+            "color_space": "srgb"
+          }
+        ],
+        "startup_scene": {
+          "instances": [
+            {
+              "instance_id": "tetra_a_0",
+              "object_asset_id": "tetra_a",
+              "transform": {
+                "translation": [0.0, 0.0, 0.0],
+                "rotation_euler_deg": [0.0, 0.0, 0.0],
+                "scale": [1.0, 1.0, 1.0]
+              },
+              "texture_id": "checker_01",
+              "animation": { "mode": "spin", "phase_offset": 0.0 }
+            }
+          ]
+        }
+      }
+      ```
+  - Validation failure taxonomy (typed error targets):
+    - `ManifestVersionUnsupported { found }`
+    - `ManifestMissingField { field_path }`
+    - `ManifestUnknownField { field_path }`
+    - `DuplicateObjectAssetId { id }`
+    - `DuplicateTextureId { id }`
+    - `DuplicateInstanceId { id }`
+    - `ObjectPathOutsideRoot { path }`
+    - `TexturePathOutsideRoot { path }`
+    - `ObjectFileNotFound { object_asset_id, path }`
+    - `TextureFileNotFound { texture_id, path }`
+    - `ObjectSourceKindUnsupported { object_asset_id, kind }`
+    - `ObjectReferenceNotFound { instance_id, object_asset_id }`
+    - `TextureReferenceNotFound { instance_id, texture_id }`
+    - `TransformScaleInvalid { instance_id, scale }`
+    - `GlbMissingNormals { object_asset_id }`
+    - `GlbMissingUv0 { object_asset_id }`
+    - `GlbParseFailed { object_asset_id, reason }`
+    - `StartupSceneEmpty`
+  - File-by-file implementation contract (GLB-first):
+    - [anzu-engine/src/roms/files/objects](anzu-engine/src/roms/files/objects)
+      - Action: reference/add content
+      - Why: source location for Blender-exported GLB object files owned by ROM content.
+      - Contract: each manifest `object_asset_id` resolves to one GLB file in this tree.
+    - [anzu-engine/src/roms/files/textures](anzu-engine/src/roms/files/textures)
+      - Action: reference/add content
+      - Why: source location for texture payloads referenced by manifest object/material records.
+      - Contract: each manifest texture reference resolves to one file under this tree.
+    - [anzu-engine/src/roms/texture_demo.rs](anzu-engine/src/roms/texture_demo.rs)
+      - Action: modify
+      - Why: replace hardcoded startup content with manifest-backed startup payload loading.
+      - Contract: ROM profile requests manifest load, receives validated records, and emits startup body/object specifications from manifest data.
+    - [anzu-engine/src/assets.rs](anzu-engine/src/assets.rs)
+      - Action: modify
+      - Why: host typed manifest-facing asset records used by loader/provider boundaries.
+      - Contract: define deterministic asset record shapes for object/mesh/material/texture references.
+    - [anzu-engine/src/execution/shared.rs](anzu-engine/src/execution/shared.rs)
+      - Action: modify
+      - Why: runtime consumes validated startup content without owning parser details.
+      - Contract: runtime accepts startup asset references through typed inputs and rejects unresolved IDs before frame loop starts.
+    - [anzu-engine/src/lib.rs](anzu-engine/src/lib.rs)
+      - Action: modify
+      - Why: shell owns profile bootstrap sequencing and fail-fast error boundary.
+      - Contract: app bootstrap performs manifest load and validation before runtime enters ready state.
+    - [documents/developer-guide.md](documents/developer-guide.md)
+      - Action: modify
+      - Why: document Blender export checklist and manifest authoring path for contributors.
+      - Contract: include deterministic authoring steps and common validation failures.
+  - Milestones (implementation ready):
+    - M1: Define manifest schema and typed error taxonomy for GLB object and texture references.
+    - M2: Implement parser + validator path with deterministic ID/path resolution and startup fail-fast behavior.
+    - M3: Wire texture-demo startup to manifest payloads and remove equivalent hardcoded object definitions.
+    - M4: Add regression tests for valid/invalid manifest cases and verify native + wasm checks.
   - Acceptance criteria:
     - At least one active ROM profile (starting with texture demo) boots entirely from external manifest data.
     - Invalid manifest cases (missing required fields, out-of-range color channels, malformed indices, unknown primitive selectors) fail validation with deterministic errors.
     - Existing runtime checks pass with manifest-backed content path enabled.
+    - Valid Blender-exported GLB object files referenced by manifest are visible at runtime with deterministic startup behavior.
+    - Invalid GLB reference paths, missing files, and duplicate object IDs fail at load boundary with actionable diagnostics.
   - Completion evidence:
     - `cd /workspaces/Anzu/anzu-engine && cargo test`
     - `cd /workspaces/Anzu/anzu-engine && cargo check --target wasm32-unknown-unknown`
@@ -616,6 +849,8 @@ And architecture terms match the core glossary in `documents/architecture.md`
 ## Initiative 12: Networking and Session Features
 - [ ] Feature 12.1: Session lifecycle (join, leave, active participants)
 - [ ] Feature 12.2: Authoritative shared-state sync baseline
+  - Prototype progress toward Features 12.1 and 12.2 in `anzu-runtime/src/main.rs`: the session creates one player and sends `AddActor` through an in-process channel; the server adds the actor, increments the world tick, and publishes a snapshot for the session.
+  - Not complete: `cargo check --manifest-path anzu-runtime/Cargo.toml` fails because `Server::new` does not initialize its `simulation` field. The prototype has no leave flow or running simulation loop, and it has no synchronization tests.
 - [ ] Feature 12.3: Client interpolation for remote state smoothing
 - [ ] Feature 12.4: Transport abstraction with local loopback and websocket paths
 - [ ] Feature 12.5: Transport and synchronization observability

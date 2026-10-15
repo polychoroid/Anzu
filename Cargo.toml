@@ -1,0 +1,9 @@
+[workspace]
+resolver="3"
+members = [
+    "anzu-runtime",
+    "anzu-terminal",    
+]
+
+[workspace.dependencies]
+anzu-runtime = { path = "anzu-runtime" }

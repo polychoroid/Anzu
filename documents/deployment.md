@@ -2,11 +2,11 @@
 
 ## Build and Release
 
-Primary deploy target is a browser-hosted static site that serves the compiled wasm package and JS bindings for the currently selected ROM runtime.
+The primary deployment target is a browser-hosted static site. It serves the compiled WebAssembly package and JavaScript bindings for the ROM that the manifest selects.
 
 ### Build Artifacts
 - `docs/index.html` - browser entry page and canvas bootstrap.
-- `docs/manifest.json` - startup manifest payload loaded at boot.
+- `docs/manifest.json` - legacy startup metadata that the active engine does not load.
 - `docs/pkg/*` - generated wasm/js bundle from wasm-pack.
 
 ### Release Build
@@ -23,29 +23,26 @@ cd docs
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/index.html` and verify:
-- canvas initializes
-- ROM from `manifest.json` starts and responds to input
-- fixed-timestep simulation keeps running after resize
-- resize does not crash rendering
-- console shows manifest load result
-- For `anzu.triangle_man`: material-driven blend behavior is visible (opaque asteroids, alpha player edges, additive bullet glow)
-- For `anzu.triangle_man`: bullet hits on asteroids produce four fragments and those fragments do not disappear immediately when impact happens near screen bounds
-- For `anzu.triangle_man_2`: ground contact, walk, crawl, and jump behavior are visibly stable
+Open `http://localhost:8000/index.html` and verify these results:
+- The canvas initializes.
+- The texture demo renders its scene.
+- Press `P` to change projection mode. Press `Escape` to exit.
+- The runtime continues to render after a resize.
+- The browser console does not report startup or rendering errors.
 
 ## Environment
 
-Current runtime is browser-first, loads configuration from static assets at startup, and uses the manifest-driven browser shell.
+The current browser shell loads the generated engine package from `docs/pkg`. The active engine entry point does not load `docs/manifest.json` or select a ROM from it.
 
-- The browser shell fetches `manifest.json` relative to the served static root.
-- WebGPU is preferred; browser WebGL fallback remains available through wgpu's browser backend support.
-- The deployed experience is the fixed 60 Hz ROM runtime selected by `manifest.json`.
+- `docs/index.html` loads the generated JavaScript and WebAssembly files.
+- The WebAssembly target enables wgpu's WebGL feature. Do not assume WebGPU support from the native build.
+- Press `P` to change projection mode. Press `Escape` to exit.
 
 ## CI/CD
 
 Recommended pipeline steps:
 
-1. Rust format/lint:
+1. Format and lint the Rust crate:
 
 ```bash
 cd anzu-engine
@@ -53,7 +50,7 @@ cargo fmt --check
 cargo clippy --target wasm32-unknown-unknown
 ```
 
-2. Build verification:
+2. Build the WebAssembly package:
 
 ```bash
 cd anzu-engine
@@ -61,4 +58,4 @@ cargo build --lib --target wasm32-unknown-unknown --release
 wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-3. Optional hosted smoke test in PR environments (serve `docs/` and verify canvas startup, manifest loading, resize handling, and active ROM behavior).
+3. In a pull request environment, optionally run a hosted smoke test. Serve `docs/` and verify canvas startup, resize handling, and texture-demo behavior.

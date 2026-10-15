@@ -2,52 +2,67 @@
 
 ## Runtime Monitoring
 
-Primary operational visibility currently comes from browser console logs.
+The browser console provides the current runtime diagnostics.
 
-- Startup errors: canvas lookup, window creation, renderer initialization.
-- Manifest loader status: success summary or typed warning/error message.
-- Render loop failures: surfaced to console and runtime exits event loop.
-- Material/render diagnostics: per-batch material routing and blend-mode behavior can be validated visually and through render warnings.
-- Simulation profiling: per-phase fixed-tick summaries for sync, composition, broadphase, narrowphase, reconcile, and render boundary costs.
-- Collision scaling: candidate pair counts, collision counts, and despawn counts during stress runs.
-- Fragmentation diagnostics: fragment spawn counts and first-tick despawn behavior near world bounds.
+- Check it for canvas, window, device, and rendering errors.
+- Confirm that the texture demo appears after startup.
+- Resize the window and confirm that rendering continues.
+- Press `P` and confirm that the projection mode changes.
 
-Recommended checks during runtime verification:
-- Confirm no repeated surface/device errors in console.
-- Confirm redraw/update/render loop remains active after window resize.
-- Confirm manifest fetch resolves from served static root.
-- Confirm material fallback behavior is stable when unknown material IDs are encountered.
-- Confirm additive/alpha/opaque material passes appear as expected (no global blend regression).
-- Confirm spatial broadphase reduces collision candidate pairs relative to all-pairs scanning.
-- Confirm phase timings remain bounded under stress runs and do not concentrate in narrowphase unexpectedly.
-- Confirm bullet->asteroid collisions produce expected fragment count and fragment entities persist at least one tick near boundaries.
+The active runtime does not yet expose frame or stage timing distributions, collision/broadphase work counts, asset-residency metrics, upload-queue metrics, or pressure metrics. Similar profiler code under `anzu-engine/src/abandoned_generated_code` is archived and is not evidence that the active runtime is instrumented.
 
-Budget and streaming checks:
-- Confirm periodic memory samples are emitted for CPU/WASM and GPU pools.
-- Confirm residency stats are visible by class (`critical`, `scaled_optional`, `reused`, `streaming`).
-- Confirm queue depth and upload latency remain within expected limits during movement across scenes.
-- Confirm pressure-level transitions (`Normal`, `Constrained`, `Critical`) are logged with reason.
-- Confirm fallback LOD activation occurs before optional high-LOD eviction causes visible stalls.
+### Performance Baseline Status
+
+Performance monitoring is a current implementation priority, not a completed runtime capability. Until Feature 9.1 and Feature 9.6 are implemented, use this status when reviewing performance claims:
+
+- Do not claim that the active runtime has a measured frame-time baseline.
+- For each performance-sensitive change, record the workload, target, backend, and available external measurements. State which internal stage data is unavailable.
+- Do not optimize cache behavior, alignment, or copy volume by inspection alone. Record the hypothesis and define how the result will be measured once instrumentation exists.
+- Do not set performance budgets from unmeasured assumptions. First capture repeatable baseline distributions.
+
+## Planned Verification
+
+Use these checks only after the related profiling, collision, or streaming systems exist:
+
+- Measure phase timings and collision candidate counts during stress tests.
+- Measure memory, residency, queue depth, upload latency, and pressure transitions.
+- Confirm that optional asset quality decreases before the runtime evicts non-critical assets.
+- Confirm that collision and fragment outcomes match their tests.
+
+### Performance Evidence
+
+Use this method as soon as the baseline instrumentation and benchmark output exist:
+
+1. Start with synthetic workloads. Then test representative asset-driven workloads.
+2. Record the target, backend, workload parameters, warm-up frames, and sample count.
+3. Report p50, p95, and p99 timings for each measured stage.
+4. Record work metrics, such as body count, candidate-pair count, and transformed-vertex count.
+5. Measure or report instrumentation overhead. State whether profiling is sampled or enabled for every frame.
+6. Keep the benchmark command and raw output with the result. Re-run archived measurements against active code before using them as a baseline.
+7. Compare before and after with the same workload. Report whether the difference exceeds measurement noise before describing it as an improvement or regression.
 
 ## Debugging
 
 Common failure modes:
-- `manifest.json` not found or blocked by incorrect serving path.
-- Browser not supporting selected GPU backend path.
-- Stale generated `docs/pkg` files after code changes.
+- The server cannot find `index.html` or generated package files because it uses the wrong root path.
+- The browser does not support the selected GPU backend.
+- The generated files in `docs/pkg` do not match the current code.
 
 Debug workflow:
-1. Rebuild with wasm-pack release output.
-2. Hard-refresh browser page.
-3. Inspect console messages for startup and render diagnostics.
-4. Validate static server root is `docs`.
-5. Compare `pairs_checked` and phase timing logs before/after any simulation architecture change.
+1. Build the release package with `wasm-pack`.
+2. Hard-refresh the browser page.
+3. Inspect the console for startup and rendering diagnostics.
+4. Confirm that the static server root is `docs`.
+5. Compare `pairs_checked` and phase-timing logs before and after each simulation architecture change.
 
-Memory pressure workflow:
-1. Reproduce with constrained memory settings or high-content scenes.
-2. Verify pressure transition logs and class-specific eviction reasons.
-3. Confirm optional quality downgrade precedes forced eviction.
-4. Validate recovery hysteresis prevents rapid load/unload thrash.
+## Planned Memory-Pressure Workflow
+
+The active runtime does not implement this workflow. Use it as a test plan after memory budgets, asset eviction, and pressure telemetry exist.
+
+1. Reproduce the issue with constrained memory settings or high-content scenes.
+2. Check pressure-transition logs and class-specific eviction reasons.
+3. Confirm that the runtime lowers optional quality before forced eviction.
+4. Confirm that recovery hysteresis prevents rapid load and unload cycles.
 
 ## Maintenance
 
@@ -55,5 +70,5 @@ Memory pressure workflow:
 - Re-run format/lint/build checks before merging.
 - Keep docs synchronized whenever runtime contracts or commands change.
 - Track milestone acceptance criteria in backlog as implementation evolves.
-- Keep release playbooks in sync with CDN versioning/cache purge policy.
-- Record baseline metrics per milestone (startup, frame pacing, resident memory, eviction churn).
+- Keep release playbooks in sync with CDN versioning and cache-purge policy when CDN deployment is in use.
+- Record baseline metrics when the runtime exposes them, including startup time, frame pacing, resident memory, and eviction churn.

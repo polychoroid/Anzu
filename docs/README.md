@@ -1,32 +1,34 @@
 Anzu Browser Runtime Assets
 ===========================
 
-This folder contains browser-hosted runtime assets for Anzu.
+This folder contains the browser-hosted runtime assets for Anzu.
 
-Contents
-- `index.html` - browser shell that loads the generated wasm/js package and displays runtime diagnostics.
-- `manifest.json` - runtime manifest consumed by the engine startup path.
-- `pkg/` - generated output from `wasm-pack` or `wasm-bindgen` (JavaScript glue + wasm binary).
+## Contents
 
-Build and run
+- `index.html` - loads the generated WebAssembly and JavaScript package into the canvas.
+- `manifest.json` - legacy startup metadata. The active engine entry point does not load this file.
+- `pkg/` - contains generated output from `wasm-pack` or `wasm-bindgen`, including JavaScript glue and the WebAssembly binary.
 
-1. Build the engine package from the crate directory:
+## Build and Run
+
+1. Build the engine package from its crate directory:
 
 ```bash
 cd ../anzu-engine
 wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-2. Serve this `docs/` directory:
+2. Start a web server in this `docs/` directory:
 
 ```bash
 python3 -m http.server 8000
 ```
 
-3. Open:
+3. Open this URL:
 - http://localhost:8000/index.html
 
-Notes
-- If browser behavior seems inconsistent (focus, gamepad exposure, permission policy), use the in-page diagnostics panel in `index.html`.
-- `pkg/` contents are generated artifacts and may be replaced on rebuild.
+## Notes
+
+- Inspect the browser console for startup and rendering errors.
+- A rebuild can replace the generated files in `pkg/`.
 

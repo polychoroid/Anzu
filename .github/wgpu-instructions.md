@@ -122,6 +122,9 @@ Performance guidance agents should apply
 - Prefer GPU-resident static data for large/static geometry.
 - Avoid assuming full-frame CPU rebuild + upload is acceptable once geometry scales.
 - Keep upload budgets explicit and measurable.
+- Shape CPU and GPU data around the access pattern at each stage. Avoid unnecessary copies and repacking, but preserve explicit ownership and upload lifetime boundaries.
+- Treat alignment and GPU buffer layout as API/ABI constraints or measured choices. Do not add padding or extra staging solely on the assumption that it improves cache behavior.
+- Establish CPU and GPU performance baselines early. Record workload size and backend, separate stage timings and transfer bytes, and report instrumentation overhead.
 - Treat depth/stencil, culling, LOD, and visibility management as first-order concerns for 3D growth.
 - Explain why an approach is appropriate for a tiny 2D slice versus why it fails for large 3D terrain.
 - Use measured evidence from this repo when available before speculating.

@@ -112,13 +112,14 @@ impl TextureDemoRom {
         // The tetrahedron is centered; the others occupy the four cardinal diagonals.
         // "NW/SW" = negative-x, "NE/SE" = positive-x; "N/NE" = negative-z, "S/SW" = positive-z
         // (in view-space with the isometric camera pointing from +x+y+z toward origin).
-        let spread = 1.0_f32;
-        let layout: [(Primitive, f32, f32); 5] = [
-            (Primitive::Tetrahedron, 0.0, 0.0),         // center
-            (Primitive::Cube, -spread, -spread),        // NW
-            (Primitive::Octahedron, spread, -spread),   // NE
-            (Primitive::Dodecahedron, -spread, spread), // SW
-            (Primitive::Icosahedron, spread, spread),   // SE
+
+        // let spread = 1.0_f32;
+        let layout: [(Primitive, f32, f32); 1] = [
+            (Primitive::Cube, 0.0, 0.0), // center
+                                         // (Primitive::Cube, -spread, -spread),        // NW
+                                         // (Primitive::Octahedron, spread, -spread),   // NE
+                                         // (Primitive::Dodecahedron, -spread, spread), // SW
+                                         // (Primitive::Icosahedron, spread, spread),   // SE
         ];
 
         // All bodies are normalized to fit inside this display radius.

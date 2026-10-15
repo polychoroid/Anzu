@@ -349,8 +349,9 @@ Usage rules
 |---|---|---|---|---|
 
 ## Review checklist for new terms
-1. Is the term necessary for precision?
-2. Is the meaning distinct from existing approved terms?
-3. Is the scope correctly labeled (`core`, `rust`, `wgpu`, or project-specific)?
-4. Is the wording short and unambiguous?
-5. Has at least one reviewer approved the PR?
+1. Clarify the meaning and scope with the requester when context does not define them.
+2. Is the term necessary for precision?
+3. Is the meaning distinct from existing approved terms?
+4. Is the scope correctly labeled (`core`, `rust`, `wgpu`, or project-specific)?
+5. Is the wording short and unambiguous?
+6. Has at least one reviewer approved the PR before the term moves to Approved Terms?

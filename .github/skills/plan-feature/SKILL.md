@@ -36,6 +36,7 @@ Before drafting, gather or confirm at least:
 2. Constraints (platform, runtime, performance, compatibility, deadlines).
 3. Existing subsystem(s) likely affected.
 4. Acceptance evidence expected by the requester.
+5. For performance-sensitive work, the current baseline, representative workload, required counters/timings, and acceptable instrumentation overhead.
 
 If any critical item is missing, start with a focused refinement loop: ask 3-7 high-value questions that change structure, interfaces, or sequencing. If the user cannot answer, state assumptions explicitly and continue.
 
@@ -100,6 +101,8 @@ For cross-file behavior, define:
 - Execution flow
 - Data flow and state handoff
 - Error propagation path
+- Data-oriented representation and access patterns, including expected copy/allocation behavior and whether data is inline, heap-owned, contiguous, or indirect.
+- Performance baseline and measurement plan. Separate always-on low-cost counters from sampled or opt-in timings, and state how CPU/GPU costs will be distinguished where supported.
 
 ### 5. Add Verification Strategy
 1. Map each backlog item to validation:
@@ -109,6 +112,7 @@ For cross-file behavior, define:
 2. Define completion evidence per milestone.
 3. Include rollback/fallback notes for high-risk changes.
 4. Call out the exact command or behavior that proves completion when possible.
+5. For performance-sensitive work, compare against a recorded baseline with the same workload and report p50/p95/p99, work counts, and instrumentation overhead.
 
 ### 6. Perform Completion Gate
 A plan is complete only when all checks pass:

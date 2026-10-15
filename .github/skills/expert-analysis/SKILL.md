@@ -19,6 +19,7 @@ Policy bindings
 - Runtime execution models: fixed-step vs variable-step stages, scheduling order, and invariants.
 - Reliability and security posture: typed errors, boundary validation, and predictable fallback behavior.
 - Performance analysis: measurement-first guidance, bottleneck isolation, and profiling plans.
+- Data-oriented design: data layout, alignment, ownership, copy and allocation costs, cache locality, and hot-path iteration patterns.
 - Rust/WASM constraints: deterministic behavior under single-threaded browser runtime conditions.
 
 ## Evidence Policy (Strict Mode)
@@ -34,6 +35,14 @@ Policy bindings
   - Offer verification steps to close the gap.
 - Prefer measurable recommendations over opinion-only guidance.
 - Keep evidence compact by default and defer deep citation until requested.
+
+## Data-Oriented Performance Method
+- Distinguish data-oriented design (layout and access patterns) from data-driven configuration (behavior or content supplied as data).
+- Establish a baseline on a representative workload before changing a hot path. Record platform/backend, workload size, warm-up, sample count, and instrumentation mode.
+- Prefer low-cost counters for continuous monitoring and sampled or opt-in high-resolution timing. Report instrumentation overhead.
+- Report stage timing distributions (at least p50, p95, and p99) with work counts. Separate CPU and GPU time where the platform exposes both.
+- Treat stack use, heap allocation, alignment, cache locality, and copy reduction as hypotheses to test. Do not recommend large stack values, forced padding, or complex layouts without workload evidence.
+- Compare before and after with the same workload. Keep raw output and the command or procedure used to produce it.
 
 ## WGPU and Vulkan Requirements
 

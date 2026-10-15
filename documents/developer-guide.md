@@ -1,22 +1,25 @@
 # Developer Guide
 
 ## Repository Structure
-- `anzu-engine/` — Core Rust library compiled to WebAssembly for browser deployment.
-  - `src/lib.rs` — wasm-bindgen startup and browser event loop wiring.
-  - `src/platform_browser.rs` — browser shell, canvas hookup, and top-level event loop integration.
-  - `src/renderer/mod.rs` / `src/renderer/wasm.rs` — GPU state, material-aware draw extraction, resize/reconfigure behavior, and browser input normalization.
-  - `src/renderer/core.rs` — render pipelines, material registry, blend-mode routing, and per-material uniform updates.
-  - `src/asset_manifest.rs` — manifest fetch/parse/validate loader.
-  - `Cargo.toml` — Rust dependencies and wasm target configuration.
-- `docs/` — Browser shell and runtime assets served for local/dev/prod static hosting.
-- `documents/` — Documentation set (architecture, developer, deployment, operations, user, API).
-- `BACKLOG.md` — Top-down roadmap and task tracking.
+- `anzu-engine/` — Rust library for browser WebAssembly and native targets.
+  - `src/lib.rs` — application startup, event handling, update, and render scheduling.
+  - `src/assets/` — mesh data providers.
+  - `src/ecs/` — entity and world types.
+  - `src/execution/` — rendering, compute, materials, pipeline building, backend, and shared state.
+  - `src/extraction/` — render-data extraction.
+  - `src/roms/texture_demo.rs` — active texture-demo content.
+  - `src/simulation/physics.rs` — simulation physics.
+  - `src/abandoned_generated_code/` — archived code that the active crate does not compile.
+- `anzu-runtime/` — early in-process session and authority prototype. It is not a production network service.
+- `docs/` — browser shell, manifest file, assets, and generated WebAssembly package.
+- `documents/` — architecture, API, development, deployment, operations, and user guides.
+- `BACKLOG.md` — roadmap and task tracking.
 
 ## Local Development
 
 ### Prerequisites
-Ensure you have:
-- Rust toolchain (1.70+) with the `wasm32-unknown-unknown` target:
+Install these tools:
+- Rust toolchain (1.85 or later) with the `wasm32-unknown-unknown` target:
   ```bash
   rustup target add wasm32-unknown-unknown
   ```
@@ -29,13 +32,13 @@ Ensure you have:
 
 ### Building the WASM Package
 
-**Option A: Using `wasm-pack` (recommended)**
+**Option A: Use `wasm-pack`**
 ```bash
 cd anzu-engine
 wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-**Option B: Using `cargo` + `wasm-bindgen` CLI**
+**Option B: Use `cargo` and the `wasm-bindgen` CLI**
 ```bash
 cd anzu-engine
 cargo build --lib --release --target wasm32-unknown-unknown
@@ -54,7 +57,7 @@ Serve the `docs/` directory with any HTTP server. A few common options:
 cd docs
 python3 -m http.server 8000
 ```
-Then open `http://localhost:8000/index.html` in your browser.
+Open `http://localhost:8000/index.html` in your browser.
 
 **Node.js http-server**
 ```bash
@@ -63,7 +66,7 @@ cd docs
 http-server
 ```
 
-**Simple shell script (for development)**
+**Simple shell command (for development)**
 ```bash
 cd docs && python3 -m http.server 8000 &
 sleep 1 && open http://localhost:8000/index.html  # macOS
@@ -72,16 +75,16 @@ sleep 1 && open http://localhost:8000/index.html  # macOS
 ```
 
 ### Browser Requirements
-- **Supported:** modern desktop browsers with WebGPU support preferred.
-- **Fallback behavior:** runtime initializes browser WebGPU with WebGL fallback support via wgpu browser backends.
-- **Testing:** use browser Developer Tools console to inspect startup, manifest loader, and render errors.
+- **Targets:** Check `anzu-engine/Cargo.toml` for the configured browser and native targets.
+- **Browser backend:** The WebAssembly target enables wgpu's WebGL feature. Do not infer WebGPU support from the native build.
+- **Testing:** Inspect the browser developer console for startup and rendering errors.
 
 ### Development Workflow
 
-1. **Edit code** in `anzu-engine/src/*.rs`.
-2. **Rebuild** the wasm package using `wasm-pack build`.
-3. **Refresh the browser** to load the new version (or enable auto-reload if using a file watcher).
-4. **Debug** via browser DevTools (console for `console.log` output from Rust).
+1. Edit Rust files in `anzu-engine/src/`.
+2. Rebuild the WebAssembly package with `wasm-pack build`.
+3. Refresh the browser to load the new package.
+4. Inspect browser developer tools for console output and runtime errors.
 
 ### Typical Validation Commands
 
@@ -107,22 +110,19 @@ wasm-pack build --target web --out-dir ../docs/pkg --release
   ```bash
   cd anzu-engine && cargo test
   ```
-- Browser-specific tests require a browser test harness (not yet integrated).
-- Triangle Man includes regression tests for fragment independence and near-edge fragment survival behavior.
-- Input-context routing changes should be validated with:
+- The repository does not define a browser test harness. Test browser-specific behavior in a browser.
+- Run engine tests and the WebAssembly target check with:
   ```bash
-  cd anzu-engine && cargo test renderer::control_plane::tests:: -- --nocapture
-  cd anzu-engine && cargo test triangle_man::tests:: -- --nocapture
-  cd anzu-engine && cargo test triangle_man_2::tests:: -- --nocapture
+  cd anzu-engine && cargo test
   cd anzu-engine && cargo check --target wasm32-unknown-unknown
   ```
 
 ### Brief Tutorial: Unit Testing with `simulation/physics.rs`
 
-This module is a good unit-test target because it has deterministic math helpers (`get_box_inertia`) and state construction behavior (`BodyState::new`) that can be validated without browser runtime setup.
+The physics module is a good unit-test target. Its deterministic math and state construction can be checked without browser setup.
 
 1. Pick pure or near-pure behavior first.
-- Best first tests: `BodyState::get_box_inertia` and `BodyState::default`.
+- Best first tests: the inertia calculation and `BodyState::default`.
 - These tests verify stable physics config math and default state assumptions.
 
 2. Add a local test module in `anzu-engine/src/simulation/physics.rs`.
@@ -147,7 +147,7 @@ cd anzu-engine
 cargo test simulation::physics:: -- --nocapture
 ```
 
-Note on console output during tests:
+Console output during tests:
 - `println!` and `eprintln!` are allowed in unit tests.
 - Rust test harness captures output by default and only shows it on failure.
 - Use `-- --nocapture` to stream test output while tests run.
@@ -166,18 +166,15 @@ Minimal starter checklist:
 Runtime pipeline continuation:
 - See `documents/runtime-execution-recommendations.md` for staged implementation guidance and a next-session resume checklist for Milestone 4 runtime execution work.
 
-- **Rust style:** Follow standard Rust idioms; use `cargo fmt` and `cargo clippy` to maintain consistency.
+- **Rust style:** Use standard Rust idioms. Run `cargo fmt` and `cargo clippy` to check the code.
 - **Terminology baseline:** Treat Anzu as a simulation and visualization system first. Consider games a domain profile built on top of that core.
-- **Glossary source of truth:** Use the shared terms in `documents/architecture.md` (`Core Glossary`) for naming docs, APIs, and module boundaries.
+- **Glossary source of truth:** Use the shared terms in `documents/architecture.md` (`Core Glossary`) for names in docs, APIs, and module boundaries.
 - **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
-- **Input normalization:** Normalize browser- and device-specific gamepad quirks in `src/renderer/wasm.rs` into semantic controls such as `left_trigger` and `right_trigger`; keep raw controls like `axis_4` available only as optional escape hatches for specialized hardware.
-- **Input context orchestration:** `ControlPlaneState` is the sole owner of active context stack state at runtime. ROMs expose context IDs and may request transitions via `SimulationModel::pop_input_context_request()`, but they do not own final context activation.
-- **Overlay preemption:** When overlay UI is visible, engine overlay context is active and gameplay input forwarding is suppressed. When overlay closes, runtime resumes the prior ROM context from the engine-owned stack.
-- **Reserved key rule:** `Escape` is reserved for engine overlay toggle and must not be used in ROM bindings (`bind_rom_action` rejects it).
+- **Input behavior:** The active texture demo handles `P` to change projection mode. It handles `Escape` to exit. Older gamepad and input-context code is in `src/abandoned_generated_code/`.
 - **WebGPU best practices:** 
-  - Use wgpu v29+ API.
+  - Use the wgpu version defined in `anzu-engine/Cargo.toml` (currently v30).
   - Keep shader code as embedded WGSL strings (see the current renderer implementation).
   - Avoid deprecated or platform-specific wgpu APIs.
 - **Material system conventions:**
@@ -205,15 +202,18 @@ Runtime pipeline continuation:
 - **Simulation profiling gates:**
   - Record per-phase fixed-tick timings before and after broadphase or pipeline changes.
   - Keep candidate pair counts, collision counts, and frame pacing visible in logs during stress runs.
+- **Design status:** The asset-class, streaming, budgeting, and pressure-response items below are target guidance. Confirm implementation status in source before describing them as current features.
 - **Documentation expectations:**
   - Add doc comments (`///`) to public functions and types in Rust.
   - Keep README files in each module directory up-to-date with build/run instructions.
   - Link to external resources (wgpu docs, WebGPU spec) when relevant.
 
-## GLB Physics Mesh Ingestion Guidance
+## Proposed GLB Physics Mesh Ingestion
 
-Decision:
-- Use GLB as the source package, but canonicalize imported geometry into a dedicated physics mesh representation before solver use.
+The active engine does not load GLB files. Treat this section as design guidance, not as a current workflow.
+
+Recommended direction:
+- Use GLB as a source package, then convert its geometry into a dedicated physics mesh before the solver uses it.
 
 Why:
 - Display mesh data and physics mesh data have different requirements (materials, normals, tangents, skinning vs collision shape and mass property construction).
@@ -238,3 +238,86 @@ Import validation checklist:
 3. Compute and assert finite centroid, extents, and mass properties.
 4. Confirm deterministic canonicalization for repeated imports of identical content.
 5. Log shape id reuse ratio to validate shared-geometry behavior.
+
+## Proposed Blender GLB Manifest v1
+
+The active engine does not load the scene manifest described here. Do not use this proposal as a current authoring workflow.
+
+Design goal:
+- Use a manifest-backed startup scene so Blender-exported GLB content can have deterministic runtime behavior without source edits.
+
+Blender export settings (exact options):
+
+| Blender UI path | Option name | Value | Why |
+|---|---|---|---|
+| File > Export > glTF 2.0 | Format | GLB | Single binary payload per object file. |
+| Include | Selected Objects | On (recommended) | Prevent accidental helper mesh export. |
+| Transform | +Y Up | On | Keep runtime axis contract consistent. |
+| Transform | Apply Modifiers | On | Bake final mesh result used by runtime. |
+| Geometry | UVs | On | Required for textured material sampling. |
+| Geometry | Normals | On | Required for stable lighting/shading behavior. |
+| Geometry | Tangents | On (recommended) | Future-proof for tangent-space workflows. |
+| Geometry | Vertex Colors | On (if used) | Preserve authored color channels. |
+| Geometry | Compression | Off (first pass) | Reduce parser complexity for initial loader. |
+| Animation | Animations | Off (first pass) | This feature scope targets static and transform-driven startup content. |
+| Animation | Skinning | Off (first pass) | Skeletal paths are out of scope for 11.5. |
+| Materials | Materials | Export | Preserve material slot structure for mapping. |
+| Materials | Images | Automatic | Keep referenced texture payloads consistent with export. |
+
+Pre-export scene prep:
+1. Object Mode > Object > Apply > All Transforms.
+2. Edit Mode > Mesh > Clean Up > Degenerate Dissolve (if needed).
+3. Object Data Properties > Normals > ensure custom normals are valid when used.
+4. UV Editor > confirm UVMap exists and is non-empty for textured meshes.
+
+Schema summary:
+1. File path: `anzu-engine/src/roms/files/manifest/texture_demo.scene.json`
+2. Required top-level fields: `manifest_version`, `profile_id`, `objects`, `textures`, `startup_scene`
+3. `objects[]`: `object_asset_id`, `source.kind`, `source.path`, `default_material_id`, `generate_body`
+4. `textures[]`: `texture_id`, `path`, `color_space`
+5. `startup_scene.instances[]`: `instance_id`, `object_asset_id`, `transform`, `texture_id`, `animation`
+
+Compact example:
+```json
+{
+  "manifest_version": "1",
+  "profile_id": "texture_demo",
+  "objects": [
+    {
+      "object_asset_id": "tetra_a",
+      "source": { "kind": "glb", "path": "platonic/tetrahedron.glb" },
+      "default_material_id": "mat_default",
+      "generate_body": true
+    }
+  ],
+  "textures": [
+    {
+      "texture_id": "checker_01",
+      "path": "checker/checker_01.png",
+      "color_space": "srgb"
+    }
+  ],
+  "startup_scene": {
+    "instances": [
+      {
+        "instance_id": "tetra_a_0",
+        "object_asset_id": "tetra_a",
+        "transform": {
+          "translation": [0.0, 0.0, 0.0],
+          "rotation_euler_deg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+        },
+        "texture_id": "checker_01",
+        "animation": { "mode": "spin", "phase_offset": 0.0 }
+      }
+    ]
+  }
+}
+```
+
+Validator failure targets:
+1. Schema/version: `ManifestVersionUnsupported`, `ManifestMissingField`, `ManifestUnknownField`
+2. Identity: `DuplicateObjectAssetId`, `DuplicateTextureId`, `DuplicateInstanceId`
+3. Path safety and files: `ObjectPathOutsideRoot`, `TexturePathOutsideRoot`, `ObjectFileNotFound`, `TextureFileNotFound`
+4. Reference integrity: `ObjectReferenceNotFound`, `TextureReferenceNotFound`, `StartupSceneEmpty`
+5. GLB/content: `ObjectSourceKindUnsupported`, `GlbParseFailed`, `GlbMissingNormals`, `GlbMissingUv0`, `TransformScaleInvalid`

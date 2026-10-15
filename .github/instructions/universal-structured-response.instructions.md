@@ -7,6 +7,8 @@ applyTo: ["**/*"]
 
 Use this policy for all chat responses and written content unless the user asks to override it.
 
+For every chat response, also apply `.github/skills/asd-ste100-chat-responses/SKILL.md`. Use ASD-STE100 Issue 9 for common English and `.github/response-dictionary.md` for Anzu-specific terminology.
+
 ## Required interaction order
 1. Ask narrowing questions first when the request is broad, ambiguous, or has multiple valid scopes.
 2. After answers are received, give a direct answer.

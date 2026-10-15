@@ -1,57 +1,56 @@
 Anzu Engine
 ===========
 
-Browser-first Rust/WASM runtime crate for Anzu.
+Anzu's Rust engine library. It supports browser WebAssembly and native targets.
 
-Current implementation highlights:
-- WebAssembly startup path using wasm-bindgen + winit web event loop.
-- wgpu renderer running ROM-selected browser runtime via `rom_id` dispatch.
-- Two ROM packages are currently wired: `anzu.triangle_man` and `anzu.triangle_man_2`.
-- Frame contract: `update(delta_time)` then `render()` on redraw.
-- Asset manifest loading pattern (`manifest.json`) with typed validation errors.
-- Material registry and per-entity material assignment through `material_id`.
-- Blend-aware render pipelines (`Opaque`, `Alpha`, `Additive`) selected per draw batch.
-- Per-material uniform parameters with dynamic buffer offsets.
-- PBR-lite fragment shading controls (emissive + metallic/roughness/specular parameters).
-- Role-pair collision policy table in Triangle Man drives solid vs hitbox outcomes.
-- Bullet hitbox impacts can despawn and replace asteroids with four fragment entities.
-- Fragment edge-spawn regression tests are present for near-boundary survival behavior.
+## Current Implementation
 
-Structure
-- `src/lib.rs` - browser startup, event loop integration, redraw/update/render scheduling.
-- `src/platform_browser.rs` - browser shell integration and top-level window/canvas lifecycle.
-- `src/renderer/mod.rs` - renderer module entry points.
-- `src/renderer/wasm.rs` - browser renderer state, frame loop hooks, and browser input normalization.
-- `src/renderer/core.rs` - GPU pipelines, material registry, and per-batch material uniform binding.
-- `src/asset_manifest.rs` - async fetch/parse/validate manifest loader.
-- `../docs/index.html` - browser shell + canvas bootstrap.
-- `../docs/manifest.json` - startup manifest used by browser runtime loader.
+- `winit` starts the native or browser event loop. `wasm-bindgen` exposes the WebAssembly startup function.
+- The engine entry point starts `TextureDemoRom` directly. It does not use `rom_id` dispatch.
+- On each redraw, the event handler calls the update stage and then renders the frame.
+- `TextureDemoRom` provides textured scene content and queues background-color updates.
+- Press `P` to change projection mode. Press `Escape` to exit.
+- The crate has separate modules for assets, execution, ROM content, and simulation physics.
+- Older generated engine code is stored in `src/abandoned_generated_code/`. The active crate does not compile it.
 
-Input model
-- Browser adapters produce generic input events.
-- Browser-specific gamepad quirks are normalized in `src/renderer/wasm.rs` to semantic controls where possible (for example trigger aliases).
-- ROM code consumes semantic controls by default; raw controls remain available as optional escape hatches for specialized hardware.
+## Source Structure
 
-Build and run
+- `src/lib.rs` - starts the event loop and owns the current application setup.
+- `src/assets/` - provides mesh data to the renderer.
+- `src/ecs/` - contains the entity-component-system world.
+- `src/execution/` - contains rendering, compute, materials, pipeline building, backend, and shared runtime code.
+- `src/extraction/` - contains render-data extraction code.
+- `src/roms/texture_demo.rs` - defines the active texture-demo content and behavior.
+- `src/simulation/physics.rs` - contains simulation physics types and behavior.
+- `../docs/index.html` - loads the generated WebAssembly package into the canvas.
+- `../docs/manifest.json` - remains in the repository, but the active engine entry point does not load it.
 
-1. Build the wasm package:
+## Input Model
+
+- `winit` delivers window and input events to the application handler.
+- The current demo handles `P` to change projection mode and `Escape` to exit.
+- The active engine does not include the older browser gamepad normalization path. That code remains in `src/abandoned_generated_code/`.
+
+## Build and Run
+
+1. Build the WebAssembly package:
 
 ```bash
 wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
-2. Serve static assets:
+2. Start a web server for the static assets:
 
 ```bash
 python3 -m http.server --directory ../docs 8000
 ```
 
-3. Open:
+3. Open this URL:
 - http://localhost:8000/index.html
 
-Automated wasm smoke check
+## Automated WebAssembly Smoke Check
 
-Use this quick command sequence to catch common wasm runtime regressions before manual browser testing:
+Run these checks before browser testing:
 
 ```bash
 cargo test && \
@@ -60,9 +59,9 @@ wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 
 Expected result:
-- all tests pass
-- wasm check succeeds
-- `docs/pkg` is regenerated without build errors
+- All tests pass.
+- The WebAssembly check succeeds.
+- The build regenerates `docs/pkg` without errors.
 
 Alternative lower-level build:
 
@@ -74,7 +73,7 @@ wasm-bindgen \
 	target/wasm32-unknown-unknown/release/anzu_engine.wasm
 ```
 
-License compliance check
+## License Check
 
 Install `cargo-deny`:
 
@@ -82,7 +81,7 @@ Install `cargo-deny`:
 cargo install cargo-deny
 ```
 
-Run dependency license checks:
+Run the dependency license checks:
 
 ```bash
 cargo deny --config deny.toml check licenses

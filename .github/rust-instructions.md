@@ -15,9 +15,14 @@ Primary expectation
 
 Authoritative sources to prefer
 - Rust Book (primary): https://doc.rust-lang.org/stable/book/
+- Rust Book, vectors and contiguous storage: https://doc.rust-lang.org/stable/book/ch08-01-vectors.html
 - The Rust Reference (language details): https://doc.rust-lang.org/stable/reference/
 - Rust std docs (APIs and semantics): https://doc.rust-lang.org/stable/std/
 - Rust API Guidelines (public API design): https://rust-lang.github.io/api-guidelines/
+- Rust API Guidelines, type safety: https://rust-lang.github.io/api-guidelines/type-safety.html
+- Rust Performance Book, allocations: https://nnethercote.github.io/perf-book/heap-allocations.html
+- Rust Performance Book, type sizes: https://nnethercote.github.io/perf-book/type-sizes.html
+- Rust Performance Book, benchmarking: https://nnethercote.github.io/perf-book/benchmarking.html
 - Rustonomicon (advanced unsafe-only context): https://doc.rust-lang.org/nomicon/
 
 Source hierarchy for answers
@@ -50,6 +55,11 @@ Canonical Rust patterns agents should default to
   - Use `iter`, `iter_mut`, and `into_iter` intentionally; explain ownership impact.
 
 Performance-first defaults (without harming readability)
+- Apply data-oriented design to hot paths: arrange data and work around the fields consumed together, and prefer contiguous storage when access is sequential.
+- Choose array-of-structs, struct-of-arrays, or indexed indirection from real access patterns and measurements. Do not mandate one layout across the engine.
+- Keep small fixed-size values local or inline when that simplifies ownership and avoids needless allocation. Use the heap for dynamic, large, recursive, or independently-lived data; do not place large buffers on the stack by default.
+- Preserve natural alignment unless an ABI, GPU layout, or measured workload requires a specific alignment. Extra padding can reduce cache density.
+- Avoid unnecessary deep copies in hot paths. Prefer borrowing, moving, stable handles, or reusable buffers when they fit the ownership contract. Do not trade clear ownership for a speculative copy reduction.
 - Avoid unnecessary allocation:
   - Prefer `&str` for read-only text parameters and `String` for owned storage.
   - Pre-allocate with `Vec::with_capacity` when approximate size is known.
@@ -64,8 +74,10 @@ Performance-first defaults (without harming readability)
   - Prefer contiguous structures (`Vec<T>`, slices) for hot iteration.
   - Keep hot-path structs compact and avoid pointer-chasing designs unless needed.
 - Keep critical paths measurable:
+  - Establish a workload and performance baseline before adding or changing performance-sensitive systems.
   - Require benchmark or timing evidence for non-obvious optimization claims.
   - Distinguish algorithmic improvements from micro-optimizations.
+  - Measure cache behavior, alignment effects, and copy costs when the relevant profiler or benchmark can report them; do not infer them from source shape alone.
 
 Readability rules agents must apply
 - Prefer simple, explicit code over clever abstractions.

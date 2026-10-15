@@ -1,7 +1,7 @@
 # User Guide
 
 ## Overview
-Anzu currently ships a browser runtime that initializes a WebGPU/WebGL-backed canvas, loads its manifest at startup, and runs the selected ROM.
+Anzu currently provides a browser runtime. It initializes a canvas and runs `TextureDemoRom`.
 
 ## Getting Started
 
@@ -24,22 +24,21 @@ cd docs
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/index.html`.
+Open `http://localhost:8000/index.html` in a browser.
 
 ## Usage
 
 Expected behavior:
-- Full-window canvas is displayed.
-- The ROM configured in `manifest.json` starts and responds to input.
-- Simulation continues at a fixed 60 Hz tick.
-- Window resize keeps rendering active.
-- Startup attempts to load `manifest.json` and logs summary/warning in console.
-- For `anzu.triangle_man`: materials drive visible rendering differences and bullet collisions can fragment asteroids.
-- For `anzu.triangle_man_2`: triangle stands on the ground strip and supports walk/crawl/jump movement.
+- The runtime displays a full-window canvas.
+- `TextureDemoRom` starts and renders its scene.
+- The runtime uses a 16 ms fixed step and limits each frame to five steps.
+- Rendering continues after a window resize.
+- Press `P` to change projection mode.
+- Press `Escape` to exit.
 
 ## Troubleshooting
 
-- Blank page: verify server is running in `docs` and `docs/pkg` exists.
-- Console fetch errors for `manifest.json`: verify file is present and served by same origin.
-- Rendering failure: check browser console for surface/device initialization errors.
-- If stale code appears, hard refresh browser cache.
+- Blank page: Confirm that the server runs from `docs` and that `docs/pkg` exists.
+- Startup failure: Confirm that the server hosts `index.html` and the generated files in `docs/pkg` from the same origin.
+- Rendering failure: Check the browser console for surface or device initialization errors.
+- Stale code: Hard-refresh the browser page.

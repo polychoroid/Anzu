@@ -1,63 +1,88 @@
 # API Reference
 
-## Overview
-This document describes the current public runtime surfaces and module responsibilities for the browser WASM engine crate.
+## Scope
 
-## Core Modules
+This document describes the active public modules in `anzu-engine`. It separates current source from proposed runtime contracts. It does not describe archived generated code as an active API.
 
-- `lib.rs`
-	- Exports wasm start function.
-	- Owns browser event loop lifecycle and redraw scheduling.
+## Active Modules
 
-- `renderer/mod.rs`, `renderer/core.rs`, `renderer/wasm.rs`
-	- `State::new(...)` initializes GPU resources and surface configuration.
-	- `State::resize(...)` handles surface reconfiguration.
-	- `State::update(...)` advances the fixed-tick runtime and simulation pipeline.
-	- `State::render(...)` encodes and submits frame commands.
-	- Draw extraction groups geometry into material-aware batches carrying `(material_id, vertex_offset, vertex_count)`.
-	- Render core resolves `MaterialDefinition` and selects blend-aware pipeline per draw batch.
-	- Per-material uniforms are updated through dynamic uniform buffer offsets.
-	- Browser-side gamepad polling and semantic control normalization live in `src/renderer/wasm.rs`.
-	- Runtime input routing synchronizes active ROM context with `SimulationModel` and applies simulation context transition requests into `ControlPlaneState`.
-	- Overlay-visible state forces engine overlay input context and blocks gameplay event forwarding.
-	- Simulation hooks synchronize ROM world state before and after physics.
-	- Implementation lives under `src/renderer/mod.rs`, `src/renderer/core.rs`, and `src/renderer/wasm.rs`.
+- `assets` exposes mesh types and `mesh_provider`. `MeshType` currently supports built-in primitives and a file handle. `BodyState` uses a built-in cube when it receives a file handle; file mesh loading is not implemented.
+- The crate does not export `ecs` or `extraction` from `lib.rs`. Their source files are not part of the active public module tree.
+- `execution` exposes `compute`, `render`, and `shared`. The current `compute.rs` file is empty.
+- `execution::shared` exposes `BackgroundColor`, `BackgroundColorError`, `FrameScheduler`, `FrameStepPlan`, and `RuntimeState`.
+- `execution::render` exposes the renderer types and builder states used by `lib.rs`, including `ProjectionMode`, `TexturedMesh`, `TexturedVertex`, and renderer construction functions.
+- `roms` currently exposes `texture_demo::TextureDemoRom` and its scene-content and render-command types.
+- `simulation` exposes `physics`, including `BodyState`, `MotionVector`, and `ForceVector`.
+- `lib.rs` exposes `run()`. On WebAssembly, it also exposes `run_web()` as the wasm-bindgen start function.
 
-- `simulation.rs`
-	- `SimulationModel` exposes ROM-owned input handling, active input context synchronization (`active_input_context_id`, `set_active_input_context`), optional context transition request emission (`pop_input_context_request`), anchor synchronization, per-tick update, and reconciliation hooks.
-	- `InputContextRequest` supports `Push`, `Pop`, and `Replace` context transitions for runtime application.
-	- `Scheduler` performs physics, including broadphase candidate selection and narrowphase collision response.
-	- `SchedulerFrameReport` returns interaction and despawn results for ROM reconciliation.
-	- Sensor/hitbox rigid bodies emit collision events but skip impulse resolution.
+Check Rust visibility in source before treating a type as a supported external API. Some public types are application implementation details and do not have compatibility guarantees.
 
-- `asset_manifest.rs`
-	- `load_from_url(...)` fetches and validates manifest JSON.
-	- `ManifestLoadError` provides typed error categories.
-	- `AssetRegistry` exposes summary helpers for loaded data.
+## Current Runtime Behavior
 
-- `triangle_man.rs`, `triangle_man_2.rs`, `platformer_common.rs`
-	- `TriangleManRom` implements the asteroids-style ROM package.
-	- `TriangleMan2Rom` implements the platformer ROM package.
-	- `platformer_common.rs` hosts shared platformer mesh/material definitions and locomotion state math.
+- The application starts `TextureDemoRom` directly. It does not load `docs/manifest.json` or select a ROM by `rom_id`.
+- The event handler updates runtime state and renders on redraw.
+- Press `P` to change projection mode. Press `Escape` to exit.
+- `RuntimeState` uses a fixed 16 ms step, limits work to five steps per frame, and clamps elapsed frame time to 250 ms.
+- `BackgroundColor::new` checks that every color channel is in the range 0.0 to 1.0. It returns `BackgroundColorError` when a channel is outside this range.
+- The current physics constructor loads built-in primitive meshes. File-based mesh loading is not implemented.
 
-## Contracts
+These statements describe the current source. The runtime rewrite and networking sections below describe target design only.
 
-- Frame lifecycle contract: fixed-tick simulation stages run before `render()` on redraw.
-- Input contract: renderer-side browser adapters may emit both raw controls and semantic aliases, but ROMs should bind to semantic controls by default.
-- Input context contract: runtime owns authoritative context activation through `ControlPlaneState`; ROMs request transitions, runtime applies them, and overlay context preempts ROM contexts while visible.
-- Simulation contract: ROMs own intent composition and scenario rules; the scheduler owns shared physics execution and collision response.
-- Recoverable startup/runtime failures surface as `Result` errors and console diagnostics.
-- Manifest contract requires unique non-empty asset `id` and non-empty `source_url`.
-- World state and GPU state remain isolated for predictable extension into ECS and data-driven systems.
-- Material contract: visual differences should flow through `MaterialDefinition` parameters and `material_id` assignment rather than geometry-format churn.
-- Collision outcome contract: role-pair policy selection determines hitbox vs solid behavior and despawn/fragment replacement decisions during reconciliation.
+## Target Session and Authority Protocol
 
-- Asset ingestion contract:
-	- `data-loader` decodes source formats (`.glb` or `.obj` + `.mtl` + textures).
-	- `asset-provider` canonicalizes decoded content into runtime records and exposes stable handles.
-	- Runtime modules request model data from `asset-provider` by handle, not by direct file access.
-	- Physics consumes canonical physics mesh records from `asset-provider` to build `BodyState`.
+This section records a design contract for the runtime rewrite. The examples are illustrative and are not implemented public types in the browser WASM engine API described above.
 
-- Multi-format parity contract:
-	- GLB and OBJ/MTL import paths must produce equivalent canonical mesh records for equivalent geometry.
-	- Canonical records must include deterministic local-space physics mesh geometry and construction-time mass property inputs.
+### Command and Update Flow
+
+The session sends typed domain commands to the simulation authority. The authority validates commands, applies them in authoritative order, advances the world, and publishes updates. The command channel is a transport boundary. It is not the simulation.
+
+Commands describe domain actions, not transport details. A protocol may include commands such as:
+
+```rust
+enum SessionCommand {
+	JoinPlayer { player_id: PlayerId, name: String },
+	LeavePlayer { player_id: PlayerId },
+	MoveActor { actor_id: ActorId, delta: Vec3 },
+	Interact { actor_id: ActorId, target_id: ActorId },
+	RequestWorldState { player_id: PlayerId },
+}
+```
+
+The authority publishes authoritative snapshots or result events through a typed update stream. For example:
+
+```rust
+enum WorldUpdate {
+	Snapshot { tick: u64, world: WorldState },
+	Event { event: SimulationEvent },
+	Correction { tick: u64, corrected_world: WorldState },
+	Rejected { command_id: u64, reason: String },
+}
+```
+
+These names and fields are protocol design examples only. The eventual implementation must define serialization, identity, ordering, error, and compatibility rules before exposing a stable wire format.
+
+### Local and Remote Adapters
+
+In local mode, in-process channels connect the session to the authority. In remote mode, a session adapter encodes domain commands and a server adapter decodes them. The server adapter also encodes updates for the session adapter. Both modes use the same domain contract; only the transport changes.
+
+Start with a local channel implementation when implementing this design. It supports deterministic tests and provides a direct path to a remote adapter without putting transport details in simulation commands.
+
+### Processing Loops
+
+The session loop:
+
+1. Reads the visible world view and queued actor input.
+2. Predicts local state when prediction is enabled.
+3. Sends commands to the authority.
+4. Receives authoritative updates.
+5. Corrects or reconciles its local view.
+
+The authority loop:
+
+1. Receives commands from sessions.
+2. Validates and applies commands in authoritative order.
+3. Advances the world according to simulation rules.
+4. Emits events, rejections, and snapshots.
+5. Publishes updates to the relevant sessions.
+
+The authority owns world truth. The session owns local prediction and participant-facing policy. The transport carries messages between them and does not change either ownership boundary.

@@ -1,6 +1,8 @@
-# Runtime Execution Model: Implementation Recommendations
+# Runtime Execution Model: Historical Recommendations
 
-This document is a development handoff for continuing Runtime Execution Model work (Milestone 4 in the backlog).
+This document records implementation recommendations and progress from 2026-07-01. It is a historical planning note, not a current implementation handoff.
+
+The runtime code described here now resides in `anzu-engine/src/abandoned_generated_code/`. The active engine does not compile that code. Revalidate each recommendation against the active implementation before using it.
 
 ## Objective
 
@@ -15,14 +17,14 @@ Primary targets:
 
 ## Attribution
 
-This plan is informed by both current Anzu implementation details and external engineering guidance.
+This plan was informed by Anzu source and external engineering guidance available on 2026-07-01.
 
 Internal references:
 
 - `BACKLOG.md` (Milestone 4 and profiling requirements)
 - `documents/architecture.md` (runtime/render separation and phase framing)
-- `anzu-engine/src/simulation.rs` (current scheduler behavior and collision path)
-- `anzu-engine/src/platform_browser.rs` (frame boundary: update then render)
+- `anzu-engine/src/abandoned_generated_code/simulation.rs` (historical scheduler and collision path)
+- `anzu-engine/src/abandoned_generated_code/platform_browser.rs` (historical frame boundary: update then render)
 
 External references:
 
@@ -38,9 +40,9 @@ External references:
 - Fyrox executor/runtime loop reference: <https://github.com/FyroxEngine/Fyrox/blob/master/fyrox-impl/src/engine/executor.rs>
 - Godot main loop reference: <https://github.com/godotengine/godot/blob/master/main/main.cpp>
 
-## Current Baseline (Observed)
+## Baseline Recorded On 2026-07-01
 
-Current scheduler behavior in `anzu-engine/src/simulation.rs` is:
+The scheduler behavior recorded at that time was:
 
 1. Integrate transform velocity into position/rotation.
 2. Build per-body working set from world state.
@@ -50,11 +52,11 @@ Current scheduler behavior in `anzu-engine/src/simulation.rs` is:
 6. Write resolved body state back to world.
 7. Process lifecycle TTL/despawn and emit frame report.
 
-Current frame boundary in browser loop (`anzu-engine/src/platform_browser.rs`):
+The browser frame boundary was in `anzu-engine/src/abandoned_generated_code/platform_browser.rs`:
 
 - `state.update(delta_seconds)` then `state.render()` on redraw.
 
-This is a solid base, but stage boundaries are implicit and broadphase is not yet separated from all-pairs scanning.
+At that time, stage boundaries were implicit and collision checks used an all-pairs loop. The active engine now has a different structure.
 
 ## Recommended Stage Contract
 
@@ -230,9 +232,9 @@ Acceptance gate before enabling hybrid path by default:
 - Transfer bytes and synchronization waits stay within target budget at expected body counts.
 - Fallback path remains functional when compute capability is reduced.
 
-## Stepwise Implementation Plan
+## Historical Implementation Plan
 
-### Status Update (2026-07-01)
+### Status Recorded On 2026-07-01
 
 - Slice A is complete: stage report shape and per-phase scheduler timings/counters are emitted.
 - Slice B is complete: compose/publish boundaries are explicit and reconcile work is split into early and late internal blocks while preserving behavior.
@@ -243,7 +245,7 @@ Acceptance gate before enabling hybrid path by default:
    - `cargo test simulation::tests:: -- --nocapture` passed (4/4).
    - `cargo test triangle_man::tests:: -- --nocapture` passed (11/11).
 
-Current next slice: Slice D (narrowphase/resolve split and follow-on collision policy hardening).
+The next planned slice was Slice D (narrowphase/resolve separation and collision-policy hardening).
 
 ### Slice A: Stage API and Report Shape
 
@@ -325,23 +327,13 @@ Acceptance:
 
 - Milestone 4.1/4.2/4.3 evidence is documented.
 
-## Tomorrow Start Checklist (Fast Resume)
+## Superseded Restart Checklist
 
-1. Re-run baseline checks:
+The original checklist below conflicts with the recorded status because it asks the reader to implement Slice C after marking that slice complete. It also targets archived code. Do not use it to start current work.
 
-```bash
-cd /workspaces/Anzu/anzu-engine
-cargo check
-cargo check --target wasm32-unknown-unknown
-cargo test simulation::tests:: -- --nocapture
-wasm-pack build --target web --out-dir ../docs/pkg --release
-```
+The 2026-07-01 plan recorded Slice D as the next slice. Recheck the active source and backlog before planning further work.
 
-2. Implement Slice C only (uniform-grid broadphase + deterministic candidate feed).
-3. Add regression coverage for deterministic candidate ordering and stable interaction outcomes.
-4. Commit as isolated change before narrowphase/resolve restructuring.
-
-## Suggested Commit Sequence
+## Historical Commit Sequence
 
 1. `runtime: add explicit stage timing/counter report scaffolding`
 2. `runtime: split compose and publish phases`
@@ -349,11 +341,11 @@ wasm-pack build --target web --out-dir ../docs/pkg --release
 4. `runtime: separate narrowphase and resolve stages`
 5. `runtime: harden reconcile stage and update docs`
 
-## Out-of-Scope for This Pass
+## Original Scope Limits
 
 - Multithreaded scheduler redesign
 - Compute offload for collision/physics
 - Material/render graph expansion
 - Network sync model changes
 
-Keep this pass focused on deterministic execution model hardening and profiling visibility.
+These scope limits applied to the original planning pass only.

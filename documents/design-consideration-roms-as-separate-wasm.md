@@ -1,12 +1,12 @@
-# Design Consideration: ROMs as Separate WASM Assemblies
+# Design Proposal: ROMs as Separate WebAssembly Modules
 
 Date: 2026-07-06
-Status: Accepted (topology-first)
+Status: Accepted direction (not implemented)
 Owner: Runtime/Platform
 
 ## Problem Framing
 
-We want to ship a host "console" runtime as one wasm module and load game ROMs as separate wasm modules on demand.
+This proposal would ship a host runtime as one WebAssembly module and load ROMs as separate WebAssembly modules on demand. This design is not implemented.
 
 Target host responsibilities:
 - Input management
@@ -20,40 +20,38 @@ Target ROM responsibilities:
 - Game-specific rules and simulation behavior
 - Scenario logic and content-specific intent mapping
 
-## Current-State Evidence (In Repo)
+## Historical Source Evidence (2026-07-06)
 
-The current architecture compiles ROMs into the same wasm module and resolves them at startup with a static closure map.
+At the time of this proposal, the active design compiled ROM code into the same WebAssembly module and selected it with a static resolver.
 
 Evidence:
-- `anzu-engine/src/lib.rs`
+- `anzu-engine/src/abandoned_generated_code/lib.rs`
   - Hardcoded ROM resolver map (`anzu.triangle_man`, `anzu.triangle_man_2`)
-- `anzu-engine/src/platform_browser.rs`
+- `anzu-engine/src/abandoned_generated_code/platform_browser.rs`
   - Loads `manifest.json`, reads `rom_id`, then resolves through in-process closure
-- `anzu-engine/src/rom.rs`
+- `anzu-engine/src/abandoned_generated_code/rom.rs`
   - `RomPackage` trait is in-process and uses host references/trait objects
-- `anzu-engine/src/renderer/core.rs`
+- `anzu-engine/src/abandoned_generated_code/renderer/core.rs`
   - `RenderRomPackage` returns static in-process render payload (`&'static` shader/vertex data)
-- `anzu-engine/src/renderer/wasm.rs`
+- `anzu-engine/src/abandoned_generated_code/renderer/wasm.rs`
   - Runtime `State` owns both `World` and `SimulationModel` directly
 
-Implication:
-Current ROM contract is not plugin-style across wasm module boundaries.
+The active engine has since changed. It now starts `TextureDemoRom` directly. It does not load separate ROM modules or use the earlier static resolver. Older resolver code is in `anzu-engine/src/abandoned_generated_code/`.
 
-## Recommendation
+Implication: Neither the historical resolver nor this proposal defines a working plugin interface across WebAssembly module boundaries.
+
+## Proposed Direction
 
 Adopt an explicit host/guest ABI and treat ROMs as sandboxed guests.
 
-Host (console wasm):
-- Owns frame lifecycle, rendering backend, input adapters, audio graph, network sockets, storage/caching, and ROM lifecycle.
+The host runtime would own the frame lifecycle, rendering backend, input adapters, audio graph, network sockets, storage and caching, and ROM lifecycle.
 
-Guest (ROM wasm):
-- Owns ROM logic only.
-- Interacts with host through typed messages/buffers, not shared references.
+Each ROM module would own ROM logic. It would interact with the host through typed messages or buffers, not shared references.
 
 Key architecture shift:
 - Replace trait-object coupling with a serialized ABI contract that supports versioning and compatibility checks.
 
-## Strategy Update (2026-07-06)
+## Strategy Recorded On 2026-07-06
 
 Direction confirmed:
 - MVP should include full core platform functionality as early as possible, not a reduced-scope architecture that requires later rework.
@@ -140,9 +138,9 @@ Notes:
 
 ## Level of Work
 
-Assessment: High effort, feasible.
+Assessment: This is a high-effort proposal. Feasibility and schedule require validation during planning.
 
-Estimated effort for selected strategy (full-functionality MVP):
+Planning estimate for the selected strategy and full-functionality MVP:
 
 1. Topology-first MVP with full host services (ABI, loader, integrity/hash, storage/caching, audio, networking, asset pipeline, diagnostics)
 - About 12-18 weeks with 2-3 engineers.
@@ -150,9 +148,7 @@ Estimated effort for selected strategy (full-functionality MVP):
 2. Post-MVP expansion (authoring SDK maturity, stronger policy controls, operational tooling, ROM catalog UX)
 - About 6-10 additional weeks with 2-3 engineers.
 
-Confidence:
-- High on effort class (major architecture slice)
-- Medium on exact timeline (depends on strictness of security posture, browser support floor, and networking scope)
+These estimates are not delivery commitments. The effort class is high. The exact timeline depends on security requirements, browser support, team experience, and networking scope.
 
 ## Full-Functionality MVP Scope (Required)
 
@@ -241,7 +237,7 @@ The MVP is complete only when all of the following are present:
 4. Storage eviction and offline instability without robust recovery.
 5. Security exposure from remote ROM loading without strict integrity/capability controls.
 
-## Suggested Next Steps
+## Suggested Next Steps For This Proposal
 
 1. Freeze ABI v1 and Manifest v2 schemas before runtime implementation.
 2. Implement host skeleton with all service boundaries (input, render, audio, network, storage) even if initial implementations are minimal behind the same contract.

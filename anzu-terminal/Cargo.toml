@@ -1,0 +1,17 @@
+[package]
+name = "anzu-terminal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anzu-runtime.workspace = true
+anzu-rom-you-touched-my-boats = { path = "../roms/you touched my boats/" }
+
+[dependencies.crossterm]
+version = "0.29.0"
+
+[dependencies.log]
+version = "0.4.34"
+
+[dependencies.env_logger]
+version = "0.11.11"

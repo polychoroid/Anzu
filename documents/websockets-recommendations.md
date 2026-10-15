@@ -1,24 +1,19 @@
-Below is a **GitHub-ready recommendation document** (Markdown) based on your architecture and the industry practices we discussed. It includes structure, explanations, and cited sources.
-
-***
-
 # Multiplayer WASM + WebSocket Architecture Recommendations
 
 ## Current Project Status Note
 
-Anzu does not yet ship a production multiplayer WebSocket path in the runtime crate.
-Treat this document as forward-looking guidance for upcoming networking milestones, not as a description of already-implemented runtime behavior.
+Anzu does not currently provide a production multiplayer or WebSocket service. This document gives design recommendations. It does not describe implemented behavior.
 
 ## Overview
 
-This document outlines a recommended architecture for building a **low-latency multiplayer game** using:
+This document outlines one possible architecture for a multiplayer application that uses:
 
 * **WASM clients (browser-hosted)**
 * **WebGPU for rendering**
 * **WebSockets for networking**
 * **Authoritative server model**
 
-The goal is to achieve:
+The design goals are:
 
 * Low perceived latency
 * Scalable networking
@@ -31,27 +26,27 @@ The goal is to achieve:
 
 ## 1. Authoritative Server Model
 
-All game state is ultimately controlled by the server:
+In a server-authoritative design, the server owns shared world state:
 
 * Clients send **input**
 * Server validates and applies game logic
 * Server distributes the resulting state
 
-This prevents cheating and ensures consistency across all clients. [\[generalist...rammer.com\]](https://generalistprogrammer.com/tutorials/game-networking-fundamentals-complete-multiplayer-guide-2025)
+This design limits the authority of clients. It does not prevent every form of cheating or guarantee identical client views. [Source](https://generalistprogrammer.com/tutorials/game-networking-fundamentals-complete-multiplayer-guide-2025)
 
 ***
 
 ## 2. Client-Side Prediction
 
-Clients must **not wait for the server** before updating the game.
+Client-side prediction can update local presentation before the server responds.
 
-Instead:
+One approach is:
 
 1. Player generates input
 2. Client simulates immediately
 3. Input is sent to server asynchronously
 
-This eliminates perceived input lag caused by network round-trip time. [\[danieljime....github.io\]](https://danieljimenezmorales.github.io/2025-06-20-client-side-prediction-and-server-reconciliation/)
+Prediction can reduce perceived input delay. It does not remove network latency, and the server can correct the predicted state. [Source](https://danieljimenezmorales.github.io/2025-06-20-client-side-prediction-and-server-reconciliation/)
 
 ***
 
@@ -68,7 +63,7 @@ Typical approach:
 2. Rewind to last confirmed tick
 3. Replay unacknowledged inputs
 
-This ensures consistency without sacrificing responsiveness. [\[zacksinisi.com\]](https://zacksinisi.com/multiplayer-client-side-prediction-and-server-reconciliation-demystified/)
+This can bring the client view back in line with authoritative state. The result depends on prediction and correction policy. [Source](https://zacksinisi.com/multiplayer-client-side-prediction-and-server-reconciliation-demystified/)
 
 ***
 
@@ -79,14 +74,14 @@ For objects not controlled by the client:
 * Render them slightly **in the past**
 * Interpolate between known states
 
-This smooths motion and hides jitter:
+This can smooth remote motion when the client has enough recent snapshots:
 
 ```
 [t0] ------- [t1]
      render here
 ```
 
-Interpolation is a standard technique to reduce perceived network instability. [\[github.com\]](https://github.com/0xFA11/MultiplayerNetworkingResources)
+Interpolation adds presentation delay and does not remove packet loss or server-side state changes. [Source](https://github.com/0xFA11/MultiplayerNetworkingResources)
 
 ***
 
@@ -94,7 +89,7 @@ Interpolation is a standard technique to reduce perceived network instability. [
 
 ## Client → Server
 
-Send **input events only**, not game state:
+Send domain commands or input intent. Do not accept client-authored world state as authoritative:
 
 ```json
 {
@@ -106,7 +101,7 @@ Send **input events only**, not game state:
 }
 ```
 
-Benefits:
+Possible benefits:
 
 * Minimal bandwidth
 * Deterministic simulation
@@ -176,35 +171,19 @@ Per tick:
 
 ## Concurrency Model
 
-**Do NOT use one thread per connection.**
+Do not select a concurrency model without measuring the expected workload.
 
-Instead:
+For many concurrent connections, consider asynchronous or event-driven I/O. Compare it with other models under representative load.
 
-* Use **async/event-driven I/O**
-* Examples:
-  * Node.js (event loop)
-  * Rust Tokio
-  * Go goroutines
-
-Reason:
-
-* Threads do not scale efficiently
-* Async models handle thousands of connections with fewer resources [\[codingtechroom.com\]](https://codingtechroom.com/question/multithreading-websockets)
+Examples include Node.js event loops, Rust Tokio, and Go goroutines. The suitable model depends on workload, runtime, and operational constraints. [Background](https://codingtechroom.com/question/multithreading-websockets)
 
 ***
 
 ## Scaling Considerations
 
-Each WebSocket connection:
+Each WebSocket connection uses memory and keeps connection state. The amount depends on the server and protocol. One source estimates approximately 20-50 KB per connection. Treat this as a rough estimate, not a capacity guarantee.
 
-* Consumes memory (\~20–50 KB per connection)
-* Maintains persistent state
-
-Scaling requires:
-
-* Load balancing
-* Horizontal scaling (multiple servers)
-* Efficient resource management [\[dev.to\]](https://dev.to/young_gao/scaling-websocket-connections-from-single-server-to-distributed-architecture-1men)
+Choose load balancing, multiple servers, and resource limits from measured capacity needs. [Background](https://dev.to/young_gao/scaling-websocket-connections-from-single-server-to-distributed-architecture-1men)
 
 ***
 
@@ -212,33 +191,35 @@ Scaling requires:
 
 ## Typical Per-Client Usage
 
-| Direction          | Bandwidth    |
-| ------------------ | ------------ |
-| Upstream (input)   | 1–10 KB/s    |
-| Downstream (state) | 5–50 KB/s    |
-| Total              | \~10–60 KB/s |
+| Direction          | Example estimate |
+| ------------------ | ---------------- |
+| Upstream (input)   | 1-10 KB/s        |
+| Downstream (state) | 5-50 KB/s        |
+| Total              | about 10-60 KB/s |
+
+These values are rough planning examples, not measured Anzu traffic. Measure serialized traffic at the expected update rate and player count before setting limits.
 
 ***
 
 ## Key Observations
 
-* Bandwidth is usually **not the primary bottleneck**
-* Latency and serialization cost matter more
-* WebSocket itself has no strict bandwidth cap
+* Measure bandwidth, latency, serialization cost, and server processing time.
+* Set per-connection and aggregate traffic limits in the application protocol.
+* Do not assume that WebSocket transport provides an application bandwidth budget.
 
 ***
 
 # Optimization Strategies
 
-## 1. Send Inputs, Not Actions
+## 1. Send Commands, Not Client State
 
-✅ Good:
+Prefer a domain command such as:
 
 ```
 "move forward"
 ```
 
-❌ Bad:
+Do not accept a client-authored authoritative state change such as:
 
 ```
 "set position = (x,y)"
@@ -246,14 +227,11 @@ Scaling requires:
 
 ***
 
-## 2. Use Binary Protocols
+## 2. Select a Message Format
 
-Avoid JSON:
+Compare JSON and binary formats with representative messages. Measure payload size, encode/decode cost, tooling needs, and compatibility requirements.
 
-* JSON → large + slow
-* Binary → compact + fast
-
-Options:
+Possible binary formats include:
 
 * FlatBuffers
 * Protobuf
@@ -261,9 +239,9 @@ Options:
 
 ***
 
-## 3. Delta Compression
+## 3. Consider Delta Encoding
 
-Only send changes:
+Send deltas when they reduce traffic and the receiver can detect missing or out-of-order state. For example:
 
 ```
 position += delta
@@ -279,19 +257,19 @@ Example:
 float32 → uint16
 ```
 
-Reduces bandwidth significantly.
+Quantization can reduce payload size. Define acceptable error bounds and test the effect on simulation and presentation.
 
 ***
 
 ## 5. Message Aggregation
 
-✅ Good:
+Consider aggregation when it reduces overhead without adding unacceptable latency:
 
 ```
 1 packet / tick
 ```
 
-❌ Bad:
+Avoid excessive small messages when they add overhead without improving latency:
 
 ```
 many tiny packets
@@ -301,9 +279,9 @@ many tiny packets
 
 # Large World Handling
 
-## Problem
+## Scope
 
-Clients cannot store full world state.
+Some clients do not need a complete copy of a large world. Define the visible state for each session.
 
 ***
 
@@ -311,7 +289,7 @@ Clients cannot store full world state.
 
 ### 1. Interest Management
 
-Send only relevant entities:
+Send only the entities relevant to each session, such as:
 
 * Nearby players
 * Visible objects
@@ -320,7 +298,7 @@ Send only relevant entities:
 
 ### 2. Spatial Partitioning
 
-Partition world into:
+Choose a spatial structure that fits the world and query pattern, such as:
 
 * grids
 * quadtrees
@@ -330,7 +308,7 @@ Partition world into:
 
 ### 3. World Streaming
 
-Client loads/unloads chunks dynamically:
+Load and unload world regions when the product requires streaming:
 
 ```
 [Chunk A][Chunk B][Chunk C]
@@ -343,16 +321,13 @@ Client loads/unloads chunks dynamically:
 
 ## Lag Compensation
 
-Server evaluates actions in the past:
-
-* Rewinds simulation to match player’s perspective
-* Common in FPS games
+Lag compensation can evaluate an action against recent historical state. Add it only when the application needs this behavior, and define its time and trust limits.
 
 ***
 
 ## Hybrid Authority Models
 
-Some systems allow:
+An application can assign different authority by action:
 
 * client authority for low-risk actions
 * server authority for critical logic
@@ -361,12 +336,12 @@ Some systems allow:
 
 ## Rollback Networking (optional)
 
-Used in deterministic simulations:
+Rollback can suit deterministic simulations that need to replay recent inputs:
 
 * rewind entire state
 * replay inputs
 
-Requires strict determinism.
+This approach requires strict determinism, state history, and replay tests.
 
 ***
 
@@ -387,34 +362,34 @@ Client:
 
 ***
 
-## Key Design Rules
+## Design Checks
 
-* Never wait for server to render local actions
-* Always assume correction will happen
-* Minimize data sent over network
-* Keep server authoritative
-* Filter everything sent to clients
+* Keep world authority on the server when the design uses a server-authoritative model.
+* Define how the client predicts and corrects local state.
+* Limit messages by size, rate, and session authorization.
+* Send each session only the state it is allowed to see.
+* Measure latency, traffic, serialization cost, and server work under representative load.
 
 ***
 
-# Final Takeaways
+# Summary
 
-* **Perceived latency is solved on the client**
-* **Correctness is enforced by the server**
-* **Bandwidth efficiency determines scalability**
-* **Async networking is essential for performance**
-* **WebSockets are suitable for real-time multiplayer when used correctly**
+* Client prediction can reduce perceived input delay, but it cannot remove network latency.
+* Server authority can limit client control of shared state, but it does not guarantee security by itself.
+* Measure traffic and processing costs before selecting update rates or scaling strategies.
+* Choose WebSocket and concurrency designs from protocol needs and load tests.
+* Treat this guide as a proposal until Anzu implements and validates a network service.
 
 ***
 
 # References
 
-* Multiplayer networking techniques overview (prediction, interpolation, reconciliation) [\[github.com\]](https://github.com/0xFA11/MultiplayerNetworkingResources)
-* Client-side prediction and latency issues [\[danieljime....github.io\]](https://danieljimenezmorales.github.io/2025-06-20-client-side-prediction-and-server-reconciliation/)
-* Server-authoritative architecture and tradeoffs [\[generalist...rammer.com\]](https://generalistprogrammer.com/tutorials/game-networking-fundamentals-complete-multiplayer-guide-2025)
-* Reconciliation and snapshot interpolation techniques [\[zacksinisi.com\]](https://zacksinisi.com/multiplayer-client-side-prediction-and-server-reconciliation-demystified/)
-* WebSocket real-time networking behavior [\[w3tutorials.net\]](https://www.w3tutorials.net/blog/nodejs-websocket-performance/)
-* Async vs threading for WebSockets [\[codingtechroom.com\]](https://codingtechroom.com/question/multithreading-websockets)
-* WebSocket scaling and resource usage [\[dev.to\]](https://dev.to/young_gao/scaling-websocket-connections-from-single-server-to-distributed-architecture-1men)
+* [Multiplayer networking techniques](https://github.com/0xFA11/MultiplayerNetworkingResources)
+* [Client-side prediction and latency](https://danieljimenezmorales.github.io/2025-06-20-client-side-prediction-and-server-reconciliation/)
+* [Server-authoritative architecture](https://generalistprogrammer.com/tutorials/game-networking-fundamentals-complete-multiplayer-guide-2025)
+* [Prediction and reconciliation](https://zacksinisi.com/multiplayer-client-side-prediction-and-server-reconciliation-demystified/)
+* [WebSocket performance](https://www.w3tutorials.net/blog/nodejs-websocket-performance/)
+* [Concurrency and WebSocket servers](https://codingtechroom.com/question/multithreading-websockets)
+* [WebSocket scaling](https://dev.to/young_gao/scaling-websocket-connections-from-single-server-to-distributed-architecture-1men)
 
 ***
