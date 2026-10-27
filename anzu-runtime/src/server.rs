@@ -1,64 +1,85 @@
-use crate::{input::InputSignal, simulation::Simulation};
+use crate::{display::DrawBatch, input::InputSignal, simulation::Simulation};
 use log::info;
-use std::time::Instant;
+use std::collections::VecDeque;
+use web_time::Instant;
 
-pub enum Server<S: Simulation> {
-    Local(LocalServer<S>),
-    Remote(RemoteServer),
+pub trait State {
+    type Update;
+
+    fn new() -> Self;
+    fn apply_update(&mut self, update: Self::Update);
+    fn project_display(&self) -> Vec<DrawBatch>;
+    // fn get_snapshot(&self) -> Self;
 }
 
-impl<S: Simulation> Server<S> {
-    pub fn queue_input(&mut self, input: InputSignal) {
-        match self {
-            Self::Local(local_server) => local_server.queue_command(input),
-            _ => (),
-        }
-    }
-
-    pub fn send_session_tick(&mut self, tick: Instant) {
-        match self {
-            Self::Local(local_server) => local_server.update(tick),
-            _ => (),
-        }
-    }
+pub trait Protocol {
+    type Update;
+    type State: State<Update = Self::Update>;
 }
 
-pub struct LocalServer<S: Simulation> {
-    pub snapshot: S::Snapshot,
-    input_queue: Vec<S::Command>,
+pub trait Server {
+    type Protocol: Protocol;
+
+    fn tick(&mut self, tick: Instant);
+    fn queue_input(&mut self, input: InputSignal);
+    fn dequeue_update_batch(&mut self) -> Option<Vec<<Self::Protocol as Protocol>::Update>>;
+    fn copy_simulation_state(&self) -> <Self::Protocol as Protocol>::State;
+}
+
+pub struct LocalServer<P: Protocol, S: Simulation<P>> {
     simulation: S,
+    input_queue: Vec<InputSignal>,
+    update_queue: VecDeque<Vec<P::Update>>,
     last_update: Instant,
 }
 
-impl<S: Simulation> LocalServer<S> {
-    pub fn new(simulation: S) -> LocalServer<S> {
-        LocalServer {
-            snapshot: simulation.snapshot(),
-            input_queue: Vec::new(),
+impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
+    type Protocol = P;
+
+    fn tick(&mut self, tick: Instant) {
+        self.update(tick)
+    }
+
+    fn queue_input(&mut self, input: InputSignal) {
+        self.input_queue.push(input)
+    }
+
+    fn dequeue_update_batch(&mut self) -> Option<Vec<P::Update>> {
+        self.update_queue.pop_front()
+    }
+
+    fn copy_simulation_state(&self) -> <Self::Protocol as Protocol>::State {
+        self.simulation.snapshot()
+    }
+}
+
+impl<P: Protocol, S: Simulation<P>> LocalServer<P, S> {
+    pub fn new(simulation: S) -> Self {
+        Self {
             simulation: simulation,
+            input_queue: Vec::new(),
+            update_queue: VecDeque::<Vec<P::Update>>::new(),
             last_update: Instant::now(),
         }
     }
 
     fn update(&mut self, tick: Instant) {
         info!("{}", self.input_queue.len());
-        for command in self.input_queue.drain(0..) {
-            self.simulation.apply(command);
+
+        for input in self.input_queue.drain(0..) {
+            if let Some(command) = self.simulation.adapt_signal(input) {
+                self.simulation.apply(command);
+            }
         }
+
         self.simulation.step();
-        self.snapshot = self.simulation.snapshot();
         self.last_update = tick;
-    }
 
-    pub fn queue_command(&mut self, signal: InputSignal) {
-        if let Some(command) = self.simulation.signal_command(signal) {
-            self.input_queue.push(command);
+        if let Some(update) = self.simulation.publish_updates() {
+            self.update_queue.push_back(update)
         }
-    }
-
-    pub fn queue_commands(&mut self) {
-        todo!()
     }
 }
 
-pub struct RemoteServer {}
+pub struct RemoteServer;
+pub struct PredictiveRemoteServer;

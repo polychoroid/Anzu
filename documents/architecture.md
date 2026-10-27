@@ -8,20 +8,23 @@ The target runtime uses separate layers so the simulation and renderer can evolv
 Target layers:
 - Platform shell: Host integration for the window, canvas, events, and lifecycle.
 - Runtime loop: Owns frame ordering, fixed-tick orchestration, and lifecycle.
-- Simulation pipeline: Composes intent, applies transforms, runs physics, and reconciles state in explicit stages.
-- World state: Source of truth for simulation-owned state, transforms, and physics outcome.
-- Render extraction: Converts simulation state into GPU-ready draw parameters.
+- Compute pipeline: Calculates proposed updates from commands, simulation time, and stable authoritative state.
+- World state database: Owns authoritative state, applies updates, and publishes committed events.
+- Session: Owns permitted actor-partitioned state, input adapter, and display adapter.
+- Render extraction: The session-owned display adapter converts a stable view of the session's permitted state into backend-independent render data. Actor scope controls which data enters session state; it does not limit a display to one actor.
 - Renderer/GPU backend: Owns device resources and submits command buffers.
 
 Target contracts:
 - ROMs own input vocabulary and scenario rules.
 - Normalize host-specific input before the runtime applies profile rules. Prefer semantic controls when the host can provide them.
-- Simulation composes applied intent first, then mutates world state through the physics pipeline.
-- Physics updates simulation-owned state, such as transforms, velocities, and contact outcomes.
-- Rendering reads state snapshots and must not contain gameplay business rules.
+- Computation changes working data and proposes updates, but does not directly mutate committed world state.
+- The authoritative state owner applies updates before publishing events to sessions.
+- Rendering consumes extracted session data and must not contain simulation rules or unrestricted world access.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
 
-Current implementation note: the active texture demo handles `P` to change projection mode and `Escape` to exit. The previous gamepad, ROM-context, and overlay contracts remain in `anzu-engine/src/abandoned_generated_code/` and are not active engine behavior.
+Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and rom packages for the next integration stage. Code under `anzu-engine` is excluded from this design pass and is not completion evidence.
+
+Platform decision: `anzu-winit` is the browser frontend and its shipped runtime is browser-only. It can retain native `target_arch` paths for development-workspace builds and runs. Those paths do not make it the desktop frontend. A future `anzu-desktop` package will provide the desktop platform shell.
 
 ## Core Glossary
 
@@ -32,9 +35,23 @@ Current implementation note: the active texture demo handles `P` to change proje
 - Physics mesh: Canonical local-space collision geometry used for collision and mass-property construction.
 - Solver: Deterministic numerical stage that advances simulation state per tick.
 - Runtime pipeline: Ordered stages executed each frame/tick (input, compose, simulate, reconcile, extract, render).
-- Render extraction: Read-only translation from simulation state into GPU-ready draw data.
+- Render extraction: Read-only translation from a stable view of session-permitted state into backend-independent render data.
 - Adapter: Boundary layer that maps platform/runtime specifics into core abstractions.
 - Resource handle: Stable ID referencing GPU/asset resources without embedding ownership in gameplay objects.
+
+### Data-Oriented Design Vocabulary
+
+These working definitions describe how Anzu organizes and transforms data. They are informed by Richard Fabian's [Data-Oriented Design](https://www.dataorienteddesign.com/dodbook/dodmain.html), but are written for this project and are not quotations. Extend this vocabulary as the design develops.
+
+- Data table: A collection of records with a shared layout, stored to support the operations that use them.
+- Row: The values at one table position. In a column-based layout, matching row positions across columns describe one record.
+- Column: One field stored across multiple records, such as every boat's position.
+- Component: A focused set of data associated with an entity or simulation role. Components can be stored and processed by type instead of inside one large entity object.
+- Entity ID: A stable key used to associate records from different tables. The ID identifies the logical entity; it does not need to be its storage position.
+- Secondary index: A derived lookup structure, such as `BoatId` to row position, that provides access to table data without owning a second copy of that data.
+- Array of structures (AoS): A collection of complete records, such as `Vec<BoatRecord>`, where each record stores several fields together.
+- Structure of arrays (SoA): Separate collections for fields, such as position and velocity arrays, where matching positions identify fields for the same record.
+- Data transform: An operation that reads selected input data and produces updated or derived data. This term is distinct from an entity's spatial transform, which describes position, orientation, and scale.
 
 Terminology policy:
 - Prefer domain-neutral terms (`simulation`, `visualization`, `domain profile`) in architecture and APIs.
@@ -42,48 +59,106 @@ Terminology policy:
 
 ## Runtime Rewrite Direction
 
-This section records the target design for the runtime rewrite. It does not describe a complete, implemented runtime API.
+The 2026-10-16 brainstorm is the latest target design. This section takes precedence over older direct-mutation, direct-world rendering, and prediction-first recommendations. It does not describe a complete implementation.
 
-The runtime is divided into four ownership areas:
+The publish/subscribe and microservice comparisons describe logical boundaries, not separate deployments or a requirement for a message broker.
 
-- Platform loop: The host schedules work and provides events, time, input, surface lifecycle, and shutdown signals.
-- Runtime core: The simulation advances authoritative world state and publishes stable snapshots.
-- Session logic: The session owns membership, player policy, local input queues, prediction, correction, and each player's visible world projection.
-- Adapters: Platform, display, and transport adapters connect host-specific interfaces to the runtime contracts.
+| Owner | Responsibility |
+|---|---|
+| `App` | Platform lifecycle, window/canvas, events, redraw requests, and ownership of the renderer |
+| `Session` | Input adapter, display adapter, server connection, and permitted actor-partitioned session state |
+| Compute engine | Propose updates from commands, fixed simulation time, and a stable authoritative state view |
+| World state database | Own authoritative state, validate and apply proposed updates, then publish committed events |
+| `LocalServer` | Coordinate the local authority and in-memory command/update delivery |
+| `RemoteServer` | Client-side transport and queues using command/update types, without a simulation instance |
+| Host package | Run the authority, accept remote connections, and enforce session and actor permissions |
+| wgpu renderer | Own surface, device, queue, GPU resources, encoding, submission, and presentation |
 
-The platform loop does not own simulation rules, authoritative world state, session policy, or render-extraction decisions. The runtime core must not depend on a display. It should support headless and render-enabled hosts when the selected simulation backend permits them.
+The database is a logical state owner. No database product, durable storage, or separate process is selected. The runtime must support headless operation. A session-owned display adapter is a trait for extraction only, not GPU presentation.
 
 ### World and Session Ownership
 
-- `WorldState` is the complete authoritative simulation state. Only the simulation authority mutates it.
-- `SessionState` tracks session membership, policy, local or remote connections, submitted control queues, and the session-visible world projection. It is not the full world.
-- `PlayerView` is a read-only view of the world subset that a player may see. It may also carry local prediction state and queued input.
-- An `Actor` represents a participant or simulated entity. It expresses intent through commands or action requests; it does not directly mutate authoritative state.
+- `WorldState` is authoritative. Only its state-application boundary commits changes.
+- `SessionState` is persistent permitted state, owned and updated by the session. Its storage representation is separate from `WorldState`.
+- A snapshot captures permitted state at a known revision for initialization or recovery. It is not the name for all mutable session storage.
+- Actor scope controls which actor-specific state the authority publishes into a session. Session queries must exclude actor partitions that the session is not permitted to access.
+- Display extraction reads the session's permitted state and may compose data for multiple actors into one shared display output, including separate views such as split screen. It does not impose an actor-per-display rule.
+- A deployment may bind separate sessions and renderer surfaces to separate physical displays. For example, two local sessions may each contain one actor and present to one monitor. This is a topology choice, not a definition of actor scope.
+- Commands express intent. Updates express computed state changes. Applying an update must not repeat expensive simulation decisions.
 
-The authority can run in-process for local use or on a remote server. The session sends commands to the authority and reconciles its local view from authoritative updates. A browser client is a session and presentation layer, not a second authority.
+The same compatible update instructions should advance authoritative and session state. Filtering or reduced state may require a defined projection rather than identical raw updates. Initial state, ordering, and application semantics must match for reconstruction to succeed. Actor authorization is applied when data enters session state; display composition then operates on that permitted state. Prediction and interpolation are optional later presentation features, not baseline requirements.
+
+### Compute, Commit, and Publish
+
+```mermaid
+flowchart LR
+	Command[Commands and fixed tick] --> Compute[Compute against stable state]
+	Compute --> Queue[1:1 ordered proposed-update queue]
+	Queue --> Store[World state database: validate and commit]
+	Store --> Filter[Session and actor authorization filtering]
+	Filter --> Channels[1:n session-specific delivery channels]
+	Channels --> State[Session applies actor-partitioned updates]
+	State --> Display[Session-owned display adapter]
+	Display --> Renderer[Backend-independent render data to renderer]
+```
+
+The compute engine publishes proposals to one authoritative consumer. Only committed events reach sessions. A queued command is not a committed command. Alternative CPU/GPU compute implementations share a contract, but identical numerical results require explicit rules and verification.
+
+The compute state-read contract remains open. Define a stable revision and a stale-result policy before allowing concurrent proposals. Commit and publication must not leave sessions silently missing accepted changes. Durable recovery is required only if persistence becomes a requirement.
+
+### Session and Actor Partitions
+
+- Hard partition: `session_id` identifies a distinct delivery channel, analogous to a Kafka topic or a separate WebSocket connection.
+- Soft partition: `actor_id` is a partition key within that session's messages and stored state.
+- A session can contain several authorized actor partitions. Actor-specific consumers use scoped queries, not unrestricted storage access.
+- Authorization selects permitted data before session delivery. Snapshots and incremental updates use the same disclosure rules.
+- Physical and logical partitioning work with authentication, authorization, TLS, and other defense-in-depth controls. Partition labels do not replace those controls.
+
+Preserve both scopes through routing, decoding, state application, queries, and extraction. Shared actor data, permission revocation, and subscription transitions still need explicit contracts. Data already disclosed cannot be made secret by removing a local copy.
 
 ### Platform and Runtime Stages
 
 Organize runtime work around explicit stage boundaries:
 
+The list below describes data dependencies, not one mandatory loop or a shared frequency. Input capture/polling, command delivery, computation, update application, extraction, drawing, audio, assets, and diagnostics can have different and dynamically changing cadences. Each needs explicit deadlines, work budgets, ordering, and overload/loss policies. See [the scheduling brainstorm](runtime-integration-brainstorms.md#topic-6-scheduling-and-browser-lifecycle).
+
 1. The platform acquires host events and timing information.
 2. Session logic collects and validates input.
-3. The simulation applies commands and advances authoritative state.
-4. Render extraction reads a stable world snapshot.
-5. The selected output adapter presents or publishes the result.
-6. Profiling and diagnostics report stage costs and outcomes.
+3. The authority computes updates, commits them, and publishes permitted batches.
+4. Session logic dequeues committed batches and updates its actor-partitioned state.
+5. The display adapter reads a stable view of session-permitted state and extracts render data. It may include multiple actors and presentation views.
+6. The renderer performs frame acquire, resource preparation, command encoding, queue submission, and present.
+7. Profiling separates compute, commit, delivery, session application, extraction, upload, and rendering costs.
 
-The platform triggers stages but does not choose simulation rules. Session logic sits above the simulation and below the platform shell. It owns participant policy and views, not world truth. Simulation and rendering remain separate so the runtime can run without a display. Render extraction reads a stable snapshot and does not mutate simulation-owned state.
+Authority progression must not mean one step per redraw. A local app may service an elapsed-time fixed-step scheduler and rendering from the same callback; no separate thread is required. Remote clients do not drive authority time. Scheduler ownership, catch-up limits, and local pause/resume policy remain undecided. A surface failure does not undo committed work. No lock or mutable state borrow should span asynchronous transport or GPU initialization. The renderer owns encoders and command buffers through submission; session state does not own them.
+
+Cross-host goal: precise, tunable execution with measured error bars, not perfect or identical timing. Separate requested cadence from achieved cadence and measure lateness, queue age, and missed deadlines. Preserve delivery semantics while adapting scheduling facilities to each host. Frequency does not determine loss tolerance; skipping an obsolete display view does not permit dropping required committed updates. Rates, execution placement, and a general scheduler design are not yet selected.
 
 ### Local and Remote Operation
 
 Use the same domain command and update contracts in local and remote modes. In local mode, in-process channels connect the session and authority. In remote mode, transport adapters encode and decode the same domain messages. A WebSocket or other network transport is an adapter, not the authority or the simulation.
 
-This boundary supports local single-player iteration, deterministic tests, headless CPU or GPU validation, and remote clients without changing the simulation contract. See the design-only protocol contract in [API Reference](api.md#target-session-and-authority-protocol).
+`SimulationIO` supplies command/update associated types independently of state storage. It currently exists but is not wired into `Simulation`, `Server`, or `Session`. A remote client must not require a simulation implementation merely to name these types.
+
+The proposed common connection contract queues commands and provides nonblocking `dequeue_update()` for complete committed batches. Empty queues, closed connections, and failures must be distinguishable. A connection trait with associated IO is recommended.
+
+Decision, 2026-10-17: the platform host hardcodes the concrete local or remote connection. Session uses that concrete type through a generic connection contract. No runtime local/remote switching or `Server` enum is required. This resolves the earlier enum-selection question; exact trait signatures remain open.
+
+A new host package is planned, with a transport-neutral name still to be selected. WebSocket over TLS is the proposed first transport. WebTransport remains an alternative if independent streams or datagrams justify it. Required incremental updates need reliable ordered delivery or explicit application recovery. Bound queues and define recovery for slow consumers.
+
+See [API Reference](api.md#target-session-and-authority-protocol), [Transport Recommendations](websockets-recommendations.md), and [the backlog](../BACKLOG.md#current-priority-session-and-authority-integration).
+
+### Next-Stage Decisions and Acceptance
+
+Resolve command mapping from `InputSignal`, stable compute reads, update operations versus final values, filtered projections, snapshot handoff, scheduler ownership, shared actor data, and display composition/view selection. Do not treat proposed trait signatures or transport choices as approved implementation details.
+
+Use [Future Brainstorms](runtime-integration-brainstorms.md) for topic context, questions, source entry points, and expected decisions. Prediction is low-priority future consideration, after the committed-update baseline and remote recovery are validated. Do not add prediction, rollback, or replay requirements to the current stage.
+
+Acceptance requires local/remote reconstruction parity, commit-before-publish ordering, snapshot/update continuity, duplicate and gap handling, bounded queues, session isolation, actor-scoped exclusion, unsupported-input handling, redraw-independent ticks, and browser initialization/resize/recovery checks. Record low-cost work counters early and measure detailed stage timings separately.
 
 ### Target Simulation Flow
 
-The following flow describes the target ROM-based runtime. The active engine does not implement this complete flow.
+The following domain-stage sketch predates the current compute/commit split. Context routing and physics stages remain possible internal computation stages, not permission to mutate authoritative state directly.
 
 1. Input adapters produce generic input events at the platform edge.
 2. Browser input normalization translates raw controls into semantic controls where possible while preserving raw escape hatches for specialized hardware.
@@ -93,18 +168,23 @@ The following flow describes the target ROM-based runtime. The active engine doe
 6. ROM simulation converts those events into intent and per-body applied forces.
 7. World state is synchronized once per tick before physics.
 8. Physics runs broadphase candidate selection, then narrowphase collision and impulse response.
-9. ROM reconciliation handles policy-driven spawn/despawn and scenario-specific rules (including fragment replacement).
-10. Rendering reads the final world snapshot and never writes simulation-owned state.
+9. ROM reconciliation computes policy-driven spawn/despawn and scenario-specific updates (including fragment replacement).
+10. The state owner commits the resulting batch and publishes permitted updates. Display extraction reads updated session-permitted state, which may contain data for multiple actors.
 
 ## Target Rendering Pipeline
 Frame flow:
 1. Platform receives redraw event.
-2. Runtime accumulates fixed steps and executes the simulation pipeline.
-3. Renderer acquires surface texture and encodes commands from the final world snapshot.
-4. Renderer binds pipeline resources and submits draw calls.
-5. Surface presents frame.
+2. If this callback also services a local authority scheduler, determine due fixed steps from elapsed time, not redraw count. Remote authority runs on its host. Local suspension/catch-up policy remains open.
+3. The session applies available committed batches and extracts render data through its display adapter.
+4. Renderer acquires the surface texture, updates changing resources, and encodes commands from extracted data.
+5. Renderer submits command buffers and presents the surface frame.
+6. Diagnostics record stage costs, queue depth, transfer bytes, and backend failures.
+
+Keep static resources resident where appropriate and use resource handles in extracted data. Define missing-resource fallback. WebGPU/WebGL capabilities and compute backends must not be assumed identical.
 
 ## Outer Loop and Inner Loop
+
+Historical detail: the diagrams and mutation rules in this section describe an older direct-world pipeline. They are retained for context, not as the next-stage integration contract. The [Runtime Rewrite Direction](#runtime-rewrite-direction) supersedes their direct mutation and simulation-to-renderer paths.
 
 The target runtime uses two nested loops:
 
@@ -181,6 +261,8 @@ Mutation rule of thumb:
 - Extraction and renderer stages are read-only over the published simulation snapshot.
 
 ## Proposed Hybrid CPU/GPU Simulation Contract
+
+Deferred research: this section predates session-filtered publication. Direct rendering from authoritative GPU body buffers must not bypass commit, permission filtering, session state, or display extraction. Residency is an optimization hypothesis, not an exception to these boundaries. GPU-resident authority and filtered session delivery need a measured transfer/readback design before implementation.
 
 The target architecture can use a hybrid simulation design. In that design, the CPU and GPU each own the work they handle best.
 
@@ -433,6 +515,8 @@ Typed error boundary:
 - Streaming and manifest failures are represented as `Result`-style typed errors at load and activation boundaries.
 
 ### Part B: Expansion to Initiative 1 (Runtime and Frame Lifecycle)
+
+Historical contract: this entire subsection, including its law-check matrix and verification policy, is superseded by [Runtime Rewrite Direction](#runtime-rewrite-direction). It is not a completion gate for the current stage. In particular, simulation must not depend on successful frame acquisition, and extraction reads actor-scoped session state rather than authoritative simulation state.
 
 Initiative 1 state decomposition can be treated as a product object:
 $$

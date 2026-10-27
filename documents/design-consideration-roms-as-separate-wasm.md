@@ -4,6 +4,12 @@ Date: 2026-07-06
 Status: Accepted direction (not implemented)
 Owner: Runtime/Platform
 
+## Current Precedence (2026-10-16)
+
+Retain separate-WASM loading as a long-term direction, not a prerequisite for the [current integration stage](../BACKLOG.md#current-priority-session-and-authority-integration). The older full-functionality MVP and ABI-first sequencing below are superseded for this stage. Audio, persistence, dynamic loading, and a frozen guest ABI are not required before local session/update integration.
+
+The [current architecture](architecture.md#runtime-rewrite-direction) controls ownership: session owns input and extraction-only display adapters; App owns the renderer; the authority computes, commits, and publishes permitted updates. Remote clients need shared IO types, not a simulation module. Future guest ABIs must preserve these boundaries. The older frame sequence must not imply that client redraws advance remote authority or that rendering reads unrestricted world snapshots.
+
 ## Problem Framing
 
 This proposal would ship a host runtime as one WebAssembly module and load ROMs as separate WebAssembly modules on demand. This design is not implemented.

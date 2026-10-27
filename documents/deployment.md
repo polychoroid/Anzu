@@ -1,8 +1,16 @@
 # Deployment
 
+## Current Integration Scope (2026-10-16)
+
+The [current runtime design](architecture.md#runtime-rewrite-direction) separates browser presentation from a future remote authority host. Local browser simulation comes first. A static site hosts client artifacts; a remote deployment also needs the planned host package and authenticated, authorized transport endpoints.
+
+WebSocket over TLS is the proposed first transport, not an implemented deployment. Host package name, serialization, libraries, and operational configuration remain open. Preserve session-specific delivery and actor-scoped permissions, set message/queue limits, and define reconnect/resynchronization before remote release.
+
+The build commands and texture-demo checks below apply to the legacy engine/artifacts only. `anzu-engine` is excluded from the next development stage. These commands were not revalidated and are not an `anzu-winit` release recipe.
+
 ## Build and Release
 
-The primary deployment target is a browser-hosted static site. It serves the compiled WebAssembly package and JavaScript bindings for the ROM that the manifest selects.
+The legacy browser site serves generated WebAssembly and JavaScript artifacts. Do not infer manifest-driven ROM selection or new runtime integration from this workflow.
 
 ### Build Artifacts
 - `docs/index.html` - browser entry page and canvas bootstrap.

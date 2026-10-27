@@ -1,4 +1,5 @@
-pub mod entities;
+pub mod assets;
+pub mod display;
 pub mod input;
 pub mod roms;
 pub mod server;

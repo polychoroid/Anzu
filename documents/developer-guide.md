@@ -1,7 +1,19 @@
 # Developer Guide
 
+## Current Integration Scope (2026-10-16)
+
+Use [the current architecture](architecture.md#runtime-rewrite-direction), [API contracts](api.md), and [backlog sequence](../BACKLOG.md#current-priority-session-and-authority-integration) for the next development stage. Work targets `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and rom packages. Everything under `anzu-engine` is excluded.
+
+The engine inventory, build commands, and tutorials below are retained legacy guidance. They are not a verified build recipe for the new web app. Do not infer working browser or remote-host integration from generated artifacts.
+
+Platform boundary: `anzu-winit` is the browser frontend. Keep native `target_arch` paths when they support development-workspace builds or runs. These paths do not define a desktop product target. Desktop execution belongs to the planned `anzu-desktop` package. References below to native targets in the legacy engine section describe `anzu-engine` only.
+
+For the `winit 0.30.13` event contract and the planned `App::window_event` routing, see [Window Events](../anzu-winit/window-events.md). The guide distinguishes current keyboard input handling from renderer and lifecycle work that still needs implementation.
+
+The next stage connects `SimulationIO`, separates compute from commit/publication, adds actor-partitioned session state, and introduces a session-owned extraction-only display adapter. Remote clients need IO types, not simulation implementations. Validate update reconstruction, partition exclusion, snapshot continuity, bounded queues, and redraw-independent authority ticks. Record instrumentation overhead with performance evidence.
+
 ## Repository Structure
-- `anzu-engine/` — Rust library for browser WebAssembly and native targets.
+- `anzu-engine/` — legacy Rust library for browser WebAssembly and native targets. Its target list does not describe `anzu-winit`.
   - `src/lib.rs` — application startup, event handling, update, and render scheduling.
   - `src/assets/` — mesh data providers.
   - `src/ecs/` — entity and world types.
@@ -169,7 +181,7 @@ Runtime pipeline continuation:
 - **Rust style:** Use standard Rust idioms. Run `cargo fmt` and `cargo clippy` to check the code.
 - **Terminology baseline:** Treat Anzu as a simulation and visualization system first. Consider games a domain profile built on top of that core.
 - **Glossary source of truth:** Use the shared terms in `documents/architecture.md` (`Core Glossary`) for names in docs, APIs, and module boundaries.
-- **Simulation architecture:** Compose intent first, then apply it to world objects once per tick, then run broadphase/narrowphase physics, then reconcile ROM rules.
+- **Simulation architecture:** Compute intent, physics, and policy changes over stable state and working data. Commit proposed updates through the authoritative state owner before publishing permitted session updates. Older direct-mutation tutorials below do not override this boundary.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
 - **Input behavior:** The active texture demo handles `P` to change projection mode. It handles `Escape` to exit. Older gamepad and input-context code is in `src/abandoned_generated_code/`.
@@ -294,7 +306,7 @@ Compact example:
     {
       "texture_id": "checker_01",
       "path": "checker/checker_01.png",
-      "color_space": "srgb"
+        "color_space": "srgb"
     }
   ],
   "startup_scene": {

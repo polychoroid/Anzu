@@ -1,7 +1,7 @@
 {
-  "name": "anzu-engine",
+  "name": "anzu-winit",
   "type": "module",
-  "description": "Anzu simulation engine",
+  "description": "Anzu simulation runtime Winit fronend",
   "version": "0.1.0",
   "license": "MIT",
   "repository": {
@@ -9,12 +9,12 @@
     "url": "https://github.com/polychoroid/Anzu"
   },
   "files": [
-    "anzu_engine_bg.wasm",
-    "anzu_engine.js",
-    "anzu_engine.d.ts"
+    "anzu_winit_bg.wasm",
+    "anzu_winit.js",
+    "anzu_winit.d.ts"
   ],
-  "main": "anzu_engine.js",
-  "types": "anzu_engine.d.ts",
+  "main": "anzu_winit.js",
+  "types": "anzu_winit.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

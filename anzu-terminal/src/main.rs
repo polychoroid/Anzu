@@ -1,12 +1,13 @@
 use anzu_rom_you_touched_my_boats::BoatTouching;
-use anzu_runtime::server::{LocalServer, Server};
-use anzu_runtime::session::Session;
+use anzu_runtime::server::LocalServer;
+use anzu_runtime::session::SessionData;
 use anzu_runtime::simulation::Simulation;
 use crossterm::event::{self, Event};
 use env_logger;
 use std::io::Write;
 use std::time::Duration;
 
+mod display;
 mod input;
 use crate::input::CrossTermInput;
 
@@ -24,14 +25,17 @@ fn main() -> Result<(), ()> {
         .init();
     crossterm::terminal::enable_raw_mode().unwrap();
     let simulation = BoatTouching::new();
-    let server = LocalServer::<BoatTouching>::new(simulation);
-    let mut session =
-        Session::<CrossTermInput, BoatTouching>::new(CrossTermInput, Server::Local(server));
+    let server = LocalServer::<BoatTouching, BoatTouching>::new(simulation);
+
+    let mut session = SessionData::<CrossTermInput, LocalServer<BoatTouching, BoatTouching>>::new(
+        CrossTermInput,
+        server,
+    );
 
     let mut run = true;
 
     while run {
-        session.tick();
+        session.request_redraw();
         if event::poll(Duration::from_millis(1000)).unwrap() {
             let Event::Key(key_event) = event::read().unwrap() else {
                 continue;
@@ -39,7 +43,7 @@ fn main() -> Result<(), ()> {
             if key_event.code.is_esc() {
                 run = false;
             }
-            session.adapt_input(key_event);
+            session.queue_input(key_event);
         }
     }
 

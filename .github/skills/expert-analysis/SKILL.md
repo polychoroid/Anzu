@@ -20,6 +20,7 @@ Policy bindings
 - Reliability and security posture: typed errors, boundary validation, and predictable fallback behavior.
 - Performance analysis: measurement-first guidance, bottleneck isolation, and profiling plans.
 - Data-oriented design: data layout, alignment, ownership, copy and allocation costs, cache locality, and hot-path iteration patterns.
+- Data-driven architecture: contracts for behavior or content supplied as data, including schema/version policy, validation boundaries, loading and activation lifecycle, extensibility, determinism, and the boundary between declarative data and executable code.
 - Rust/WASM constraints: deterministic behavior under single-threaded browser runtime conditions.
 
 ## Evidence Policy (Strict Mode)
@@ -43,6 +44,14 @@ Policy bindings
 - Report stage timing distributions (at least p50, p95, and p99) with work counts. Separate CPU and GPU time where the platform exposes both.
 - Treat stack use, heap allocation, alignment, cache locality, and copy reduction as hypotheses to test. Do not recommend large stack values, forced padding, or complex layouts without workload evidence.
 - Compare before and after with the same workload. Keep raw output and the command or procedure used to produce it.
+
+## Data-Driven Architecture Method
+- State which behavior, content, and parameters are data-driven and which remain executable code.
+- Define the data schema, version compatibility, validation errors, and load/activation boundary before recommending a format or loader.
+- Trace data from authoring and packaging through validation, runtime ownership, and use. Identify how invalid or missing data fails and whether recovery is supported.
+- Define determinism requirements for ordering, identifiers, defaults, and migrations. Do not assume that moving values into data makes behavior deterministic.
+- Compare declarative configuration with scripting or plugins as separate capability and security choices. Do not infer a requirement for user-authored code from a request for data-driven content.
+- Keep data-driven architecture distinct from data-oriented design. Data-driven architecture selects behavior or content from data; data-oriented design selects storage and access patterns for workload needs.
 
 ## WGPU and Vulkan Requirements
 

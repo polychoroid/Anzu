@@ -347,6 +347,23 @@ Usage rules
 ## Pending Terms (PR approval required)
 | Proposed Term | Scope | Proposed Meaning | Proposed By | PR |
 |---|---|---|---|---|
+| SimulationIO | anzu | Shared command/update associated-type contract independent of state storage | User, 2026-10-16 brainstorm | |
+| world state database | anzu | Logical authoritative state owner that commits updates before publishing events | User, 2026-10-16 brainstorm | |
+| session state | anzu | Session-owned permitted state partitioned by actor_id | User, 2026-10-16 brainstorm | |
+| hard partition | anzu | Session-specific delivery channel selected by session_id | User, 2026-10-16 clarification | |
+| soft partition | anzu | Actor-specific data partition selected by actor_id within a session | User, 2026-10-16 clarification | |
+| display adapter | anzu | Session-owned trait that extracts backend-independent render data from stable session-permitted state; output may compose multiple permitted actors | User, 2026-10-16 brainstorm; clarified 2026-10-19 | |
+| simulation LOD | anzu | Runtime choice of simulation model detail based on relevance; distinct from rendering LOD | User, 2026-10-18 brainstorm | |
+| propagation model | anzu | Domain-defined rules for how an influence evolves or travels and when it can affect a receiver or location | User, 2026-10-18 brainstorm | |
+| data table | anzu | Collection of records with a shared layout, organized to support the operations that use them | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| row | anzu | Values at one table position; matching positions across columns describe one record | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| column | anzu | One field stored across multiple records, such as each boat's position | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| component | anzu | Focused data associated with an entity or simulation role, stored and processed by type | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| entity ID | anzu | Stable key that identifies a logical entity and associates its records across tables; not necessarily its storage position | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| secondary index | anzu | Derived lookup structure that maps a key to table data without owning a second copy of that data | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| array of structures (AoS) | anzu | Collection of complete records where each record stores several fields together | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| structure of arrays (SoA) | anzu | Separate collections for fields where matching positions identify fields for the same record | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
+| data transform | anzu | Operation that reads selected input data and produces updated or derived data; distinct from a spatial transform | User, 2026-10-21 DOD vocabulary; informed by Fabian's Data-Oriented Design | |
 
 ## Review checklist for new terms
 1. Clarify the meaning and scope with the requester when context does not define them.

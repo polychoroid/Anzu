@@ -1,13 +1,13 @@
 use crate::input::InputSignal;
+use crate::server::Protocol;
 
-pub trait Simulation {
-    type Command;
-    type Snapshot;
-    type WorldState;
+pub trait Simulation<P: Protocol> {
+    type Action;
 
     fn new() -> Self;
-    fn apply(&mut self, command: Self::Command);
+    fn apply(&mut self, command: Self::Action);
     fn step(&mut self);
-    fn snapshot(&self) -> Self::Snapshot;
-    fn signal_command(&self, signal: InputSignal) -> Option<Self::Command>;
+    fn publish_updates(&mut self) -> Option<Vec<P::Update>>;
+    fn adapt_signal(&self, signal: InputSignal) -> Option<Self::Action>;
+    fn snapshot(&self) -> P::State;
 }

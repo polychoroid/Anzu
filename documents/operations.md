@@ -1,5 +1,20 @@
 # Operations
 
+## Current Integration Scope (2026-10-16)
+
+The [current architecture](architecture.md#runtime-rewrite-direction) and [backlog](../BACKLOG.md#current-priority-session-and-authority-integration) govern the next runtime stage. Texture-demo checks below are legacy artifact checks, not evidence that the new web app or remote host is operational. Everything under `anzu-engine` is excluded from this stage.
+
+### Planned Session and Authority Checks
+
+- Track compute, commit, publication, delivery, session application, extraction, upload, and rendering separately.
+- Record queue depth, update age, bytes, command rejection, snapshot recovery, and connection failures without logging unauthorized payloads.
+- Confirm committed batches are published only after application and preserve session/actor scope throughout processing.
+- Check snapshot/update continuity, duplicate commands, missing batches, bounded queues, and slow-consumer recovery.
+- Test wrong-session delivery and actor-scoped query exclusion alongside authentication, authorization, and TLS controls.
+- Keep remote authority timing independent of redraws. A failed surface frame must not roll back committed state.
+
+These are acceptance requirements, not currently available diagnostics. Durable commit/publication recovery is conditional on a future persistence requirement.
+
 ## Runtime Monitoring
 
 The browser console provides the current runtime diagnostics.

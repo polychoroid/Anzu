@@ -1,7 +1,9 @@
 # User Guide
 
 ## Overview
-Anzu currently provides a browser runtime. It initializes a canvas and runs `TextureDemoRom`.
+The instructions below describe the legacy browser artifacts and texture demo. They do not describe the new `anzu-winit` integration, which is incomplete. Everything under `anzu-engine` is excluded from the next development stage.
+
+The [current roadmap](../BACKLOG.md#current-priority-session-and-authority-integration) starts with local sessions, committed state updates, and session-owned display extraction. Remote connections are planned, not an available user feature. See [architecture](architecture.md#runtime-rewrite-direction) for the target design.
 
 ## Getting Started
 

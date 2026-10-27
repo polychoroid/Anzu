@@ -1,0 +1,44 @@
+[package]
+name = "anzu-winit"
+version = "0.1.0"
+edition = "2024"
+description = "Anzu simulation runtime Winit fronend"
+repository = "https://github.com/polychoroid/Anzu"
+license = "MIT"
+
+[dependencies]
+anzu-runtime.workspace = true
+anzu-render-wgpu = {path = "../anzu-render-wgpu/"}
+anzu-rom-you-touched-my-boats = { path = "../roms/you touched my boats/" }
+
+[dependencies.log]
+version = "0.4.34"
+
+[dependencies.env_logger]
+version = "0.11.11"
+
+[dependencies.pollster]
+version = "1.0.1"
+
+[dependencies.winit]
+version = "0.30.13"
+
+[dependencies.uuid]
+version = "1.28.0"
+features = ["js"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "1.1.0"
+web-time = "1.1.0"
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.104", features = [
+    "Document",
+    "Window",
+    "Element",
+]}

@@ -4,3 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anzu-runtime.workspace = true
+
+[dependencies.log]
+version = "0.4.34"
+
+[dependencies.bytemuck]
+version = "1.25.2"
+features = ["derive"]
+
+[dependencies.wgpu]
+version = "30.0.1"
+features = ["webgpu", "webgl"]

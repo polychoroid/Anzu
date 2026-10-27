@@ -1,5 +1,13 @@
 # Runtime Execution Model: Historical Recommendations
 
+## Current Precedence (2026-10-16)
+
+This document is historical guidance, not the next development contract. The [current architecture](architecture.md#runtime-rewrite-direction) and [backlog sequence](../BACKLOG.md#current-priority-session-and-authority-integration) take precedence. Do not inspect or modify `anzu-engine` to implement this integration stage.
+
+The older stages below may inform computation over working data. They must not directly mutate committed authoritative state. Compute proposed updates, apply and commit them at the world state owner, then publish permitted batches. Session state applies those batches, and the session-owned display adapter extracts render data from stable session-permitted state. Actor scope controls state disclosure into the session, not how many actors the display can show.
+
+Direct renderer access to authoritative snapshots or GPU simulation buffers is superseded. GPU residency and readback strategies need to preserve commit and disclosure boundaries. Prediction and compute offload are not prerequisites for the next stage.
+
 This document records implementation recommendations and progress from 2026-07-01. It is a historical planning note, not a current implementation handoff.
 
 The runtime code described here now resides in `anzu-engine/src/abandoned_generated_code/`. The active engine does not compile that code. Revalidate each recommendation against the active implementation before using it.

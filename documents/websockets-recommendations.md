@@ -1,5 +1,35 @@
 # Multiplayer WASM + WebSocket Architecture Recommendations
 
+## Current Direction (2026-10-16)
+
+The [runtime architecture](architecture.md#runtime-rewrite-direction) and [IO/connection contracts](api.md#target-session-and-authority-protocol) supersede older prediction-first and simulation-to-broadcast examples below. The [backlog](../BACKLOG.md#current-priority-session-and-authority-integration) defines the next stage.
+
+Use shared `SimulationIO` command/update types for local queues and remote transport. `RemoteServer` is the client connection, not the authority. A new transport-neutral host package will run computation, authoritative state, and permitted publication. Its name and Rust libraries remain undecided.
+
+Target flow:
+
+```text
+Command -> compute proposed updates -> 1:1 ordered queue
+  -> authoritative state applies and commits
+  -> filter permitted updates -> 1:n session channels
+  -> session applies actor-partitioned updates
+  -> display adapter extracts -> renderer
+```
+
+Hard partitioning uses a session-specific delivery channel. Soft partitioning uses `actor_id` within session state and queries. These are security layers alongside authentication, authorization, and TLS. Spatial interest filtering is an optional optimization after authorization, not a substitute for permission filtering.
+
+### Transport Recommendation
+
+Proposed first implementation: WebSocket over TLS. Reliable ordered messages fit dependent committed batches and domain commands. Keep message types independent of the transport. Confidence: medium until workload measurements and deployment requirements are available.
+
+WebTransport offers reliable streams and unreliable datagrams. Ordering is per stream, not across independent streams. Use datagrams only for replaceable data or with explicit recovery, not silently lossy required updates. Verify support in target browsers and deployment infrastructure before selecting it.
+
+The browser WebSocket API lacks automatic backpressure. Bound send/receive queues and message sizes, monitor queue depth and `bufferedAmount`, and define slow-consumer resynchronization. Do not silently drop dependent updates. Reliable transport alone does not solve reconnect replay, command duplication, or snapshot handoff.
+
+References: [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket), [WebTransport API](https://developer.mozilla.org/en-US/docs/Web/API/WebTransport).
+
+Connection contract: queue commands and provide nonblocking `dequeue_update()` of complete committed batches, with empty/closed/failed outcomes distinguished. Authority time advances independently of client redraws. The session-owned display adapter reads stable session-permitted state, which may include multiple actors; it does not perform transport or GPU submission.
+
 ## Current Project Status Note
 
 Anzu does not currently provide a production multiplayer or WebSocket service. This document gives design recommendations. It does not describe implemented behavior.
@@ -37,6 +67,8 @@ This design limits the authority of clients. It does not prevent every form of c
 ***
 
 ## 2. Client-Side Prediction
+
+Low-priority future consideration, after contract integration, committed-update reconstruction, browser output, and remote recovery are validated. Do not add prediction or rollback/replay requirements to the current stage. A remote session does not need the simulation implementation for basic command/update delivery. See [future brainstorm context](runtime-integration-brainstorms.md#later-consideration-prediction-and-smoothing).
 
 Client-side prediction can update local presentation before the server responds.
 
@@ -132,17 +164,18 @@ Optimizations:
 
 ## Client Loop (WASM)
 
-Per frame:
+Baseline client processing:
 
 ```
-1. Read input
-2. Apply prediction (local simulation)
-3. Send input to server
-4. Receive updates
-5. Reconcile if needed
-6. Interpolate remote entities
-7. Render via WebGPU
+1. Read and map actor-scoped input
+2. Queue command for local or remote authority
+3. Dequeue available committed update batches
+4. Apply batches to session-permitted actor-partitioned state
+5. Extract a stable display view from session-permitted state through the session-owned display adapter
+6. Renderer acquires frame, encodes, submits, and presents
 ```
+
+Connection initialization and snapshot recovery are separate lifecycle work. Do not block redraw on network I/O. Prediction/interpolation can be added after this baseline is verified.
 
 ***
 
@@ -151,10 +184,10 @@ Per frame:
 Per tick:
 
 ```
-1. Receive client inputs
-2. Validate + simulate world
-3. Build per-client state
-4. Send filtered updates
+1. Receive and authorize commands for session and actor
+2. Compute proposed updates against stable state and fixed time
+3. Validate and commit accepted updates to authoritative state
+4. Publish permitted committed batches on session-specific channels
 ```
 
 ***
@@ -327,7 +360,9 @@ Lag compensation can evaluate an action against recent historical state. Add it 
 
 ## Hybrid Authority Models
 
-An application can assign different authority by action:
+Deferred alternative, not part of the selected authoritative-state design. Any future proposal must explicitly change the authority contract before assigning client authority.
+
+An alternative application could assign different authority by action:
 
 * client authority for low-risk actions
 * server authority for critical logic
@@ -351,13 +386,13 @@ This approach requires strict determinism, state history, and replay tests.
 
 ```
 Client:
-  Input → Predict → Send
+  Input -> Map -> Queue command
                   ↓
 Server:
-  Validate → Simulate → Broadcast
+  Authorize -> Compute -> Commit -> Filter -> Publish
                   ↓
 Client:
-  Reconcile → Interpolate → Render
+  Apply session-permitted updates -> Extract -> Render
 ```
 
 ***
@@ -365,7 +400,7 @@ Client:
 ## Design Checks
 
 * Keep world authority on the server when the design uses a server-authoritative model.
-* Define how the client predicts and corrects local state.
+* Define snapshot initialization, committed update application, and recovery first. Prediction is optional later work.
 * Limit messages by size, rate, and session authorization.
 * Send each session only the state it is allowed to see.
 * Measure latency, traffic, serialization cost, and server work under representative load.
