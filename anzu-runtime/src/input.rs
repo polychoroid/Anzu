@@ -1,9 +1,8 @@
 pub trait InputAdapter {
     type Command;
-    type CommandState;
 
     fn map_input(&self, command: Self::Command) -> Option<InputSignal>;
-    fn map_input_state(&self, command_state: Self::CommandState) -> ButtonPhase;
+    fn map_input_state(&self, command: Self::Command) -> ButtonPhase;
 }
 
 #[derive(Debug)]
@@ -16,6 +15,7 @@ pub enum Key {
     Backspace,
     Enter,
     Escape,
+    Space,
 }
 
 #[derive(Debug)]
@@ -25,6 +25,7 @@ pub enum ButtonPhase {
     Repeated,
 }
 
+#[derive(Debug)]
 pub enum GamepadEvent {
     Button {
         button: GamepadDPad,
@@ -36,6 +37,7 @@ pub enum GamepadEvent {
     },
 }
 
+#[derive(Debug)]
 pub enum GamepadDPad {
     Up,
     Down,
@@ -43,6 +45,7 @@ pub enum GamepadDPad {
     Right,
 }
 
+#[derive(Debug)]
 pub enum GamepadAxis {
     LeftX,
     LeftY,
@@ -50,6 +53,7 @@ pub enum GamepadAxis {
     RightY,
 }
 
+#[derive(Debug)]
 pub enum InputSignal {
     Keyboard { key: Key, phase: ButtonPhase },
     Text(String),

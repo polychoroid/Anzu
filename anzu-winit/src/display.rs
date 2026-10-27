@@ -1,8 +1,8 @@
 use anzu_render_wgpu::render::WgpuRenderBackend;
 use anzu_runtime::display::{DisplayAdapter, DrawBatch, RenderBackend, SupportedRenderBackends};
-#[cfg(target_arch = "wasm32")]
-use log::error;
 use log::info;
+#[cfg(target_arch = "wasm32")]
+use log::{debug, error};
 use std::io::Error;
 use std::sync::Arc;
 #[cfg(target_arch = "wasm32")]
@@ -81,7 +81,7 @@ impl<'a> WinitDisplayAdapter {
                 .and_then(|c| c.get_context("webgpu").ok().flatten())
                 .is_some();
 
-            info!("Canvas context: {:?}", &context);
+            debug!("Canvas context: {:?}", &context);
 
             if context {
                 SupportedRenderBackends::WebGpu

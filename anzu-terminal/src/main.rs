@@ -1,6 +1,6 @@
 use anzu_rom_you_touched_my_boats::BoatTouching;
 use anzu_runtime::server::LocalServer;
-use anzu_runtime::session::SessionData;
+use anzu_runtime::session::{Session, SessionData};
 use anzu_runtime::simulation::Simulation;
 use crossterm::event::{self, Event};
 use env_logger;
@@ -9,6 +9,7 @@ use std::time::Duration;
 
 mod display;
 mod input;
+use crate::display::CrossTermDisplayAdapter;
 use crate::input::CrossTermInput;
 
 fn main() -> Result<(), ()> {
@@ -27,10 +28,11 @@ fn main() -> Result<(), ()> {
     let simulation = BoatTouching::new();
     let server = LocalServer::<BoatTouching, BoatTouching>::new(simulation);
 
-    let mut session = SessionData::<CrossTermInput, LocalServer<BoatTouching, BoatTouching>>::new(
+    let mut session = SessionData::<
         CrossTermInput,
-        server,
-    );
+        CrossTermDisplayAdapter,
+        LocalServer<BoatTouching, BoatTouching>,
+    >::new(CrossTermInput, CrossTermDisplayAdapter {}, server);
 
     let mut run = true;
 

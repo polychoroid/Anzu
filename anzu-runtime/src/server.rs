@@ -9,7 +9,6 @@ pub trait State {
     fn new() -> Self;
     fn apply_update(&mut self, update: Self::Update);
     fn project_display(&self) -> Vec<DrawBatch>;
-    // fn get_snapshot(&self) -> Self;
 }
 
 pub trait Protocol {
@@ -41,6 +40,7 @@ impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
     }
 
     fn queue_input(&mut self, input: InputSignal) {
+        info!("Input queued: {:?}", &input);
         self.input_queue.push(input)
     }
 

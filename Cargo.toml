@@ -2,6 +2,7 @@
 resolver="3"
 members = [
     "anzu-runtime",
+    "anzu-terminal",
     "anzu-winit",
 ]
 

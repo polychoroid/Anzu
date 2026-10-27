@@ -50,7 +50,7 @@
 
         // Re-acquire focus when user interacts with the page.
         // window.addEventListener('pointerdown', focusCanvas, { passive: true });
-        // window.addEventListener('keydown', focusCanvas);
+        window.addEventListener('keydown', focusCanvas);
         // window.addEventListener('touchstart', focusCanvas, { passive: true });
 
         focusCanvas();
@@ -59,7 +59,6 @@
       async function run() {
         setupCanvasFocus();
         await init({ module_or_path: './pkg/anzu_winit_bg.wasm' });
-        console.log('WASM Loaded');
       }
 
       run();

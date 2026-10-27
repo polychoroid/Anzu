@@ -5,37 +5,42 @@ pub struct CrossTermInput;
 
 impl InputAdapter for CrossTermInput {
     type Command = KeyEvent;
-    type CommandState = KeyEventKind;
 
     fn map_input(&self, command: Self::Command) -> Option<InputSignal> {
-        match command.code {
-            KeyCode::Char(c) => Some(InputSignal::Keyboard {
-                key: Key::Character(c),
-                phase: self.map_input_state(command.kind),
-            }),
+        match &command.code {
+            KeyCode::Char(c) => match &c {
+                ' ' => Some(InputSignal::Keyboard {
+                    key: Key::Space,
+                    phase: self.map_input_state(command),
+                }),
+                _ => Some(InputSignal::Keyboard {
+                    key: Key::Character(*c),
+                    phase: self.map_input_state(command),
+                }),
+            },
             KeyCode::Backspace => Some(InputSignal::Keyboard {
                 key: Key::Backspace,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Enter => Some(InputSignal::Keyboard {
                 key: Key::Enter,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Left => Some(InputSignal::Keyboard {
                 key: Key::ArrowLeft,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Right => Some(InputSignal::Keyboard {
                 key: Key::ArrowRight,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Up => Some(InputSignal::Keyboard {
                 key: Key::ArrowUp,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Down => Some(InputSignal::Keyboard {
                 key: Key::ArrowDown,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::Home => None,
             KeyCode::End => None,
@@ -49,7 +54,7 @@ impl InputAdapter for CrossTermInput {
             KeyCode::Null => None,
             KeyCode::Esc => Some(InputSignal::Keyboard {
                 key: Key::Escape,
-                phase: self.map_input_state(command.kind),
+                phase: self.map_input_state(command),
             }),
             KeyCode::CapsLock => None,
             KeyCode::ScrollLock => None,
@@ -63,8 +68,8 @@ impl InputAdapter for CrossTermInput {
         }
     }
 
-    fn map_input_state(&self, command_state: Self::CommandState) -> ButtonPhase {
-        match command_state {
+    fn map_input_state(&self, command: Self::Command) -> ButtonPhase {
+        match command.kind {
             KeyEventKind::Press => ButtonPhase::Pressed,
             KeyEventKind::Repeat => ButtonPhase::Repeated,
             KeyEventKind::Release => ButtonPhase::Released,

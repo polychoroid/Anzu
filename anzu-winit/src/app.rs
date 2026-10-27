@@ -2,7 +2,7 @@ use anzu_rom_you_touched_my_boats::BoatTouching;
 use anzu_runtime::server::LocalServer;
 use anzu_runtime::session::{Session, SessionData};
 use anzu_runtime::simulation::Simulation;
-use log::{error, info};
+use log::{debug, error, info};
 use std::sync::Arc;
 
 use winit::{
@@ -93,7 +93,7 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        info!("Application resumed");
+        debug!("Application resumed");
 
         if self.window.is_some() {
             info!("Window was ready");
@@ -139,6 +139,7 @@ impl ApplicationHandler<AppEvent> for App {
         window_id: WindowId,
         window_event: WindowEvent,
     ) {
+        debug!("Window event: {:?}", &window_event);
         match window_event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput {
