@@ -1,3 +1,4 @@
+use gloo_timers::callback::Interval;
 use log::{LevelFilter, info};
 use std::error::Error;
 use winit::event_loop::EventLoop;
@@ -11,9 +12,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-#[cfg(not(target_arch = "wasm32"))]
-use gloo_timers::callback::Interval;
-
 mod app;
 mod display;
 mod input;
@@ -23,24 +21,25 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let mut builder = env_logger::Builder::from_default_env();
-        builder.filter(None, LevelFilter::Info).init();
+        builder.filter(None, LevelFilter::Debug).init();
         info!("Logger initialized");
     }
 
     #[cfg(target_arch = "wasm32")]
     {
-        console_log::init_with_level(log::Level::Info).unwrap_throw();
+        console_log::init_with_level(log::Level::Debug).unwrap_throw();
         info!("Logger initialized");
     }
 
     let event_loop = EventLoop::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
 
+    let interval = Interval::new(16, move || {
+        let _ = proxy.send_event(AppEvent::Tick);
+    });
+
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let interval = Interval::new(16, move || {
-            let _ = proxy.send_event(AppEvent::Tick);
-        });
         let mut app = App::new(interval);
         event_loop.run_app(&mut app)?;
         info!("Starting app natively.");
@@ -48,22 +47,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        use wasm_bindgen::closure::Closure;
-        let callback = Closure::wrap(Box::new(move || {
-            let _ = proxy.send_event(AppEvent::Tick);
-        }) as Box<dyn FnMut()>);
-
-        web_sys::window()
-            .unwrap()
-            .set_interval_with_callback_and_timeout_and_arguments_0(
-                callback.as_ref().unchecked_ref(),
-                16,
-            )
-            .unwrap();
-
-        callback.forget();
-
-        let app = App::new();
+        let app = App::new(interval);
         event_loop.spawn_app(app);
         info!("Starting app in WASM32");
     }

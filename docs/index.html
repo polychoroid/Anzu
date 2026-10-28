@@ -19,7 +19,7 @@
         display: block;
         width: 100vw;
         height: 100vh;
-        background: #a00707;
+        background: black;
       }
     </style>
   </head>
@@ -49,9 +49,9 @@
         };
 
         // Re-acquire focus when user interacts with the page.
-        // window.addEventListener('pointerdown', focusCanvas, { passive: true });
+        window.addEventListener('pointerdown', focusCanvas, { passive: true });
         window.addEventListener('keydown', focusCanvas);
-        // window.addEventListener('touchstart', focusCanvas, { passive: true });
+        window.addEventListener('touchstart', focusCanvas, { passive: true });
 
         focusCanvas();
       }

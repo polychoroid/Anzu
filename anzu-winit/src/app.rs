@@ -2,6 +2,7 @@ use anzu_rom_you_touched_my_boats::BoatTouching;
 use anzu_runtime::server::LocalServer;
 use anzu_runtime::session::{Session, SessionData};
 use anzu_runtime::simulation::Simulation;
+use gloo_timers::callback::Interval;
 use log::{debug, error, info};
 use std::sync::Arc;
 
@@ -11,9 +12,6 @@ use winit::{
     event_loop::ActiveEventLoop,
     window::{Window, WindowId},
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use gloo_timers::callback::Interval;
 
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowAttributesExtWebSys;
@@ -33,12 +31,11 @@ pub struct App {
         LocalServer<BoatTouching, BoatTouching>,
     >,
     window: Option<Arc<Window>>,
-    #[cfg(not(target_arch = "wasm32"))]
     interval: Interval,
 }
 
 impl App {
-    pub fn new(#[cfg(not(target_arch = "wasm32"))] interval: Interval) -> Self {
+    pub fn new(interval: Interval) -> Self {
         let simulation = BoatTouching::new();
         let server = LocalServer::<BoatTouching, BoatTouching>::new(simulation);
         let input_adapter = WinitInputAdapter {};
@@ -52,7 +49,6 @@ impl App {
         Self {
             session: session,
             window: None,
-            #[cfg(not(target_arch = "wasm32"))]
             interval: interval,
         }
     }
