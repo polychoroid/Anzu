@@ -12,8 +12,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
-#[cfg(target_arch = "wasm32")]
-use winit::event_loop::EventLoop;
+#[cfg(not(target_arch = "wasm32"))]
+use gloo_timers::callback::Interval;
 
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowAttributesExtWebSys;
@@ -21,24 +21,24 @@ use winit::platform::web::WindowAttributesExtWebSys;
 use crate::display::WinitDisplayAdapter;
 use crate::input::WinitInputAdapter;
 
-pub struct AppEvent;
+#[derive(Debug)]
+pub enum AppEvent {
+    Tick,
+}
 
 pub struct App {
-    #[cfg(target_arch = "wasm32")]
-    _proxy: Option<winit::event_loop::EventLoopProxy<AppEvent>>,
     session: SessionData<
         WinitInputAdapter,
         WinitDisplayAdapter,
         LocalServer<BoatTouching, BoatTouching>,
     >,
     window: Option<Arc<Window>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    interval: Interval,
 }
 
 impl App {
-    pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<AppEvent>) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let proxy = Some(event_loop.create_proxy());
-
+    pub fn new(#[cfg(not(target_arch = "wasm32"))] interval: Interval) -> Self {
         let simulation = BoatTouching::new();
         let server = LocalServer::<BoatTouching, BoatTouching>::new(simulation);
         let input_adapter = WinitInputAdapter {};
@@ -50,10 +50,10 @@ impl App {
         >::new(input_adapter, display_adapter, server);
 
         Self {
-            #[cfg(target_arch = "wasm32")]
-            _proxy: proxy,
             session: session,
             window: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            interval: interval,
         }
     }
 }
@@ -63,8 +63,15 @@ impl ApplicationHandler<AppEvent> for App {
         let _ = (event_loop, cause);
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
-        let _ = (event_loop, event);
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::Tick => {
+                self.session.tick();
+                if let Some(ref window) = self.window {
+                    window.request_redraw();
+                }
+            }
+        }
     }
 
     fn device_event(
@@ -136,7 +143,7 @@ impl ApplicationHandler<AppEvent> for App {
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: WindowId,
+        _window_id: WindowId,
         window_event: WindowEvent,
     ) {
         debug!("Window event: {:?}", &window_event);
@@ -151,13 +158,9 @@ impl ApplicationHandler<AppEvent> for App {
                 self.session.request_redraw();
             }
             WindowEvent::Resized(size) => {
-                if let Some(ref window) = self.window {
-                    if window.id() == window_id {
-                        self.session.resize_display(size.width, size.height);
-                    }
-                }
+                self.session.resize_display(size.width, size.height);
             }
-            _ => {}
+            _ => (),
         }
     }
 }

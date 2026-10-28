@@ -1,5 +1,5 @@
 use crate::{display::DrawBatch, input::InputSignal, simulation::Simulation};
-use log::info;
+use log::debug;
 use std::collections::VecDeque;
 use web_time::Instant;
 
@@ -22,7 +22,6 @@ pub trait Server {
     fn tick(&mut self, tick: Instant);
     fn queue_input(&mut self, input: InputSignal);
     fn dequeue_update_batch(&mut self) -> Option<Vec<<Self::Protocol as Protocol>::Update>>;
-    fn copy_simulation_state(&self) -> <Self::Protocol as Protocol>::State;
 }
 
 pub struct LocalServer<P: Protocol, S: Simulation<P>> {
@@ -40,16 +39,12 @@ impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
     }
 
     fn queue_input(&mut self, input: InputSignal) {
-        info!("Input queued: {:?}", &input);
+        debug!("Input queued: {:?}", &input);
         self.input_queue.push(input)
     }
 
     fn dequeue_update_batch(&mut self) -> Option<Vec<P::Update>> {
         self.update_queue.pop_front()
-    }
-
-    fn copy_simulation_state(&self) -> <Self::Protocol as Protocol>::State {
-        self.simulation.snapshot()
     }
 }
 
@@ -64,7 +59,7 @@ impl<P: Protocol, S: Simulation<P>> LocalServer<P, S> {
     }
 
     fn update(&mut self, tick: Instant) {
-        info!("{}", self.input_queue.len());
+        debug!("{}", self.input_queue.len());
 
         for input in self.input_queue.drain(0..) {
             if let Some(command) = self.simulation.adapt_signal(input) {

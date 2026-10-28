@@ -9,5 +9,4 @@ pub trait Simulation<P: Protocol> {
     fn step(&mut self);
     fn publish_updates(&mut self) -> Option<Vec<P::Update>>;
     fn adapt_signal(&self, signal: InputSignal) -> Option<Self::Action>;
-    fn snapshot(&self) -> P::State;
 }

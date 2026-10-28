@@ -48,9 +48,12 @@ impl<'window> WgpuRenderBackend<'window> {
             .unwrap();
 
         let active_backend = &adapter.get_info().backend;
+
         info!("Active backend: {:?}", active_backend);
 
         let surface_capabilities = surface.get_capabilities(&adapter);
+
+        info!("Surface capabilities: {:?}", &surface_capabilities);
 
         let limts = if active_backend == &Backend::Gl {
             Limits::downlevel_webgl2_defaults()
@@ -95,6 +98,8 @@ impl<'window> WgpuRenderBackend<'window> {
             } else {
                 PresentMode::Fifo
             };
+
+        info!("Present mode: {:?}", &present_mode);
 
         let surface_format = capabilities
             .formats

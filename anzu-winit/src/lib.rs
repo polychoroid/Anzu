@@ -1,7 +1,9 @@
-use log::info;
+use log::{LevelFilter, info};
 use std::error::Error;
 use winit::event_loop::EventLoop;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::UnwrapThrowExt;
 #[cfg(target_arch = "wasm32")]
@@ -9,15 +11,19 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
+#[cfg(not(target_arch = "wasm32"))]
+use gloo_timers::callback::Interval;
+
 mod app;
 mod display;
 mod input;
-use crate::app::App;
+use crate::app::{App, AppEvent};
 
 pub fn run() -> Result<(), Box<dyn Error>> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        let mut builder = env_logger::Builder::from_default_env();
+        builder.filter(None, LevelFilter::Info).init();
         info!("Logger initialized");
     }
 
@@ -28,16 +34,36 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let event_loop = EventLoop::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
+
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let mut app = App::new();
+        let interval = Interval::new(16, move || {
+            let _ = proxy.send_event(AppEvent::Tick);
+        });
+        let mut app = App::new(interval);
         event_loop.run_app(&mut app)?;
-        info!("Starting app natively. For development only.");
+        info!("Starting app natively.");
     }
 
     #[cfg(target_arch = "wasm32")]
     {
-        let app = App::new(&event_loop);
+        use wasm_bindgen::closure::Closure;
+        let callback = Closure::wrap(Box::new(move || {
+            let _ = proxy.send_event(AppEvent::Tick);
+        }) as Box<dyn FnMut()>);
+
+        web_sys::window()
+            .unwrap()
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                16,
+            )
+            .unwrap();
+
+        callback.forget();
+
+        let app = App::new();
         event_loop.spawn_app(app);
         info!("Starting app in WASM32");
     }
