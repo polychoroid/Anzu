@@ -56,7 +56,7 @@ impl RenderBackend for CrossTermBackend {
         todo!()
     }
 
-    fn load_assets(&mut self, assets: Vec<AssetHandle>) {
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), std::io::Error> {
         todo!()
     }
 }

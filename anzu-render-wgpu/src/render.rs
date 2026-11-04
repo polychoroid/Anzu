@@ -175,12 +175,19 @@ impl<'window> WgpuRenderBackend<'window> {
 }
 
 impl<'window> RenderBackend for WgpuRenderBackend<'window> {
-    fn load_assets(&mut self, assets: Vec<AssetHandle>) {
-        info!("Starting to load example mesh");
-        let asset = &assets[0];
-        let uploaded_asset = crate::loader::load_model(asset.bytes, &self.device).unwrap();
-        info!("{:?} mesh loaded", asset.id);
-        self.assets.insert(asset.id, uploaded_asset);
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), Error> {
+        info!("Loading assets");
+
+        assets
+            .iter()
+            .try_for_each(|asset: &AssetHandle| -> Result<(), Error> {
+                let uploaded_asset = crate::loader::load_model(asset.bytes, &self.device)?;
+                info!("{:?} loaded", asset.id);
+                self.assets.insert(asset.id, uploaded_asset);
+                Ok(())
+            })?;
+
+        Ok(())
     }
 
     fn resize(&mut self, width: u32, height: u32) {
@@ -222,7 +229,7 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
         }
 
         // todo: should be iterating all instances.
-        let asset_id = &instances[0].asset_id;
+        let asset_id = &instances[2].asset_id;
         if let Some(ref asset) = self.assets.get(asset_id) {
             {
                 info!("Render requested for asset: {:?}", asset_id);

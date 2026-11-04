@@ -19,7 +19,7 @@ pub trait Session {
         &mut self,
         target: <Self::SessionDisplayAdapter as DisplayAdapter>::Target,
     );
-    fn load_display_data(&mut self);
+    fn load_display_data(&mut self) -> Result<(), std::io::Error>;
     fn queue_input(&mut self, input: <Self::SessionInptuAdapter as InputAdapter>::Command);
     fn resize_display(&mut self, width: u32, height: u32);
     fn request_redraw(&mut self);
@@ -55,10 +55,11 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
         self.display_adapter.attach_target(target);
     }
 
-    fn load_display_data(&mut self) {
+    fn load_display_data(&mut self) -> Result<(), std::io::Error> {
         self.display_adapter
-            .load_assets(self.server.load_display_assets());
+            .load_assets(self.server.load_display_assets())?;
         info!("Request load assets from server");
+        Ok(())
     }
 
     fn queue_input(&mut self, command: I::Command) {

@@ -39,5 +39,5 @@ pub trait DisplayAdapter {
 pub trait RenderBackend {
     fn resize(&mut self, width: u32, height: u32);
     fn render(&mut self, data: Vec<DrawAssetInstance>) -> Result<(), Error>;
-    fn load_assets(&mut self, assets: Vec<AssetHandle>);
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), Error>;
 }
