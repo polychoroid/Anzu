@@ -2,13 +2,13 @@
 
 ## Purpose and Resume Context
 
-Recorded 2026-10-16. Use this document to resume design discussions after a break. It records context and questions, not approved Rust signatures or implemented features.
+Design notes recorded 2026-10-16 through 2026-10-17. Current-source timing notes were updated 2026-11-04. Use this document to resume design discussions. It records questions and target contracts, not approved Rust signatures or implemented features.
 
-Read [Architecture](architecture.md#runtime-rewrite-direction), [API Reference](api.md), and [the contract checklist](../BACKLOG.md#next-step-contract-checklist) first. Exclude everything under `anzu-engine`. Read current source again before implementation because the observations below can become outdated.
+Read [Architecture](architecture.md#runtime-rewrite-direction), [API Reference](api.md), and the [roadmap](../BACKLOG.md) first. Exclude archived code under `abandoned_generated_code/`. Read current source again before implementation because the observations below can become outdated.
 
 Agreed direction:
 
-- `SimulationIO` separates `Command` and `Update` definitions from world/session storage.
+- The target IO contract separates command and update definitions from world/session storage. The active source has no `SimulationIO` type.
 - Compute proposes updates through a 1:1 ordered queue. The authoritative state owner commits before publishing permitted events to 1:n session channels.
 - Session owns input adapter, extraction-only display adapter, and actor-partitioned permitted state. App owns the renderer and platform lifecycle.
 - `session_id` selects a separate delivery channel. `actor_id` partitions data and queries inside that session. Both contribute to defense in depth.
@@ -21,11 +21,11 @@ Prediction is not a current priority. Do not require predictive state, rollback,
 
 ### Current Code Versus Target Design
 
-The previous summary said that the rendering sequence no longer advances authority. That described a documentation change, not a source change. No runtime behavior was changed.
+The current app runs a `winit` event loop. `anzu-winit::run` creates a 16 ms interval that sends `AppEvent::Tick`. The app handles each tick by calling `Session::tick` and requesting a redraw.
 
-Current [Session::tick](../anzu-runtime/src/session.rs) passes `Instant::now()` to the server. Current [LocalServer::update](../anzu-runtime/src/server.rs) applies queued commands, calls `simulation.step()` exactly once, and records the timestamp. It does not calculate how many fixed steps are due from elapsed time.
+Current [Session::tick](../anzu-runtime/src/session.rs) passes `Instant::now()` to the server. Current [LocalServer::update](../anzu-runtime/src/server.rs) applies queued actions, calls `simulation.step()` exactly once, and records the timestamp. It does not calculate how many steps are due from elapsed time. The 16 ms timer requests a cadence; it is not a fixed-time accumulator.
 
-The [winit app](../anzu-winit/src/lib.rs) does not yet run the event loop. Therefore redraw-driven stepping is a risk in the proposed wiring, not an observed running behavior.
+The server tick is triggered by the timer event, not by `RedrawRequested`. Since each timer event also requests a redraw, the current app usually pairs one step request with one redraw request. The session still does not apply published update batches to its state.
 
 ### Three Different Responsibilities
 
@@ -73,7 +73,7 @@ Verify timing with controlled elapsed-time inputs and callback rates, skipped fr
 
 ## Topic 1: IO and Connection Contracts
 
-Why first: `SimulationIO` exists, but `Simulation` still has a separate `Command`. `Session<Input, Sim>` and `Server<S>` still depend on `Simulation`.
+Why first: the active `Simulation<P>` defines an `Action` and input adaptation. `LocalServer<P, S>` depends on `Simulation<P>`, while `SessionData` depends on the `Server` trait and a protocol state. There is no separate IO contract, remote connection implementation, or update application path in the session.
 
 Questions:
 - Does `Simulation` select an associated `IO: SimulationIO`?
@@ -84,20 +84,20 @@ Questions:
 
 Bring: [simulation](../anzu-runtime/src/simulation.rs), [server](../anzu-runtime/src/server.rs), and [session](../anzu-runtime/src/session.rs).
 
-Desired outcome: agreed associated-type relationships and error semantics, with local and remote type sketches that do not require a remote simulation instance. Track Feature 12.6 and the contract portion of Feature 12.4.
+Desired outcome: agreed associated-type relationships and error semantics, with local and remote type sketches that do not require a remote simulation instance. Check the current roadmap before assigning this work to a milestone.
 
-Decision update, 2026-10-17: local versus remote is hardcoded by the platform host. Remove runtime enum selection from future discussion scope. The current source enum is implementation to replace, not a target requirement. Generic session code should work with either concrete connection without requiring dynamic dispatch.
+Decision update, 2026-10-17: local versus remote is selected by the platform host. The active source has a `Server` trait, a `LocalServer`, and empty `RemoteServer` declarations. There is no local/remote selection enum to preserve. Generic session code should support either concrete connection without requiring dynamic dispatch.
 
 ## Topic 2: Input Intent and Actor Identity
 
-Why: input normalization currently returns `InputSignal`, while `simulation.signal_command()` maps that signal using simulation state. A remote client does not own that simulation.
+Why: input adapters currently map host input to `InputSignal`, then `Simulation::adapt_signal` maps it to a ROM action using simulation state. A remote client does not own that simulation.
 
 Questions:
 - Does domain mapping use permitted session context, or occur on the authority after receiving a signal?
 - Which context identifies the submitting session and actor, and how is membership checked?
 - How are unsupported controls, held input, and commands queued between steps handled?
 
-Desired outcome: an input-to-command contract compatible with local and remote use, without unsupported-input panics or trusting payload IDs as authorization. Track Features 12.6 and 17.5.
+Desired outcome: an input-to-command contract compatible with local and remote use, without unsupported-input panics or trusting payload IDs as authorization. Check the current roadmap before assigning this work to a milestone.
 
 ## Topic 3: Compute Reads and Update Application
 
@@ -110,11 +110,11 @@ Questions:
 - Can authoritative and permitted session state apply the same updates, or is a filtered projection required?
 - How is committed publication retained or recovered if delivery fails? Persistence is not yet required.
 
-Desired outcome: compute input/output and apply contracts, including batch ordering, failure behavior, and a small reconstruction example. Do not assume CPU/GPU numerical parity. Track Feature 12.7.
+Desired outcome: compute input/output and apply contracts, including batch ordering, failure behavior, and a small reconstruction example. Do not assume CPU/GPU numerical parity. Check the current roadmap before assigning this work to a milestone.
 
 ## Topic 4: Session Storage and Disclosure
 
-Why: session state and actor-scoped queries do not yet exist.
+Why: actor-partitioned session state and scoped queries do not yet exist. `SessionData` holds one protocol state, but it does not apply server update batches.
 
 Questions:
 - What permitted state is stored for each actor, and how is shared data represented?
@@ -122,7 +122,7 @@ Questions:
 - How are membership changes, permission revocation, and entity entry/removal represented?
 - Can extraction observe a partially applied batch, or only stable state between batches?
 
-Desired outcome: session storage and query contracts, disclosure rules, and negative tests for wrong-session delivery and wrong-actor reads/commands. Track Features 12.8 and 17.5.
+Desired outcome: session storage and query contracts, disclosure rules, and negative tests for wrong-session delivery and wrong-actor reads/commands. Check the current roadmap before assigning this work to a milestone.
 
 ## Topic 5: Snapshots and Stream Continuity
 
@@ -134,7 +134,7 @@ Questions:
 - How are duplicates, missing batches, retries, disconnects, and queue saturation handled?
 - When does a slow session request a fresh snapshot instead of replaying updates?
 
-Desired outcome: initialization/recovery state transitions and bounded-queue rules. Track Features 12.8 and 12.4.
+Desired outcome: initialization/recovery state transitions and bounded-queue rules. Check the current roadmap before assigning this work to a milestone.
 
 ## Topic 6: Scheduling and Browser Lifecycle
 
@@ -187,7 +187,7 @@ Questions:
 - How is command consumption ordered relative to fixed ticks?
 - Which callback services local steps, session updates, and redraw requests?
 
-Desired outcome: an activity-contract matrix before choosing rates or execution placement. Include no one-step-per-redraw assumption, no client-driven remote authority, explicit suspension policy, and measured timing variation. Track Features 12.7 and 12.9 with Features 1.1, 12.5, and Initiative 14. Audio requirements belong in the inventory even if audio implementation remains later work.
+Desired outcome: an activity-contract matrix before choosing rates or execution placement. Include no one-step-per-redraw assumption, no client-driven remote authority, explicit suspension policy, and measured timing variation. Audio requirements belong in the inventory even if audio implementation remains later work.
 
 Suggested restart: classify the first slice's input, commands, committed updates, extraction, drawing, and audio requirements. Resolve data preservation before choosing a collection of timers.
 
@@ -203,7 +203,7 @@ Questions:
 
 Actor scope is a boundary between authoritative world state and each session's permitted state. It does not restrict a shared display to one actor. A display adapter can compose multiple actors already permitted to its session. Separate sessions can also be bound to separate renderer surfaces and monitors.
 
-Desired outcome: display trait and render-data contracts, display/session topology, plus a browser acceptance checklist. No prediction is required. Track Feature 12.9 with Feature 2.7.
+Desired outcome: display trait and render-data contracts, display/session topology, plus a browser acceptance checklist. No prediction is required.
 
 ## Topic 8: Remote Host and Transport
 
@@ -213,7 +213,7 @@ Questions:
 - Does WebSocket over TLS satisfy the measured requirements, or is there a demonstrated need for WebTransport?
 - How are authenticated sessions bound to channels and command acknowledgements across reconnect?
 
-Desired outcome: a transport/host contract using the established local semantics, plus a local/remote parity test plan. No broker or microservice deployment is implied. Track Feature 12.10.
+Desired outcome: a transport/host contract using the established local semantics, plus a local/remote parity test plan. No broker or microservice deployment is implied.
 
 ## Later Consideration: Prediction and Smoothing
 
@@ -221,7 +221,7 @@ Revisit only after contracts, committed-update reconstruction, browser output, a
 
 Prediction estimates state before authority confirmation. Interpolation displays between known states. They are different techniques, and neither is needed to establish scheduling correctness.
 
-Future questions include acceptable presentation delay, correction behavior, and whether any client-side computation is justified. Do not design rollback buffers or replay systems during the current contract work. Track Feature 12.3 as deferred consideration, not the next implementation task.
+Future questions include acceptable presentation delay, correction behavior, and whether any client-side computation is justified. Do not design rollback buffers or replay systems during the current contract work. This remains deferred consideration, not the next implementation task.
 
 ## Topic 9: Domain Models, Scale, and Propagation
 

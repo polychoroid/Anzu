@@ -1,10 +1,10 @@
 # Multiplayer WASM + WebSocket Architecture Recommendations
 
-## Current Direction (2026-10-16)
+## Target Direction (2026-11-04)
 
-The [runtime architecture](architecture.md#runtime-rewrite-direction) and [IO/connection contracts](api.md#target-session-and-authority-protocol) supersede older prediction-first and simulation-to-broadcast examples below. The [backlog](../BACKLOG.md#current-priority-session-and-authority-integration) defines the next stage.
+The [runtime architecture](architecture.md#runtime-rewrite-direction) and [IO/connection contracts](api.md#target-session-and-authority-protocol) supersede older prediction-first and simulation-to-broadcast examples below. The [roadmap](../BACKLOG.md) defines the current user outcomes.
 
-Use shared `SimulationIO` command/update types for local queues and remote transport. `RemoteServer` is the client connection, not the authority. A new transport-neutral host package will run computation, authoritative state, and permitted publication. Its name and Rust libraries remain undecided.
+The active code has no network transport. The target design uses shared command/update types for local queues and remote transport. `RemoteServer` is currently an empty declaration, not a client connection. A new transport-neutral host package is proposed, but its name and Rust libraries remain undecided.
 
 Target flow:
 
@@ -127,7 +127,7 @@ Send domain commands or input intent. Do not accept client-authored world state 
 {
   "tick": 10234,
   "input": {
-    "forward": true,
+The [runtime architecture](architecture.md#runtime-rewrite-direction) and [IO/connection contracts](api.md#target-session-and-authority-protocol) supersede older prediction-first and simulation-to-broadcast examples below. The [roadmap](../BACKLOG.md) defines the current user outcomes.
     "turn": -0.3
   }
 }

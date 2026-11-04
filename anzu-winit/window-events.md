@@ -2,7 +2,7 @@
 
 ## Purpose and Status
 
-This guide defines how `anzu-winit` should understand and route `winit::event::WindowEvent` in `App::window_event`. It is an implementation guide, not a claim that the handler is complete. The handler in `src/app.rs` matches the event variants, but most branches still contain `todo!()`. The `winit` dependency is version 0.30.13.
+This guide records the current routing in `App::window_event` and separates it from planned behavior. The active handler processes close, keyboard, redraw, and resize events. It ignores other events and does not check the supplied `WindowId`. The `winit` dependency is version 0.30.13.
 
 `ApplicationHandler::window_event` is called when the operating system sends an event to a `winit` window. It receives the active event loop, the event's `WindowId`, and one owned `WindowEvent`. The callback is a platform boundary. It should handle window lifecycle, forward supported input, and request or perform redraw work. It should not contain ROM rules or make redraw frequency the simulation clock.
 
@@ -10,20 +10,20 @@ This guide defines how `anzu-winit` should understand and route `winit::event::W
 
 ```mermaid
 flowchart LR
-	OS[OS or browser window event] --> Callback[App::window_event]
-	Callback --> Match[Match WindowId to App window]
-	Match --> Host[Handle window lifecycle and size]
-	Match --> Input[Forward supported input]
-	Input --> Adapter[WinitKeyboadInput]
-	Adapter --> Session[Session queues mapped input]
+	Timer[16 ms interval] --> Tick[AppEvent::Tick]
+	Tick --> Server[Session calls LocalServer tick]
+	Server --> Action[Map inputs, apply actions, step ROM]
+	Server -. batch is queued if published, not applied .-> Updates[Published update queue]
+	Tick --> Request[Window request_redraw]
+	Event[WindowEvent] --> Callback[App::window_event]
+	Callback --> Input[KeyboardInput to SessionData]
+	Callback --> Resize[Resized to display adapter]
 	Callback --> Redraw[RedrawRequested]
-	Redraw --> Updates[Apply available committed updates]
-	Updates --> Extract[Extract stable session view]
-	Extract --> Render[Renderer: acquire, encode, submit, present]
-	Tick[Authority scheduler] -. separate cadence .-> Session
+	Redraw --> Project[State::project_display]
+	Project --> Render[Display adapter and wgpu backend]
 ```
 
-The session and renderer stages in this diagram describe the target boundary. Current `SessionData` has an input adapter and server, but its update application is private and no display adapter is connected. `anzu-render-wgpu` is placeholder code. Therefore, the redraw path cannot yet call a real extraction or renderer API.
+The diagram shows current code paths. The update queue is not drained by `SessionData`, and `State::apply_update` is not called. `anzu-render-wgpu` has a renderer, but it supports only a narrow GLTF and single-instance path.
 
 ## Routing Rules
 
@@ -62,11 +62,11 @@ The following list covers the 28 variants in `winit 0.30.13`. Platform support a
 
 | Variant | Meaning | Anzu handling guidance |
 |---|---|---|
-| `KeyboardInput { event, is_synthetic, .. }` | A key press or release was received. | Send supported events to `WinitKeyboadInput`, which currently maps physical letter keys, arrows, Escape, Enter, Space, and Backspace to input signals. The adapter currently ignores `is_synthetic`; decide and test the desired focus-transition behavior before changing that policy. |
+| `KeyboardInput { event, is_synthetic, .. }` | A key press or release was received. | `WinitInputAdapter` maps supported logical character and named keys to input signals. It ignores `is_synthetic`; define focus-transition behavior before changing that policy. |
 | `ModifiersChanged(Modifiers)` | Modifier-key state changed. | Track modifiers if control mapping needs Shift, Control, Alt, or Super. The current adapter does not use this event. |
 | `Ime(Ime)` | An input method emitted text composition or committed text. | Use for text entry, not game-style physical controls. Winit requires IME to be enabled on the window. |
 
-`KeyboardInput` is a physical key event in the current adapter: `PhysicalKey::Code(KeyCode::KeyA)` maps to the character-like internal key `a`, independent of the typed character. This is useful for positional controls, but it is not text input and does not account for keyboard layout. Use IME or logical text input for text entry.
+`WinitInputAdapter` reads `KeyEvent.logical_key`. Character keys therefore follow the logical key reported by `winit`, not a physical key code. The adapter does not implement text composition through IME.
 
 Winit can synthesize key transitions when focus changes on some platforms. Synthetic releases can prevent stuck input. Do not discard synthetic events without an alternative focus-loss reset. The current input mapping returns `Pressed` or `Released`; higher layers still need clear handling for unsupported keys and focus transitions.
 
@@ -99,13 +99,15 @@ File paths and drag-and-drop support vary by platform. The current browser app h
 
 ## Current Anzu Scope
 
-The current `WinitKeyboadInput` implements `InputAdapter<Command = WindowEvent>`. It maps keyboard events to `InputSignal` and returns `None` for other event variants and unsupported keys. `SessionData::adapt_input` queues an input only when mapping returns `Some`.
+`App::window_event` handles `CloseRequested`, `KeyboardInput`, `RedrawRequested`, and `Resized`. It does not filter events by `WindowId`, handle `ScaleFactorChanged`, or define focus-loss behavior. `KeyboardInput` passes its `KeyEvent` to `SessionData::queue_input`.
 
-This means the first useful `window_event` implementation can route keyboard input to the session and handle window lifecycle events. Resize and redraw branches must remain explicit integration points, not pretend calls to renderer methods that do not exist yet. The wgpu crate currently has no active renderer, and the session has no public update-application or extraction API.
+`WinitInputAdapter` maps logical character keys and selected named keys to `InputSignal`. Its `Tab` branch is `todo!()`. The ROM maps only selected signals to actions. `CloseRequested` exits the event loop, but an Escape input does not.
+
+On `Resized`, the app forwards physical dimensions to the display adapter. On `RedrawRequested`, `SessionData` calls `State::project_display` and passes the result to the display adapter. The app creates a window on resume, attaches it to the adapter, and requests asset loading.
 
 ## Redraw and Renderer Boundary
 
-When renderer integration exists, the `RedrawRequested` branch should follow these responsibilities:
+The current redraw path calls `project_display` and then the display adapter. It does not apply queued update batches first. The target path should follow these responsibilities after update application is implemented:
 
 1. Apply complete committed update batches available to the session.
 2. Read a stable view of session-permitted state through the display adapter.
@@ -118,14 +120,14 @@ If surface acquisition fails, report or recover from the rendering failure witho
 
 ## Implementation Checklist
 
+- [x] Route selected keyboard events to the session input adapter.
+- [x] Request event-loop exit for `CloseRequested`.
+- [x] Forward `Resized` dimensions to the display adapter.
+- [x] Request display work on `RedrawRequested`.
 - [ ] Ignore events whose `WindowId` does not match the owned window.
-- [ ] Route supported keyboard events to the session input adapter.
 - [ ] Define focus-loss behavior for held input and synthetic key transitions.
-- [ ] Request exit for `CloseRequested`; keep it distinct from `Destroyed`.
-- [ ] Handle physical resize and scale-factor changes without configuring a zero-sized surface.
-- [ ] Draw only on `RedrawRequested` and keep authority ticks independent from redraw count.
-- [ ] Keep unsupported, platform-specific events non-fatal.
-- [ ] Add tests or manual checks for keyboard press/release, focus loss, close, resize, scale changes, and redraw requests when the corresponding runtime or renderer APIs exist.
+- [ ] Handle scale-factor changes and avoid zero-sized surface configuration.
+- [ ] Add tests or manual checks for input, focus, close, resize, scale changes, and redraw behavior.
 
 ## References
 

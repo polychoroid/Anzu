@@ -17,7 +17,13 @@ Anzu is a browser-first simulation and visualization system. A user can select a
 - Mark a milestone complete only when its scenarios pass and its stated evidence exists.
 - Treat unverified work as planned. Do not infer completion from old notes, abandoned code, or a successful build alone.
 - Keep implementation contracts and detailed API choices in the architecture and API documents. This roadmap records user outcomes, dependencies, and acceptance.
-- Keep `anzu-engine` out of this roadmap's implementation scope. Use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and the active ROM packages.
+- Keep `abandoned_generated_code/` out of this roadmap's implementation scope. Use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and the active ROM packages.
+
+## Current Implementation Baseline (2026-11-04)
+
+The active source has a local `winit` app, a `LocalServer`, protocol state, input/display adapters, a limited GLTF loader, and an initial `wgpu` renderer. The session does not apply published updates, and the ROM's update application is unfinished. The 16 ms interval sends one simulation step per tick event; it does not schedule steps from elapsed time. The terminal display, remote host, transport, ROM catalog, and manifest loading are not implemented.
+
+Keep the milestones below planned until their observable scenarios and evidence are complete. See the [API reference](documents/api.md#current-source-interfaces) for implementation details.
 
 ## Data-Driven Architecture
 

@@ -2,25 +2,28 @@
 
 ## Scope
 
-This document covers runtime integration outside `anzu-engine`. The 2026-10-16 brainstorm supersedes the earlier engine API inventory and direct-world snapshot examples. No stable wire API is implemented.
+This document covers the active runtime workspace. The 2026-10-16 brainstorm supersedes the earlier archived-engine API inventory and direct-world snapshot examples. No stable wire API is implemented.
 
 ## Current Source Interfaces
 
-- [Simulation contracts](../anzu-runtime/src/simulation.rs): `Simulation` declares `Command`, `Snapshot`, and `WorldState`. `SimulationIO` separately declares `Command` and `Update`, but is not connected to simulation methods.
-- [Server](../anzu-runtime/src/server.rs): `Server<S: Simulation>` selects local or remote. Local delivery maps `InputSignal` through the simulation and calls `apply` and `step`. `RemoteServer` is empty. There is no update dequeue API.
-- [Session](../anzu-runtime/src/session.rs): owns input adapter and server, but no session state or display adapter. Input mapping unwraps an optional result. A session tick forwards a timestamp to the server.
-- [Winit app](../anzu-winit/src/lib.rs): creates a local `BoatTouching` session. App state and event-loop integration remain incomplete.
-- [wgpu package](../anzu-render-wgpu/src/lib.rs): contains placeholder code, not a renderer implementation.
+- [Simulation contract](../anzu-runtime/src/simulation.rs): `Simulation<P>` defines an `Action`, input adaptation, action application, asset listing, update publication, and a simulation step. It has no snapshot or `SimulationIO` contract.
+- [Server](../anzu-runtime/src/server.rs): `LocalServer<P, S>` owns a simulation, queued input signals, and published update batches. Each tick maps queued signals, applies supported actions, calls `step`, and queues a returned update batch. `Server::dequeue_update_batch` exposes those batches. `RemoteServer` and `PredictiveRemoteServer` are empty declarations.
+- [Session](../anzu-runtime/src/session.rs): `SessionData` owns input and display adapters, a server, and protocol state. It queues mapped input and requests rendering from `State::project_display`. It does not dequeue server updates or call `State::apply_update`; the protocol state therefore does not receive published batches through this path.
+- [Winit app](../anzu-winit/src/lib.rs) and [app handler](../anzu-winit/src/app.rs): `run` starts a `winit` event loop. A 16 ms interval sends tick events. The app builds a local `BoatTouching` session, attaches a window, loads display assets, routes keyboard events, resizes the display, and requests redraws. Its native path is a development-workspace path, not a desktop product package.
+- [Winit adapters](../anzu-winit/src/input.rs) and [display adapter](../anzu-winit/src/display.rs): keyboard events map to input signals. The display adapter selects WebGPU or WebGL in a browser and a native backend for non-WASM builds. Browser backend creation is asynchronous; native creation blocks.
+- [wgpu package](../anzu-render-wgpu/src/lib.rs): exports a GLTF loader and a `wgpu` renderer. The current backend creates a surface, device, pipeline, and buffers, uploads assets, and draws one instance. This is an early implementation, not a complete multi-instance renderer or robust surface-recovery path.
+- [ROM package](../roms/you%20touched%20my%20boats/src/lib.rs): `BoatTouching` provides the local simulation and `GameState` protocol types. It maps keyboard signals to actions and advances a tick counter. `GameState::apply_update` is unfinished, and its update queue is not populated by the current simulation behavior.
+- [Terminal app](../anzu-terminal/src/main.rs): creates the same local ROM and server, polls terminal input, and requests redraws. Its display backend methods are unfinished.
 
-These are read-only source observations, not build or test results.
+These are source observations, not build or test results. The local input-to-server-to-step path exists, but published batches are not applied to session state. The browser draw path is also incomplete and can fail when it receives no instances or an asset without a material.
 
 ## Target Session and Authority Protocol
 
-The [architecture](architecture.md#runtime-rewrite-direction) defines ownership. [Backlog Initiative 12](../BACKLOG.md#initiative-12-networking-and-session-features) tracks implementation. The contracts below are proposed, not implemented APIs.
+The [architecture](architecture.md#runtime-rewrite-direction) defines target ownership. The [roadmap](../BACKLOG.md) records user outcomes. The contracts below are proposed, not implemented APIs.
 
 ### Separate IO and State
 
-`SimulationIO` supplies shared command/update types independently of world storage, session storage, a GPU device, or a simulation instance.
+The target `SimulationIO` concept would supply shared command/update types independently of world storage, session storage, a GPU device, or a simulation instance. No such type exists in the active source.
 
 The recommended shape is a simulation with associated IO, a server-connection trait with associated IO, and compatible session state. A remote client must not need a `Simulation` implementation just to name protocol types.
 
@@ -86,6 +89,6 @@ Authority time is not defined by redraw count. A local app can service an elapse
 
 The session processes input and available committed batches, then extracts a stable permitted view. Prediction and interpolation are low-priority future consideration after the baseline and remote recovery are validated. Current contracts must not require predictive state, rollback/replay buffers, or a simulation in remote clients.
 
-For the detailed timing explanation and future discussion topics, see [Future Brainstorms](runtime-integration-brainstorms.md). For immediate contract tasks, see [the backlog checklist](../BACKLOG.md#next-step-contract-checklist). These are documentation plans, not runtime changes.
+For timing details and future discussion topics, see [Future Brainstorms](runtime-integration-brainstorms.md). These are documentation plans, not runtime changes.
 
 Acceptance checks cover local/remote reconstruction parity, commit-before-publish, actor/session exclusion, snapshot continuity, retries, malformed messages, bounded queues, unsupported input, and redraw-independent ticks. Browser checks cover initialization, resize, hidden-tab resume, and renderer failure without state rollback.

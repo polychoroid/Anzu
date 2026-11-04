@@ -6,7 +6,7 @@ Owner: Runtime/Platform
 
 ## Current Precedence (2026-10-16)
 
-Retain separate-WASM loading as a long-term direction, not a prerequisite for the [current integration stage](../BACKLOG.md#current-priority-session-and-authority-integration). The older full-functionality MVP and ABI-first sequencing below are superseded for this stage. Audio, persistence, dynamic loading, and a frozen guest ABI are not required before local session/update integration.
+Retain separate-WASM loading as a long-term direction, not a prerequisite for the [current integration stage](../BACKLOG.md). The older full-functionality MVP and ABI-first sequencing below are superseded for this stage. Audio, persistence, dynamic loading, and a frozen guest ABI are not required before local session/update integration.
 
 The [current architecture](architecture.md#runtime-rewrite-direction) controls ownership: session owns input and extraction-only display adapters; App owns the renderer; the authority computes, commits, and publishes permitted updates. Remote clients need shared IO types, not a simulation module. Future guest ABIs must preserve these boundaries. The older frame sequence must not imply that client redraws advance remote authority or that rendering reads unrestricted world snapshots.
 
@@ -31,18 +31,18 @@ Target ROM responsibilities:
 At the time of this proposal, the active design compiled ROM code into the same WebAssembly module and selected it with a static resolver.
 
 Evidence:
-- `anzu-engine/src/abandoned_generated_code/lib.rs`
+- `abandoned_generated_code/lib.rs`
   - Hardcoded ROM resolver map (`anzu.triangle_man`, `anzu.triangle_man_2`)
-- `anzu-engine/src/abandoned_generated_code/platform_browser.rs`
+- `abandoned_generated_code/platform_browser.rs`
   - Loads `manifest.json`, reads `rom_id`, then resolves through in-process closure
-- `anzu-engine/src/abandoned_generated_code/rom.rs`
+- `abandoned_generated_code/rom.rs`
   - `RomPackage` trait is in-process and uses host references/trait objects
-- `anzu-engine/src/abandoned_generated_code/renderer/core.rs`
+- `abandoned_generated_code/renderer/core.rs`
   - `RenderRomPackage` returns static in-process render payload (`&'static` shader/vertex data)
-- `anzu-engine/src/abandoned_generated_code/renderer/wasm.rs`
+- `abandoned_generated_code/renderer/wasm.rs`
   - Runtime `State` owns both `World` and `SimulationModel` directly
 
-The active engine has since changed. It now starts `TextureDemoRom` directly. It does not load separate ROM modules or use the earlier static resolver. Older resolver code is in `anzu-engine/src/abandoned_generated_code/`.
+Current source uses `anzu-winit::App` to create a local `You Touched My Boats` session. It does not load a ROM manifest, select a ROM from `rom_id`, or load separate ROM modules. The historical resolver is archived under `abandoned_generated_code/`.
 
 Implication: Neither the historical resolver nor this proposal defines a working plugin interface across WebAssembly module boundaries.
 

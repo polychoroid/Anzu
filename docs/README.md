@@ -5,22 +5,24 @@ This folder contains the browser-hosted runtime assets for Anzu.
 
 ## Runtime Integration Status (2026-10-16)
 
-The build/run workflow below targets legacy generated assets. It is not a verified build recipe for the incomplete `anzu-winit` integration. Everything under `anzu-engine` is excluded from the current development stage; generated output is not completion evidence.
+`index.html` loads the generated `anzu_winit.js` package from `pkg/`. The active Rust source is in `anzu-winit`; `manifest.json` is not read by that app. Generated files can be older than the source and do not prove that the current source builds or runs.
 
-See [the current architecture](../documents/architecture.md#runtime-rewrite-direction) and [backlog](../BACKLOG.md#current-priority-session-and-authority-integration) for session-owned adapters, committed updates, actor-partitioned state, and the proposed remote host.
+The current browser app starts a local `You Touched My Boats` session and a `wgpu` display adapter. The ROM update path is incomplete, and no remote host or transport exists. See the [API reference](../documents/api.md#current-source-interfaces) for the implemented interfaces and limits.
 
 ## Contents
 
 - `index.html` - loads the generated WebAssembly and JavaScript package into the canvas.
-- `manifest.json` - legacy startup metadata. The active engine entry point does not load this file.
+- `manifest.json` - legacy startup metadata. The active app does not load this file.
 - `pkg/` - contains generated output from `wasm-pack` or `wasm-bindgen`, including JavaScript glue and the WebAssembly binary.
 
 ## Build and Run
 
-1. Build the engine package from its crate directory:
+The following build command is a candidate workflow. It was not run during this documentation review.
+
+1. Build the browser package from the active crate:
 
 ```bash
-cd ../anzu-engine
+cd ../anzu-winit
 wasm-pack build --target web --out-dir ../docs/pkg --release
 ```
 

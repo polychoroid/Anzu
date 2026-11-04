@@ -1,46 +1,39 @@
 # User Guide
 
-## Overview
-The instructions below describe the legacy browser artifacts and texture demo. They do not describe the new `anzu-winit` integration, which is incomplete. Everything under `anzu-engine` is excluded from the next development stage.
+## Current Status
 
-The [current roadmap](../BACKLOG.md#current-priority-session-and-authority-integration) starts with local sessions, committed state updates, and session-owned display extraction. Remote connections are planned, not an available user feature. See [architecture](architecture.md#runtime-rewrite-direction) for the target design.
+Anzu currently provides a browser prototype, not a complete playable game. The app creates a local `You Touched My Boats` session, loads one GLTF asset, and requests a redraw after each 16 ms tick event.
 
-## Getting Started
+The ROM maps keyboard input to actions, but action application only writes a log message. The session does not apply published updates to its state. As a result, keyboard input does not move boats or change the displayed state. The display currently projects one rotating asset instance.
 
-### Prerequisites
-- Modern browser
-- Python 3 (or any static file server)
-- Prebuilt package in `docs/pkg`
+## Run the Checked-In Browser Build
 
-### Build
+The browser page loads generated files from `docs/pkg/`. These files may not match the current Rust source.
+
+1. Start a static file server from the repository root:
 
 ```bash
-cd anzu-engine
-wasm-pack build --target web --out-dir ../docs/pkg --release
+python3 -m http.server 8000 --directory docs
 ```
 
-### Run
+2. Open `http://localhost:8000/` in a browser.
 
-```bash
-cd docs
-python3 -m http.server 8000
-```
+## Input Mapping
 
-Open `http://localhost:8000/index.html` in a browser.
+The browser input adapter maps keyboard events to runtime input signals. The ROM currently maps:
 
-## Usage
+- `W`, `A`, `S`, and `D` to actions for the first player.
+- Arrow keys and `Enter` to actions for the second player.
+- `Space` to a fire action for the first player.
 
-Expected behavior:
-- The runtime displays a full-window canvas.
-- `TextureDemoRom` starts and renders its scene.
-- The runtime uses a 16 ms fixed step and limits each frame to five steps.
-- Rendering continues after a window resize.
-- Press `P` to change projection mode.
-- Press `Escape` to exit.
+These actions do not yet change the display. `Escape` maps to an input signal but does not close the app. The `Tab` input branch is unfinished and can panic.
 
-## Troubleshooting
+## Known Limits
 
-- Blank page: Confirm that the server runs from `docs` and that `docs/pkg` exists.
-- Startup failure: Confirm that the server hosts `index.html` and the generated files in `docs/pkg` from the same origin.
-- Rendering failure: Check the browser console for surface or device initialization errors.
-- Stale code: Hard-refresh the browser page.
+- The 16 ms interval sends one server tick. It is not an elapsed-time fixed-step scheduler.
+- The session does not dequeue update batches or call `State::apply_update`.
+- The renderer draws only the first supplied instance and uses a narrow GLTF path.
+- The terminal display adapter is unfinished.
+- No ROM catalog, manifest loading, remote session, or network transport is available.
+
+See the [API reference](api.md#current-source-interfaces) for the current source boundaries.

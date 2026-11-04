@@ -1,8 +1,8 @@
 # Operations
 
-## Current Integration Scope (2026-10-16)
+## Current Integration Scope (2026-11-04)
 
-The [current architecture](architecture.md#runtime-rewrite-direction) and [backlog](../BACKLOG.md#current-priority-session-and-authority-integration) govern the next runtime stage. Texture-demo checks below are legacy artifact checks, not evidence that the new web app or remote host is operational. Everything under `anzu-engine` is excluded from this stage.
+The active app runs a local `You Touched My Boats` session through `anzu-winit`. A 16 ms interval requests one server tick and then a redraw. The ROM currently logs actions, and the session does not apply published updates. The app has no remote host or network transport.
 
 ### Planned Session and Authority Checks
 
@@ -17,18 +17,18 @@ These are acceptance requirements, not currently available diagnostics. Durable 
 
 ## Runtime Monitoring
 
-The browser console provides the current runtime diagnostics.
+The browser console provides the current logs and errors. The checked-in page loads generated files from `docs/pkg/`, which may not match the active source.
 
 - Check it for canvas, window, device, and rendering errors.
-- Confirm that the texture demo appears after startup.
-- Resize the window and confirm that rendering continues.
-- Press `P` and confirm that the projection mode changes.
+- Confirm that the browser app creates its canvas and GPU backend.
+- Resize the window and check for surface configuration errors. The current resize path has no zero-size guard.
+- Confirm that the current GLTF asset appears. The renderer uses only the first supplied instance.
 
-The active runtime does not yet expose frame or stage timing distributions, collision/broadphase work counts, asset-residency metrics, upload-queue metrics, or pressure metrics. Similar profiler code under `anzu-engine/src/abandoned_generated_code` is archived and is not evidence that the active runtime is instrumented.
+The active runtime does not expose frame or stage timing distributions, collision work counts, asset-residency metrics, upload-queue metrics, or pressure metrics. Do not treat profiling code in `abandoned_generated_code/` as active instrumentation.
 
 ### Performance Baseline Status
 
-Performance monitoring is a current implementation priority, not a completed runtime capability. Until Feature 9.1 and Feature 9.6 are implemented, use this status when reviewing performance claims:
+Performance measurement remains planned, not a completed runtime capability. Use this status when reviewing performance claims until the roadmap's benchmark work is implemented and measured:
 
 - Do not claim that the active runtime has a measured frame-time baseline.
 - For each performance-sensitive change, record the workload, target, backend, and available external measurements. State which internal stage data is unavailable.
@@ -59,16 +59,16 @@ Use this method as soon as the baseline instrumentation and benchmark output exi
 ## Debugging
 
 Common failure modes:
-- The server cannot find `index.html` or generated package files because it uses the wrong root path.
+- The static server cannot find `index.html` or generated package files because it uses the wrong root path.
 - The browser does not support the selected GPU backend.
-- The generated files in `docs/pkg` do not match the current code.
+- The generated files in `docs/pkg/` do not match the current code.
 
 Debug workflow:
-1. Build the release package with `wasm-pack`.
-2. Hard-refresh the browser page.
-3. Inspect the console for startup and rendering diagnostics.
-4. Confirm that the static server root is `docs`.
-5. Compare `pairs_checked` and phase-timing logs before and after each simulation architecture change.
+1. Confirm that the static server root is `docs/`.
+2. Confirm that `docs/pkg/anzu_winit.js` and `docs/pkg/anzu_winit_bg.wasm` exist.
+3. Hard-refresh the browser page.
+4. Inspect the console for startup and rendering errors.
+5. Rebuild only with a validated source build command. No release build recipe is verified yet.
 
 ## Planned Memory-Pressure Workflow
 
@@ -81,9 +81,9 @@ The active runtime does not implement this workflow. Use it as a test plan after
 
 ## Maintenance
 
-- Keep Rust dependencies current with regular `cargo update` reviews.
-- Re-run format/lint/build checks before merging.
+- Review Rust dependency updates in the workspace manifests.
+- Run format, lint, and build checks before merging when the active workspace supports them.
 - Keep docs synchronized whenever runtime contracts or commands change.
 - Track milestone acceptance criteria in backlog as implementation evolves.
-- Keep release playbooks in sync with CDN versioning and cache-purge policy when CDN deployment is in use.
+- Define CDN versioning and cache-purge policy before a CDN release process is selected.
 - Record baseline metrics when the runtime exposes them, including startup time, frame pacing, resident memory, and eviction churn.

@@ -6,20 +6,22 @@ Live site: [https://polychoroid.github.io/Anzu/](https://polychoroid.github.io/A
 
 ## Current Source State
 
-- `anzu-runtime` contains simulation, server, input, and session prototypes. `SimulationIO` declares shared command/update types but is not integrated yet.
-- `anzu-winit` is the browser frontend and creates a local session. Its event-loop and app-state integration remain incomplete. Native `target_arch` paths may support development-workspace runs.
-- `anzu-render-wgpu` is a placeholder package, not a completed backend.
-- Local committed-update delivery, session state, display extraction, and remote transport are the next integration work. They are not implemented features.
-- Everything under `anzu-engine` is excluded from this development stage. Earlier generated browser artifacts are not evidence that the new runtime is complete.
+- `anzu-runtime` defines simulation, protocol, local-server, session, input, display, and asset interfaces. `LocalServer` queues inputs, advances one simulation step per tick, and stores published update batches.
+- `SessionData` owns protocol state and input/display adapters, but it does not dequeue server batches or apply updates. The current display therefore does not show simulation updates.
+- `anzu-winit` starts a `winit` event loop, creates a local `You Touched My Boats` session, and sends a tick event every 16 ms. Each tick advances one simulation step and requests a redraw.
+- `anzu-render-wgpu` has an early GLTF asset loader and `wgpu` surface renderer. It draws one instance and does not yet provide complete multi-instance or surface-recovery behavior.
+- The `You Touched My Boats` ROM maps keyboard input to actions, but action application only logs them. Its update application is unfinished.
+- `anzu-terminal` has a terminal input loop, but its display backend is unfinished. `RemoteServer` and `PredictiveRemoteServer` are empty declarations; no remote transport exists.
+- `abandoned_generated_code/` contains excluded historical engine code. It is not part of the active Cargo workspace.
 
 Check the API and architecture documents for implemented interfaces and target design. Do not treat archived code or design recommendations as current features.
 
 ## Repository Layout
 
-- `anzu-runtime/` - runtime contracts, local authority prototype, and session logic.
-- `anzu-winit/` - browser app and winit platform input integration.
-- `anzu-render-wgpu/` - planned rendering backend, currently a placeholder.
-- `anzu-terminal/` - terminal application and adapters.
+- `anzu-runtime/` - runtime interfaces, local server, session, input, display, and asset types.
+- `anzu-winit/` - browser app, event loop, and `winit` platform adapters.
+- `anzu-render-wgpu/` - early GLTF loader and `wgpu` renderer.
+- `anzu-terminal/` - terminal input loop and unfinished display adapter.
 - `roms/` - domain-specific simulation packages.
 - `docs/` - Browser entry page, manifest, content assets, and generated wasm/js package.
 - `documents/` - Architecture, developer, deployment, operations, and API documentation.
@@ -27,25 +29,17 @@ Check the API and architecture documents for implemented interfaces and target d
 
 ## Quick Start
 
-Legacy browser-artifact workflow only: the commands below target the excluded engine, not the new runtime integration. They have not been revalidated in this documentation pass. A working `anzu-winit` build/deployment recipe and a remote host package are still pending. See the [current development direction](documents/architecture.md#runtime-rewrite-direction).
+The checked-in browser page imports generated files from `docs/pkg/`. Serving these files does not rebuild them from the Rust source.
 
-1. Build the WebAssembly package:
-
-```bash
-cd anzu-engine
-wasm-pack build --target web --out-dir ../docs/pkg --release
-```
-
-2. Start a web server for the browser assets:
+1. Start a static file server:
 
 ```bash
-cd docs
-python3 -m http.server 8000
+python3 -m http.server 8000 --directory docs
 ```
 
-3. Open `localhost:8000`. The browser shell loads the generated engine package.
+2. Open `http://localhost:8000/` in a browser.
 
-In the current engine build, press `P` to change projection mode. Press `Escape` to exit.
+This serves the checked-in `anzu_winit` WebAssembly package, which can differ from current source. See the [developer guide](documents/developer-guide.md) for workspace checks and the current limitations. There is no verified release workflow yet.
 
 ## Documentation Index
 
@@ -56,13 +50,13 @@ In the current engine build, press `P` to change projection mode. Press `Escape`
 - `documents/operations.md` - runtime diagnostics and maintenance guidance.
 - `documents/api.md` - module responsibilities and public API notes.
 - `documents/user-guide.md` - user-facing run behavior and troubleshooting.
-- `documents/runtime-execution-recommendations.md` - implementation recommendations and restart checklist for Milestone 4 runtime pipeline work.
+- `documents/runtime-execution-recommendations.md` - historical runtime recommendations. The current architecture and roadmap take precedence.
 - `documents/design-consideration-roms-as-separate-wasm.md` - proposal for separate WebAssembly ROM modules.
 - `documents/websockets-recommendations.md` - forward-looking multiplayer and WebSocket recommendations.
 
 ## Roadmap
 
-[BACKLOG.md](BACKLOG.md#current-priority-session-and-authority-integration) defines the current sequence. The 2026-10-16 vision separates compute proposals, authoritative commit, filtered session publication, actor-partitioned session state, and display extraction. Sessions own input/display adapters. Local and remote connections share IO without requiring a simulation on remote clients.
+[BACKLOG.md](BACKLOG.md) defines the current user-outcome sequence. The architecture document records the target split between compute proposals, authoritative commit, filtered session publication, actor-partitioned session state, and display extraction. These boundaries are not fully implemented.
 
 Pub/sub is an architectural analogy, not a microservice deployment plan. WebSocket over TLS is proposed for the first remote transport. Prediction, interpolation, and separate-WASM loading are later work, not prerequisites.
 
@@ -83,6 +77,6 @@ Pub/sub is an architectural analogy, not a microservice deployment plan. WebSock
 
 ## License
 
-Engine crate is licensed under MIT; see `anzu-engine/LICENSE`.
+The browser distribution includes a license file at [docs/LICENSE](docs/LICENSE). Check each active crate manifest for its package license metadata.
 
 Third-party dependency/license notices are tracked in `THIRD_PARTY_NOTICES.md`.

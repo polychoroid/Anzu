@@ -1,33 +1,44 @@
 # Developer Guide
 
-## Current Integration Scope (2026-10-16)
+## Current Development Scope (2026-11-04)
 
-Use [the current architecture](architecture.md#runtime-rewrite-direction), [API contracts](api.md), and [backlog sequence](../BACKLOG.md#current-priority-session-and-authority-integration) for the next development stage. Work targets `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and rom packages. Everything under `anzu-engine` is excluded.
+The active workspace contains `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and `You Touched My Boats` ROM are path dependencies. `abandoned_generated_code/` contains excluded historical code; there is no active `anzu-engine` crate at the repository root.
 
-The engine inventory, build commands, and tutorials below are retained legacy guidance. They are not a verified build recipe for the new web app. Do not infer working browser or remote-host integration from generated artifacts.
+`anzu-winit` creates a local ROM session and `wgpu` display adapter. Its 16 ms interval sends one server tick and requests a redraw. `SessionData` does not apply the server's published updates, and the ROM's update application is unfinished. The renderer imports a limited GLTF subset and draws one instance. The terminal display, remote host, and transport are unfinished.
 
-Platform boundary: `anzu-winit` is the browser frontend. Keep native `target_arch` paths when they support development-workspace builds or runs. These paths do not define a desktop product target. Desktop execution belongs to the planned `anzu-desktop` package. References below to native targets in the legacy engine section describe `anzu-engine` only.
+Use the [API reference](api.md#current-source-interfaces), [architecture snapshot](architecture.md#current-implementation-snapshot-2026-11-04), and [window-event guide](../anzu-winit/window-events.md) for current behavior. Use the architecture and backlog sections marked as target design for planned work.
 
-For the `winit 0.30.13` event contract and the planned `App::window_event` routing, see [Window Events](../anzu-winit/window-events.md). The guide distinguishes current keyboard input handling from renderer and lifecycle work that still needs implementation.
+### Suggested Workspace Checks
 
-The next stage connects `SimulationIO`, separates compute from commit/publication, adds actor-partitioned session state, and introduces a session-owned extraction-only display adapter. Remote clients need IO types, not simulation implementations. Validate update reconstruction, partition exclusion, snapshot continuity, bounded queues, and redraw-independent authority ticks. Record instrumentation overhead with performance evidence.
+These commands are suggested checks. They were not run during this documentation review.
+
+```bash
+cargo fmt --all -- --check
+cargo check --workspace
+cargo test --workspace
+cargo check -p anzu-winit --target wasm32-unknown-unknown
+```
+
+The checked-in page serves generated files from `docs/pkg/`; it does not rebuild them. No verified browser build or release recipe is available yet.
+
+## Current Repository and Historical Notes
+
+The repository map below describes the active workspace. The build commands, tutorials, conventions, and asset proposals after it preserve former-engine or future-design notes. They are not instructions for the active workspace. Do not run their `anzu-engine` commands or treat their example types as current APIs.
 
 ## Repository Structure
-- `anzu-engine/` — legacy Rust library for browser WebAssembly and native targets. Its target list does not describe `anzu-winit`.
-  - `src/lib.rs` — application startup, event handling, update, and render scheduling.
-  - `src/assets/` — mesh data providers.
-  - `src/ecs/` — entity and world types.
-  - `src/execution/` — rendering, compute, materials, pipeline building, backend, and shared state.
-  - `src/extraction/` — render-data extraction.
-  - `src/roms/texture_demo.rs` — active texture-demo content.
-  - `src/simulation/physics.rs` — simulation physics.
-  - `src/abandoned_generated_code/` — archived code that the active crate does not compile.
-- `anzu-runtime/` — early in-process session and authority prototype. It is not a production network service.
-- `docs/` — browser shell, manifest file, assets, and generated WebAssembly package.
+- `anzu-runtime/` — simulation, protocol, server, session, input, display, and asset interfaces.
+- `anzu-winit/` — browser app and `winit` event, input, and display adapters.
+- `anzu-render-wgpu/` — GLTF loading and an early `wgpu` renderer.
+- `anzu-terminal/` — terminal input loop and unfinished display adapter.
+- `roms/` — active ROM packages, including `You Touched My Boats`.
+- `docs/` — browser entry page and generated `anzu-winit` package. `manifest.json` is not loaded by the active app.
+- `abandoned_generated_code/` — archived engine code and historical artifacts; not compiled by the active workspace.
 - `documents/` — architecture, API, development, deployment, operations, and user guides.
 - `BACKLOG.md` — roadmap and task tracking.
 
-## Local Development
+## Archived Engine Build Notes (Not Current)
+
+The build commands and tutorials in this section target the former engine. The referenced root-level `anzu-engine/` directory does not exist in the active workspace. Do not use these commands to build the current app.
 
 ### Prerequisites
 Install these tools:
@@ -173,7 +184,7 @@ Minimal starter checklist:
 - One passing test for `BodyState::default` baseline validity.
 - One negative or edge-case test documenting expected behavior for invalid inputs.
 
-## Conventions
+## Archived Engine Conventions (Historical)
 
 Runtime pipeline continuation:
 - See `documents/runtime-execution-recommendations.md` for staged implementation guidance and a next-session resume checklist for Milestone 4 runtime execution work.
@@ -184,10 +195,10 @@ Runtime pipeline continuation:
 - **Simulation architecture:** Compute intent, physics, and policy changes over stable state and working data. Commit proposed updates through the authoritative state owner before publishing permitted session updates. Older direct-mutation tutorials below do not override this boundary.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
-- **Input behavior:** The active texture demo handles `P` to change projection mode. It handles `Escape` to exit. Older gamepad and input-context code is in `src/abandoned_generated_code/`.
+- **Input behavior:** The former `TextureDemoRom` and its `P`/`Escape` controls belong to archived code. The active ROM is `You Touched My Boats`; see its implementation status at the start of its README.
 - **WebGPU best practices:** 
-  - Use the wgpu version defined in `anzu-engine/Cargo.toml` (currently v30).
-  - Keep shader code as embedded WGSL strings (see the current renderer implementation).
+  - The active `anzu-render-wgpu` package uses wgpu 30.0.1.
+  - The active shader is stored in `anzu-render-wgpu/src/shaders/shader.wgsl`.
   - Avoid deprecated or platform-specific wgpu APIs.
 - **Material system conventions:**
   - Prefer material parameters and registry data over adding effect-specific fields to shared vertex structs.
@@ -222,7 +233,7 @@ Runtime pipeline continuation:
 
 ## Proposed GLB Physics Mesh Ingestion
 
-The active engine does not load GLB files. Treat this section as design guidance, not as a current workflow.
+The active renderer loads a limited GLTF subset from bytes. It does not create physics meshes from those assets. Treat this section as physics-import design guidance, not as a current workflow.
 
 Recommended direction:
 - Use GLB as a source package, then convert its geometry into a dedicated physics mesh before the solver uses it.
@@ -283,7 +294,7 @@ Pre-export scene prep:
 4. UV Editor > confirm UVMap exists and is non-empty for textured meshes.
 
 Schema summary:
-1. File path: `anzu-engine/src/roms/files/manifest/texture_demo.scene.json`
+1. File path: not selected. The active app does not load a scene manifest.
 2. Required top-level fields: `manifest_version`, `profile_id`, `objects`, `textures`, `startup_scene`
 3. `objects[]`: `object_asset_id`, `source.kind`, `source.path`, `default_material_id`, `generate_body`
 4. `textures[]`: `texture_id`, `path`, `color_space`

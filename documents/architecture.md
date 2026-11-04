@@ -22,9 +22,20 @@ Target contracts:
 - Rendering consumes extracted session data and must not contain simulation rules or unrestricted world access.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
 
-Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and rom packages for the next integration stage. Code under `anzu-engine` is excluded from this design pass and is not completion evidence.
+Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and ROM packages. Archived code under `abandoned_generated_code/` is excluded and is not completion evidence.
 
 Platform decision: `anzu-winit` is the browser frontend and its shipped runtime is browser-only. It can retain native `target_arch` paths for development-workspace builds and runs. Those paths do not make it the desktop frontend. A future `anzu-desktop` package will provide the desktop platform shell.
+
+### Current Implementation Snapshot (2026-11-04)
+
+- The Cargo workspace includes `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and ROM are path dependencies, not workspace members.
+- `anzu-winit` starts a local `You Touched My Boats` session. A 16 ms interval sends one tick event, and each event requests a redraw.
+- `LocalServer` maps queued input, applies supported actions, advances one simulation step, and stores published update batches.
+- `SessionData` owns protocol state and display/input adapters, but does not drain update batches or apply them. The ROM's `GameState::apply_update` is unfinished.
+- `anzu-render-wgpu` imports a limited GLTF subset and owns a real `wgpu` surface/device/pipeline path. It draws one instance and has incomplete error recovery.
+- `anzu-terminal` has an input loop, but its display backend is unfinished. No remote host or network transport exists.
+
+This snapshot describes source structure, not a successful build or browser test. The next-stage contracts below remain target design.
 
 ## Core Glossary
 
@@ -138,7 +149,7 @@ Cross-host goal: precise, tunable execution with measured error bars, not perfec
 
 Use the same domain command and update contracts in local and remote modes. In local mode, in-process channels connect the session and authority. In remote mode, transport adapters encode and decode the same domain messages. A WebSocket or other network transport is an adapter, not the authority or the simulation.
 
-`SimulationIO` supplies command/update associated types independently of state storage. It currently exists but is not wired into `Simulation`, `Server`, or `Session`. A remote client must not require a simulation implementation merely to name these types.
+The target design needs command/update types independent of world state, session state, a GPU device, or a simulation instance. The active source has no `SimulationIO` type or remote connection contract. A remote client must not require a simulation implementation merely to name protocol types.
 
 The proposed common connection contract queues commands and provides nonblocking `dequeue_update()` for complete committed batches. Empty queues, closed connections, and failures must be distinguishable. A connection trait with associated IO is recommended.
 
@@ -146,7 +157,7 @@ Decision, 2026-10-17: the platform host hardcodes the concrete local or remote c
 
 A new host package is planned, with a transport-neutral name still to be selected. WebSocket over TLS is the proposed first transport. WebTransport remains an alternative if independent streams or datagrams justify it. Required incremental updates need reliable ordered delivery or explicit application recovery. Bound queues and define recovery for slow consumers.
 
-See [API Reference](api.md#target-session-and-authority-protocol), [Transport Recommendations](websockets-recommendations.md), and [the backlog](../BACKLOG.md#current-priority-session-and-authority-integration).
+See [API Reference](api.md#target-session-and-authority-protocol), [Transport Recommendations](websockets-recommendations.md), and the [roadmap](../BACKLOG.md).
 
 ### Next-Stage Decisions and Acceptance
 
@@ -460,7 +471,7 @@ Decision:
 
 Evidence summary:
 - Runtime frame contract, ownership boundaries, and stage ordering are already explicit in this document.
-- Streaming taxonomy, residency state, and budget telemetry are captured in backlog planning for Feature 9.3 and Feature 10.x in [BACKLOG.md](../BACKLOG.md).
+- Streaming taxonomy, residency state, and budget telemetry remain future design topics. They are not assigned to a current roadmap milestone in [BACKLOG.md](../BACKLOG.md).
 
 Notation legend:
 - $D$: streaming demand object.
@@ -517,6 +528,8 @@ Typed error boundary:
 ### Part B: Expansion to Initiative 1 (Runtime and Frame Lifecycle)
 
 Historical contract: this entire subsection, including its law-check matrix and verification policy, is superseded by [Runtime Rewrite Direction](#runtime-rewrite-direction). It is not a completion gate for the current stage. In particular, simulation must not depend on successful frame acquisition, and extraction reads actor-scoped session state rather than authoritative simulation state.
+
+The feature identifiers in this historical matrix refer to an older roadmap and do not map to the current milestone numbers in `BACKLOG.md`.
 
 Initiative 1 state decomposition can be treated as a product object:
 $$
