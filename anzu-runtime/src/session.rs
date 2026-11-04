@@ -1,6 +1,7 @@
 use crate::display::DisplayAdapter;
 use crate::input::InputAdapter;
 use crate::server::{Protocol, Server, State};
+use log::info;
 use web_time::Instant;
 
 pub trait Session {
@@ -18,6 +19,7 @@ pub trait Session {
         &mut self,
         target: <Self::SessionDisplayAdapter as DisplayAdapter>::Target,
     );
+    fn load_display_data(&mut self);
     fn queue_input(&mut self, input: <Self::SessionInptuAdapter as InputAdapter>::Command);
     fn resize_display(&mut self, width: u32, height: u32);
     fn request_redraw(&mut self);
@@ -46,6 +48,19 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
         }
     }
 
+    fn attach_display_target(
+        &mut self,
+        target: <Self::SessionDisplayAdapter as DisplayAdapter>::Target,
+    ) {
+        self.display_adapter.attach_target(target);
+    }
+
+    fn load_display_data(&mut self) {
+        self.display_adapter
+            .load_assets(self.server.load_display_assets());
+        info!("Request load assets from server");
+    }
+
     fn queue_input(&mut self, command: I::Command) {
         if let Some(input) = self.input_adapter.map_input(command) {
             self.server.queue_input(input);
@@ -64,12 +79,5 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
 
     fn tick(&mut self) {
         self.server.tick(Instant::now());
-    }
-
-    fn attach_display_target(
-        &mut self,
-        target: <Self::SessionDisplayAdapter as DisplayAdapter>::Target,
-    ) {
-        self.display_adapter.connect_target(target);
     }
 }

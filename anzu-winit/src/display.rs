@@ -1,8 +1,11 @@
 use anzu_render_wgpu::render::WgpuRenderBackend;
-use anzu_runtime::display::{DisplayAdapter, DrawBatch, RenderBackend, SupportedRenderBackends};
-use log::info;
+use anzu_runtime::{
+    assets::{AssetHandle, DrawAssetInstance},
+    display::{DisplayAdapter, RenderBackend, SupportedRenderBackends},
+};
 #[cfg(target_arch = "wasm32")]
-use log::{debug, error};
+use log::error;
+use log::{debug, info};
 use std::io::Error;
 use std::sync::Arc;
 #[cfg(target_arch = "wasm32")]
@@ -19,6 +22,8 @@ pub struct WinitDisplayAdapter {
     size: (u32, u32),
     #[cfg(target_arch = "wasm32")]
     pending: Rc<RefCell<Option<Backend>>>,
+    #[cfg(target_arch = "wasm32")]
+    pending_assets: Vec<AssetHandle>,
 }
 
 impl<'a> WinitDisplayAdapter {
@@ -30,6 +35,8 @@ impl<'a> WinitDisplayAdapter {
             size: (1, 1),
             #[cfg(target_arch = "wasm32")]
             pending: Rc::new(RefCell::new(None)),
+            #[cfg(target_arch = "wasm32")]
+            pending_assets: Vec::new(),
         }
     }
 
@@ -37,7 +44,7 @@ impl<'a> WinitDisplayAdapter {
         let size = target.inner_size();
         let backends = Self::backend_options();
 
-        info!("Selected backends: {:?}", &backends);
+        debug!("Selected backends: {:?}", &backends);
         #[cfg(target_arch = "wasm32")]
         {
             let slot = self.pending.clone();
@@ -67,6 +74,10 @@ impl<'a> WinitDisplayAdapter {
             ))
             .unwrap();
             self.backend = Some(backend);
+        }
+
+        if self.backend.is_some() {
+            info!("Some backend is attached");
         }
     }
 
@@ -99,6 +110,7 @@ impl<'a> WinitDisplayAdapter {
         if self.backend.is_none() {
             if let Some(mut backend) = self.pending.borrow_mut().take() {
                 backend.resize(self.size.0, self.size.1);
+                backend.load_assets(std::mem::take(&mut self.pending_assets));
                 self.backend = Some(backend);
             }
         }
@@ -119,22 +131,41 @@ impl<'a> DisplayAdapter for WinitDisplayAdapter {
         };
     }
 
-    fn render(&mut self, data: Vec<DrawBatch>) -> Result<(), Error> {
+    fn render(&mut self, transform: Vec<DrawAssetInstance>) -> Result<(), Error> {
         #[cfg(target_arch = "wasm32")]
         self.adopt_pending();
 
         match self.backend.as_mut() {
-            Some(backend) => backend.render(data),
+            Some(backend) => backend.render(transform),
             None => Ok(()),
         }
     }
 
-    fn connect_target(&mut self, target: Self::Target) {
+    fn attach_target(&mut self, target: Self::Target) {
         if self.target.is_some() || self.backend.is_some() {
             return;
         }
 
         self.target = Some(target.clone());
         self.connect_backend(target.clone());
+    }
+
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), Error> {
+        #[cfg(target_arch = "wasm32")]
+        self.adopt_pending();
+
+        match self.backend.as_mut() {
+            Some(backend) => {
+                info!("Loading {} assets", assets.len());
+                backend.load_assets(assets);
+            }
+            None => {
+                info!("Backend is not ready to recieve assets");
+                #[cfg(target_arch = "wasm32")]
+                self.pending_assets.extend(assets);
+            }
+        }
+
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
-use std::{collections::HashMap, io::Error};
+use std::io::Error;
 
-pub type RenderAssetCatalog<T> = HashMap<T, Vec<PrimitiveBinding>>;
+use crate::assets::{AssetHandle, DrawAssetInstance};
 
 #[derive(Debug)]
 pub enum SupportedRenderBackends {
@@ -11,18 +11,19 @@ pub enum SupportedRenderBackends {
 
 pub trait DisplayAdapter {
     type Target;
-    type Backend;
+    type Backend: RenderBackend;
 
-    fn connect_target(&mut self, target: Self::Target);
+    fn attach_target(&mut self, target: Self::Target);
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), Error>;
 
     fn resize(&mut self, width: u32, height: u32);
-    fn render(&mut self, data: Vec<DrawBatch>) -> Result<(), Error>;
+    fn render(&mut self, transforms: Vec<DrawAssetInstance>) -> Result<(), Error>;
 
     fn render_if_visible(
         &mut self,
         width: u32,
         height: u32,
-        data: Vec<DrawBatch>,
+        data: Vec<DrawAssetInstance>,
     ) -> Result<(), Error> {
         if width > 0 && height > 0 {
             self.render(data)
@@ -37,35 +38,6 @@ pub trait DisplayAdapter {
 
 pub trait RenderBackend {
     fn resize(&mut self, width: u32, height: u32);
-    fn render(&mut self, data: Vec<DrawBatch>) -> Result<(), Error>;
-}
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct MeshHandle(u32);
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct MaterialHandle(u32);
-
-pub struct PrimitiveBinding {
-    mesh: MeshHandle,
-    material: MaterialHandle,
-}
-
-impl PrimitiveBinding {
-    pub fn new(mesh_handle: u32, material_handle: u32) -> Self {
-        Self {
-            mesh: MeshHandle(mesh_handle),
-            material: MaterialHandle(material_handle),
-        }
-    }
-}
-
-struct InstanceData {
-    model_transform: [[f32; 4]; 4],
-}
-
-pub struct DrawBatch {
-    instances: Vec<InstanceData>,
-    mesh: MeshHandle,
-    material: MaterialHandle,
+    fn render(&mut self, data: Vec<DrawAssetInstance>) -> Result<(), Error>;
+    fn load_assets(&mut self, assets: Vec<AssetHandle>);
 }

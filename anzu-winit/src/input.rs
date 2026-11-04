@@ -1,5 +1,5 @@
 use anzu_runtime::input::{ButtonPhase, InputAdapter, InputSignal, Key};
-use log::info;
+use log::debug;
 use winit::{
     event::{ElementState, KeyEvent},
     keyboard::NamedKey,
@@ -10,7 +10,7 @@ impl InputAdapter for WinitInputAdapter {
     type Command = KeyEvent;
 
     fn map_input(&self, command: Self::Command) -> Option<InputSignal> {
-        info!("Mapping input: {:?}", &command);
+        debug!("Mapping input: {:?}", &command);
         match &command.logical_key {
             winit::keyboard::Key::Named(named_key) => match named_key {
                 NamedKey::Enter => Some(InputSignal::Keyboard {

@@ -15,12 +15,10 @@ For every chat response, also apply `.github/skills/asd-ste100-chat-responses/SK
 3. If the request is already precise, skip questions and answer directly.
 
 ## Short mode default
-- Keep default responses concise.
-- Prefer this shape:
-  - Decision: one sentence.
-  - Why: 1-2 bullets.
-  - Next action: 1-2 bullets.
-- Expand only when the user asks for detail.
+- Answer only what the user asks. Do not restate the request or add background, alternatives, or follow-up suggestions unless they are needed.
+- For a simple request, use 1-2 sentences. For a task update, state the change and its validation in no more than 3 concise sentences.
+- For a complex answer, lead with the conclusion and include only the evidence needed to support it. Use a list only when it improves scanning.
+- Do not use a fixed decision/why/next-action format. Expand only when the task needs the detail or the user asks for it.
 
 ## Structured language rules (strict but practical)
 - Use clear, direct sentences.
@@ -29,6 +27,7 @@ For every chat response, also apply `.github/skills/asd-ste100-chat-responses/SK
 - Put the main point first.
 - Avoid unnecessary qualifiers and repeated context.
 - Keep one main idea per sentence when practical.
+- Remove any sentence that does not answer the request, support a claim, state a needed limitation, or give a required next step.
 
 ## Evidence and citation economics
 - Use compact evidence by default.

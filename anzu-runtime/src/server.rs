@@ -1,5 +1,9 @@
-use crate::{display::DrawBatch, input::InputSignal, simulation::Simulation};
-use log::debug;
+use crate::{
+    assets::{AssetHandle, DrawAssetInstance},
+    input::InputSignal,
+    simulation::Simulation,
+};
+use log::{debug, info};
 use std::collections::VecDeque;
 use web_time::Instant;
 
@@ -8,7 +12,7 @@ pub trait State {
 
     fn new() -> Self;
     fn apply_update(&mut self, update: Self::Update);
-    fn project_display(&self) -> Vec<DrawBatch>;
+    fn project_display(&self) -> Vec<DrawAssetInstance>;
 }
 
 pub trait Protocol {
@@ -19,9 +23,10 @@ pub trait Protocol {
 pub trait Server {
     type Protocol: Protocol;
 
-    fn tick(&mut self, tick: Instant);
-    fn queue_input(&mut self, input: InputSignal);
     fn dequeue_update_batch(&mut self) -> Option<Vec<<Self::Protocol as Protocol>::Update>>;
+    fn load_display_assets(&self) -> Vec<AssetHandle>;
+    fn queue_input(&mut self, input: InputSignal);
+    fn tick(&mut self, tick: Instant);
 }
 
 pub struct LocalServer<P: Protocol, S: Simulation<P>> {
@@ -34,8 +39,13 @@ pub struct LocalServer<P: Protocol, S: Simulation<P>> {
 impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
     type Protocol = P;
 
-    fn tick(&mut self, tick: Instant) {
-        self.update(tick)
+    fn dequeue_update_batch(&mut self) -> Option<Vec<P::Update>> {
+        self.update_queue.pop_front()
+    }
+
+    fn load_display_assets(&self) -> Vec<AssetHandle> {
+        info!("Loading requested assets from simulation to session");
+        self.simulation.load_display_assets()
     }
 
     fn queue_input(&mut self, input: InputSignal) {
@@ -43,8 +53,8 @@ impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
         self.input_queue.push(input)
     }
 
-    fn dequeue_update_batch(&mut self) -> Option<Vec<P::Update>> {
-        self.update_queue.pop_front()
+    fn tick(&mut self, tick: Instant) {
+        self.update(tick)
     }
 }
 

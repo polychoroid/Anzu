@@ -17,14 +17,22 @@ Use this skill for every chat response about Anzu. Give the user a direct, usefu
 ## Response Method
 
 1. Identify the user's question and answer it first.
-2. Keep the response as short as the task allows. Use the universal structured-response policy for scope and format.
+2. Keep the response as short as the task allows. For a simple request, use 1-2 sentences. For a task update, use no more than 3 concise sentences. Give more detail only when the task needs it or the user asks for it.
 3. Check `.github/response-dictionary.md` for approved and ambiguous terms.
 4. If a new project term is unclear, ask one concise question about its meaning or scope before using it as established vocabulary. Do not ask about common English words or exact code/API names.
 5. After the user clarifies a new term, add it to `Pending Terms` with its scope and meaning. If the user already gives a clear definition, add it without asking a repeat question.
 6. Use approved terms for established concepts. Do not invent synonyms.
-7. Check common English against the Issue 9 word list when strict compliance matters. Use each approved word only with its approved meaning, part of speech, and form.
-8. Review the response for sentence length, voice, grammar, punctuation, and preserved technical names.
+7. Check common English against the Issue 9 word list. Use each approved word only with its approved meaning, part of speech, and form.
+8. Before sending, check that each sentence follows the applicable writing rules, the response answers only the request, and every sentence adds needed information.
 9. If a term or rule is uncertain, retain exact technical wording and state the uncertainty. Do not claim full compliance without a complete check.
+
+## Focus
+
+- Start with the answer or result. Do not add an introduction or repeat the user's request.
+- Include only information needed to answer, explain a decision, report a limitation, or complete the task.
+- Do not add generic summaries, repeated context, unsolicited alternatives, or routine follow-up offers.
+- Use headings and lists only when they make a multi-part answer easier to scan. Do not add headings to a short answer.
+- State a limitation only when it affects the answer or the work. Keep it specific.
 
 ## New Vocabulary
 

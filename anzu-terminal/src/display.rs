@@ -1,13 +1,18 @@
-use anzu_runtime::display::{DisplayAdapter, DrawBatch};
+use anzu_runtime::{
+    assets::{AssetHandle, DrawAssetInstance},
+    display::{DisplayAdapter, RenderBackend},
+};
+
+use std::io::Error;
 
 pub struct CrossTermDisplayAdapter;
 
 impl DisplayAdapter for CrossTermDisplayAdapter {
-    type Target = Option<String>;
+    type Target = String;
 
-    type Backend = Option<String>;
+    type Backend = CrossTermBackend;
 
-    fn connect_target(&mut self, _target: Self::Target) {
+    fn attach_target(&mut self, _target: Self::Target) {
         ()
     }
 
@@ -15,7 +20,7 @@ impl DisplayAdapter for CrossTermDisplayAdapter {
         ()
     }
 
-    fn render(&mut self, _data: Vec<DrawBatch>) -> Result<(), std::io::Error> {
+    fn render(&mut self, _transform: Vec<DrawAssetInstance>) -> Result<(), std::io::Error> {
         Ok(())
     }
 
@@ -23,15 +28,35 @@ impl DisplayAdapter for CrossTermDisplayAdapter {
         &mut self,
         width: u32,
         height: u32,
-        data: Vec<DrawBatch>,
+        transform: Vec<DrawAssetInstance>,
     ) -> Result<(), std::io::Error> {
         if width > 0 && height > 0 {
-            self.render(data)
+            self.render(transform)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid scrren size.",
             ))
         }
+    }
+
+    fn load_assets(&mut self, paths: Vec<AssetHandle>) -> Result<(), Error> {
+        todo!()
+    }
+}
+
+pub struct CrossTermBackend {}
+
+impl RenderBackend for CrossTermBackend {
+    fn resize(&mut self, width: u32, height: u32) {
+        todo!()
+    }
+
+    fn render(&mut self, transform: Vec<DrawAssetInstance>) -> Result<(), std::io::Error> {
+        todo!()
+    }
+
+    fn load_assets(&mut self, assets: Vec<AssetHandle>) {
+        todo!()
     }
 }

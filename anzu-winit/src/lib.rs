@@ -21,13 +21,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let mut builder = env_logger::Builder::from_default_env();
-        builder.filter(None, LevelFilter::Debug).init();
+        builder.filter(None, LevelFilter::Info).init();
         info!("Logger initialized");
     }
 
     #[cfg(target_arch = "wasm32")]
     {
-        console_log::init_with_level(log::Level::Debug).unwrap_throw();
+        console_log::init_with_level(log::Level::Info).unwrap_throw();
         info!("Logger initialized");
     }
 

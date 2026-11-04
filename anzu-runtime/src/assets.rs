@@ -1,13 +1,12 @@
-use crate::display::RenderAssetCatalog;
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct AssetId(pub u32);
 
-pub struct AssetBank<T> {
-    catalog: RenderAssetCatalog<T>,
+pub struct AssetHandle {
+    pub id: AssetId,
+    pub bytes: &'static [u8],
 }
 
-impl<T> AssetBank<T> {
-    pub fn new() -> Self {
-        Self {
-            catalog: RenderAssetCatalog::new(),
-        }
-    }
+pub struct DrawAssetInstance {
+    pub asset_id: AssetId,
+    pub transform: [[f32; 4]; 4],
 }
