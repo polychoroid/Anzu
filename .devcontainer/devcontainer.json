@@ -22,7 +22,9 @@
 				"fill-labs.dependi",
 				"PolyMeilex.wgsl",
 				"thekaasking.copilot-pdf-utilities",
-				"mathematic.vscode-pdf"
+				"mathematic.vscode-pdf",
+				"github.vscode-github-actions",
+				"GitHub.vscode-pull-request-github"
 			]
 		}
 	},
