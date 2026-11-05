@@ -110,7 +110,7 @@ impl<'a> WinitDisplayAdapter {
         if self.backend.is_none() {
             if let Some(mut backend) = self.pending.borrow_mut().take() {
                 backend.resize(self.size.0, self.size.1);
-                backend.load_assets(std::mem::take(&mut self.pending_assets));
+                let _ = backend.load_assets(std::mem::take(&mut self.pending_assets));
                 let _ = self.backend = Some(backend);
             }
         }

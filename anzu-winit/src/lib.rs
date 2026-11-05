@@ -1,10 +1,11 @@
 use gloo_timers::callback::Interval;
-use log::{LevelFilter, info};
+use log::info;
 use std::error::Error;
 use winit::event_loop::EventLoop;
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
+#[cfg(not(target_arch = "wasm32"))]
+use log::LevelFilter;
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::UnwrapThrowExt;
 #[cfg(target_arch = "wasm32")]

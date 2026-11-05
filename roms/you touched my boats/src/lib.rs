@@ -70,7 +70,8 @@ impl State for GameState {
         let motion = Translation3::new(0.0, 0.0, -5.0).to_homogeneous()
             * Rotation3::from_axis_angle(&Vector3::z_axis(), 23.5_f32.to_radians())
                 .to_homogeneous()
-            * Rotation3::from_axis_angle(&Vector3::x_axis(), 6.5_f32.to_radians()).to_homogeneous()
+            * Rotation3::from_axis_angle(&Vector3::x_axis(), 23.5_f32.to_radians())
+                .to_homogeneous()
             * Rotation3::from_axis_angle(&Vector3::y_axis(), angle).to_homogeneous()
             * Matrix4::new_scaling(1.0);
 
