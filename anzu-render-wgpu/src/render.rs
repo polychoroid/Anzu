@@ -229,7 +229,7 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
         }
 
         // todo: should be iterating all instances.
-        let asset_id = &instances[1].asset_id;
+        let asset_id = &instances[0].asset_id;
         if let Some(ref asset) = self.assets.get(asset_id) {
             {
                 let forced_index = 0;

@@ -70,6 +70,7 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
 
     fn resize_display(&mut self, width: u32, height: u32) {
         self.display_adapter.resize(width, height);
+        self.service_state.set_display_size(width, height);
     }
 
     fn request_redraw(&mut self) {

@@ -12,6 +12,7 @@ pub trait State {
 
     fn new() -> Self;
     fn apply_update(&mut self, update: Self::Update);
+    fn set_display_size(&mut self, width: u32, height: u32);
     fn project_display(&self) -> Vec<DrawAssetInstance>;
 }
 

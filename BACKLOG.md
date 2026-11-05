@@ -204,6 +204,11 @@ For each milestone, retain:
 
 A milestone remains planned until the evidence is recorded. Record limitations and measured variation. Do not claim identical timing across hosts.
 
+## Next Session: Texture Uploads
+
+- [ ] Convert decoded GLTF image formats to RGBA8 before upload. Acceptance: RGB images have four bytes per pixel with alpha set to 255, and supported source formats pass texture upload validation.
+- [ ] Upload static material texture data during asset loading, not in the render loop. Acceptance: the render loop does not upload unchanged material pixels, and the boat texture renders without a texture-layout validation error.
+
 ## Deferred
 
 These items are not part of the committed journey order. Revisit them only when a confirmed user outcome requires them:
