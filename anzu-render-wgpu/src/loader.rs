@@ -1,8 +1,11 @@
-use gltf::{Document, Error};
+use gltf::{Document, Error, image::Format};
+use log::{info, warn};
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, Extent3d, Sampler, Texture,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, VertexAttribute,
-    VertexBufferLayout, VertexFormat, util::DeviceExt,
+    BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, Extent3d, Queue, Sampler,
+    TexelCopyBufferLayout, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat::{self},
+    TextureUsages, VertexAttribute, VertexBufferLayout, VertexFormat,
+    util::DeviceExt,
 };
 
 #[repr(C)]
@@ -45,12 +48,15 @@ pub struct Mesh {
 pub struct Material {
     pub bind_group: BindGroup,
     pub buffer: Buffer,
-    pub texture: Texture,
-    pub texture_image: Vec<u8>,
 }
 
 impl Material {
-    pub fn new(device: &Device, source: gltf::Material, images: &Vec<gltf::image::Data>) -> Self {
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        source: gltf::Material,
+        images: &Vec<gltf::image::Data>,
+    ) -> Self {
         let uniform = MaterialUniform {
             base_color: source.pbr_metallic_roughness().base_color_factor(),
         };
@@ -59,16 +65,25 @@ impl Material {
             .pbr_metallic_roughness()
             .base_color_texture()
             .and_then(|info| images.get(info.texture().source().index()))
-            .map(|texture_image_data| {
-                Material::get_texture_details(
+            .and_then(|texture_image_data| {
+                let format = Self::color_format_map(texture_image_data.format)?;
+
+                Some(Self::get_texture_details(
                     device,
                     texture_image_data.width,
                     texture_image_data.height,
                     texture_image_data.pixels.clone(),
-                )
+                    format,
+                ))
             })
             .unwrap_or_else(|| {
-                Material::get_texture_details(device, 1, 1, vec![255, 255, 255, 255])
+                Material::get_texture_details(
+                    device,
+                    1,
+                    1,
+                    vec![255, 255, 255, 255],
+                    TextureFormat::Rgba8UnormSrgb,
+                )
             });
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -100,11 +115,25 @@ impl Material {
             ],
         });
 
+        let block_size = texture_details
+            .texture
+            .format()
+            .block_copy_size(Some(wgpu::TextureAspect::All));
+
+        queue.write_texture(
+            texture_details.texture.as_image_copy(),
+            texture_details.texture_image.as_ref(),
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(texture_details.texture.width() * block_size.unwrap()), // unwrap risks acceptable here for now
+                rows_per_image: Some(texture_details.texture.height()),
+            },
+            texture_details.texture.size(),
+        );
+
         Material {
             bind_group: bind_group,
             buffer: buffer,
-            texture: texture_details.texture,
-            texture_image: texture_details.texture_image,
         }
     }
 
@@ -147,6 +176,7 @@ impl Material {
         width: u32,
         height: u32,
         image: Vec<u8>,
+        texture_format: TextureFormat,
     ) -> TextureDetails {
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("Texture {info.texture().source().index()}"),
@@ -158,7 +188,7 @@ impl Material {
             mip_level_count: 1, //future exploration
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
+            format: texture_format,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -180,6 +210,19 @@ impl Material {
             texture_image,
             texture_sampler,
         };
+    }
+
+    fn color_format_map(gltf_format: Format) -> Option<TextureFormat> {
+        match gltf_format {
+            Format::R8G8B8A8 => {
+                info!("Texture format: {:?}", gltf_format);
+                Some(TextureFormat::Rgba8UnormSrgb)
+            }
+            _ => {
+                warn!("Unsupported texture format: {:?}", gltf_format);
+                None
+            }
+        }
     }
 }
 
@@ -211,14 +254,14 @@ impl Primitive {
     }
 }
 
-pub fn load_model(bytes: &[u8], device: &Device) -> Result<Asset, LoadError> {
+pub fn load_model(bytes: &[u8], device: &Device, queue: &Queue) -> Result<Asset, LoadError> {
     // We'll store the imports later so we can reuse assets without having to re-import them.
     let import = Import::new(gltf::import_slice(bytes)?);
 
     let materials: Vec<Material> = import
         .document
         .materials()
-        .map(|material| Material::new(&device, material, &import.images))
+        .map(|material| Material::new(&device, &queue, material, &import.images))
         .collect();
 
     let meshes: Result<Vec<Mesh>, LoadError> = import

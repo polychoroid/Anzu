@@ -31,7 +31,7 @@ pub struct App {
         LocalServer<BoatTouching, BoatTouching>,
     >,
     window: Option<Arc<Window>>,
-    interval: Interval,
+    _interval: Interval,
 }
 
 impl App {
@@ -49,7 +49,7 @@ impl App {
         Self {
             session: session,
             window: None,
-            interval: interval,
+            _interval: interval,
         }
     }
 }

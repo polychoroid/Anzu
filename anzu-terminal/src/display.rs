@@ -40,7 +40,7 @@ impl DisplayAdapter for CrossTermDisplayAdapter {
         }
     }
 
-    fn load_assets(&mut self, paths: Vec<AssetHandle>) -> Result<(), Error> {
+    fn load_assets(&mut self, _paths: Vec<AssetHandle>) -> Result<(), Error> {
         todo!()
     }
 }
@@ -48,15 +48,15 @@ impl DisplayAdapter for CrossTermDisplayAdapter {
 pub struct CrossTermBackend {}
 
 impl RenderBackend for CrossTermBackend {
-    fn resize(&mut self, width: u32, height: u32) {
+    fn resize(&mut self, _width: u32, _height: u32) {
         todo!()
     }
 
-    fn render(&mut self, transform: Vec<DrawAssetInstance>) -> Result<(), std::io::Error> {
+    fn render(&mut self, _transform: Vec<DrawAssetInstance>) -> Result<(), std::io::Error> {
         todo!()
     }
 
-    fn load_assets(&mut self, assets: Vec<AssetHandle>) -> Result<(), std::io::Error> {
+    fn load_assets(&mut self, _assets: Vec<AssetHandle>) -> Result<(), std::io::Error> {
         todo!()
     }
 }

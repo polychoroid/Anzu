@@ -23,5 +23,3 @@ featuers = ["bytemuck"]
 [dependencies.wgpu]
 version = "30.0.1"
 features = ["webgpu", "webgl"]
-
-

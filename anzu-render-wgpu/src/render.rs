@@ -4,14 +4,14 @@ use log::{debug, info};
 use std::collections::HashMap;
 use std::io::Error;
 use wgpu::{
-    Backends, BindGroup, BindGroupEntry, BlendState, Buffer, BufferUsages, ColorTargetState,
+    Backends, BindGroup, BindGroupEntry, BlendState, Buffer, BufferUsages, Color, ColorTargetState,
     ColorWrites, Device, DeviceDescriptor, ExperimentalFeatures, Face, Features, FragmentState,
     FrontFace, IndexFormat, Instance, InstanceDescriptor, Limits, MultisampleState,
     PipelineCompilationOptions, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
     PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline,
     RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface,
-    SurfaceCapabilities, SurfaceColorSpace, SurfaceConfiguration, SurfaceTarget,
-    TexelCopyBufferLayout, TextureUsages, Trace, VertexState,
+    SurfaceCapabilities, SurfaceColorSpace, SurfaceConfiguration, SurfaceTarget, TextureUsages,
+    Trace, VertexState,
 };
 
 use crate::loader::{Asset, Material, Primitive};
@@ -181,7 +181,8 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
         assets
             .iter()
             .try_for_each(|asset: &AssetHandle| -> Result<(), Error> {
-                let uploaded_asset = crate::loader::load_model(asset.bytes, &self.device)?;
+                let uploaded_asset =
+                    crate::loader::load_model(asset.bytes, &self.device, &self.queue)?;
                 info!("{:?} loaded", asset.id);
                 self.assets.insert(asset.id, uploaded_asset);
                 Ok(())
@@ -229,7 +230,7 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
         }
 
         // todo: should be iterating all instances.
-        let asset_id = &instances[0].asset_id;
+        let asset_id = &instances[1].asset_id;
         if let Some(ref asset) = self.assets.get(asset_id) {
             {
                 let forced_index = 0;
@@ -246,7 +247,12 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                            load: wgpu::LoadOp::Clear(Color {
+                                r: 0.45,
+                                g: 0.45,
+                                b: 0.45,
+                                a: 1.0,
+                            }),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -262,19 +268,6 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
                 render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
                 render_pass.set_bind_group(1, &asset.materials[material_index].bind_group, &[]);
                 render_pass.draw_indexed(0..primitive.index_count, 0, 0..1);
-
-                let material = &asset.materials[forced_index];
-
-                self.queue.write_texture(
-                    material.texture.as_image_copy(),
-                    material.texture_image.as_ref(),
-                    TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(material.texture.width() * 4),
-                        rows_per_image: Some(material.texture.height()),
-                    },
-                    material.texture.size(),
-                );
             }
         } else {
             info!("Render requested to no loaded mesh");
