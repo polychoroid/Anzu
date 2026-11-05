@@ -26,16 +26,16 @@ Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgp
 
 Platform decision: `anzu-winit` is the browser frontend and its shipped runtime is browser-only. It can retain native `target_arch` paths for development-workspace builds and runs. Those paths do not make it the desktop frontend. A future `anzu-desktop` package will provide the desktop platform shell.
 
-### Current Implementation Snapshot (2026-11-04)
+### Current Implementation Snapshot (2026-11-05)
 
 - The Cargo workspace includes `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and ROM are path dependencies, not workspace members.
 - `anzu-winit` starts a local `You Touched My Boats` session. A 16 ms interval sends one tick event, and each event requests a redraw.
 - `LocalServer` maps queued input, applies supported actions, advances one simulation step, and stores published update batches.
 - `SessionData` owns protocol state and display/input adapters, but does not drain update batches or apply them. The ROM's `GameState::apply_update` is unfinished.
-- `anzu-render-wgpu` imports a limited GLTF subset and owns a real `wgpu` surface/device/pipeline path. It draws one instance and has incomplete error recovery.
+- `anzu-render-wgpu` imports GLTF positions and `TEXCOORD_0`, creates base-color material textures and samplers, and samples them in WGSL with a white fallback for materials without a texture. The current source has a bind-group layout mismatch: `Material::layout()` declares only the uniform at binding 0, while WGSL and the bind group also use texture binding 1 and sampler binding 2. WebGPU therefore rejects the render pipeline and bind groups until the layout includes those entries. Texture pixels are currently uploaded from the render path, and the renderer draws one selected instance with incomplete error recovery.
 - `anzu-terminal` has an input loop, but its display backend is unfinished. No remote host or network transport exists.
 
-This snapshot describes source structure, not a successful build or browser test. The next-stage contracts below remain target design.
+This snapshot describes source structure, not a successful build or browser test. The texture path is in progress; the current binding mismatch prevents a valid browser pipeline. The next-stage contracts below remain target design.
 
 ## Core Glossary
 

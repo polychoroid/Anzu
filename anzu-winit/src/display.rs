@@ -123,7 +123,10 @@ impl<'a> DisplayAdapter for WinitDisplayAdapter {
 
     fn resize(&mut self, width: u32, height: u32) {
         #[cfg(target_arch = "wasm32")]
-        self.adopt_pending();
+        {
+            self.size = (width, height);
+            self.adopt_pending();
+        }
 
         match self.backend.as_mut() {
             Some(backend) => backend.resize(width, height),
@@ -157,7 +160,7 @@ impl<'a> DisplayAdapter for WinitDisplayAdapter {
         match self.backend.as_mut() {
             Some(backend) => {
                 info!("Loading {} assets", assets.len());
-                backend.load_assets(assets);
+                _ = backend.load_assets(assets);
             }
             None => {
                 info!("Backend is not ready to recieve assets");

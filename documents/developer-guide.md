@@ -1,10 +1,10 @@
 # Developer Guide
 
-## Current Development Scope (2026-11-04)
+## Current Development Scope (2026-11-05)
 
 The active workspace contains `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and `You Touched My Boats` ROM are path dependencies. `abandoned_generated_code/` contains excluded historical code; there is no active `anzu-engine` crate at the repository root.
 
-`anzu-winit` creates a local ROM session and `wgpu` display adapter. Its 16 ms interval sends one server tick and requests a redraw. `SessionData` does not apply the server's published updates, and the ROM's update application is unfinished. The renderer imports a limited GLTF subset and draws one instance. The terminal display, remote host, and transport are unfinished.
+`anzu-winit` creates a local ROM session and `wgpu` display adapter. Its 16 ms interval sends one server tick and requests a redraw. `SessionData` does not apply the server's published updates, and the ROM's update application is unfinished. The renderer now reads GLTF positions and `TEXCOORD_0`, creates base-color material textures and samplers, uses a white fallback for materials without a texture, and samples the material texture in WGSL. Texture rendering is not yet validated: `Material::layout()` currently omits bindings 1 and 2, so the browser rejects the pipeline and material bind groups. The renderer also uploads texture pixels during rendering and draws one selected instance. The terminal display, remote host, and transport are unfinished.
 
 Use the [API reference](api.md#current-source-interfaces), [architecture snapshot](architecture.md#current-implementation-snapshot-2026-11-04), and [window-event guide](../anzu-winit/window-events.md) for current behavior. Use the architecture and backlog sections marked as target design for planned work.
 
@@ -28,7 +28,7 @@ The repository map below describes the active workspace. The build commands, tut
 ## Repository Structure
 - `anzu-runtime/` — simulation, protocol, server, session, input, display, and asset interfaces.
 - `anzu-winit/` — browser app and `winit` event, input, and display adapters.
-- `anzu-render-wgpu/` — GLTF loading and an early `wgpu` renderer.
+- `anzu-render-wgpu/` — GLTF loading and a `wgpu` renderer with an in-progress base-color texture path.
 - `anzu-terminal/` — terminal input loop and unfinished display adapter.
 - `roms/` — active ROM packages, including `You Touched My Boats`.
 - `docs/` — browser entry page and generated `anzu-winit` package. `manifest.json` is not loaded by the active app.

@@ -10,11 +10,11 @@ use wgpu::{
     PipelineCompilationOptions, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
     PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline,
     RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface,
-    SurfaceCapabilities, SurfaceColorSpace, SurfaceConfiguration, SurfaceTarget, TextureUsages,
-    Trace, VertexState,
+    SurfaceCapabilities, SurfaceColorSpace, SurfaceConfiguration, SurfaceTarget,
+    TexelCopyBufferLayout, TextureUsages, Trace, VertexState,
 };
 
-use crate::loader::{Asset, Material, Primitive, Uploaded};
+use crate::loader::{Asset, Material, Primitive};
 
 pub struct WgpuRenderBackend<'window> {
     surface: Surface<'window>,
@@ -24,7 +24,7 @@ pub struct WgpuRenderBackend<'window> {
     configuration: SurfaceConfiguration,
     transform_buffer: Buffer,
     transform_bind_group: BindGroup,
-    assets: HashMap<AssetId, Asset<Uploaded>>,
+    assets: HashMap<AssetId, Asset>,
 }
 
 impl<'window> WgpuRenderBackend<'window> {
@@ -229,12 +229,14 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
         }
 
         // todo: should be iterating all instances.
-        let asset_id = &instances[2].asset_id;
+        let asset_id = &instances[1].asset_id;
         if let Some(ref asset) = self.assets.get(asset_id) {
             {
+                let forced_index = 0;
+
                 info!("Render requested for asset: {:?}", asset_id);
 
-                let primitive = &asset.state.meshes[0].primitives[0]; // Again shouldn't be selecting by index
+                let primitive = &asset.meshes[forced_index].primitives[0]; // Again shouldn't be selecting by index
                 let material_index = primitive.material.unwrap();
 
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -258,12 +260,21 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
                 render_pass.set_vertex_buffer(0, primitive.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(primitive.index_buffer.slice(..), IndexFormat::Uint32);
                 render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
-                render_pass.set_bind_group(
-                    1,
-                    &asset.state.materials[material_index].bind_group,
-                    &[],
-                );
+                render_pass.set_bind_group(1, &asset.materials[material_index].bind_group, &[]);
                 render_pass.draw_indexed(0..primitive.index_count, 0, 0..1);
+
+                let material = &asset.materials[forced_index];
+
+                self.queue.write_texture(
+                    material.texture.as_image_copy(),
+                    material.texture_image.as_ref(),
+                    TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(material.texture.width() * 4),
+                        rows_per_image: Some(material.texture.height()),
+                    },
+                    material.texture.size(),
+                );
             }
         } else {
             info!("Render requested to no loaded mesh");

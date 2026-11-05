@@ -133,7 +133,7 @@ impl ApplicationHandler<AppEvent> for App {
             self.session.attach_display_target(arc_window.clone());
         }
 
-        self.session.load_display_data();
+        self.session.load_display_data().unwrap(); // I know, shame on me.
 
         info!("New window created");
     }

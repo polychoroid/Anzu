@@ -1,7 +1,8 @@
-use gltf::Error;
+use gltf::{Document, Error};
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, VertexAttribute, VertexBufferLayout,
-    VertexFormat, util::DeviceExt,
+    BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, Extent3d, Sampler, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, VertexAttribute,
+    VertexBufferLayout, VertexFormat, util::DeviceExt,
 };
 
 #[repr(C)]
@@ -44,13 +45,31 @@ pub struct Mesh {
 pub struct Material {
     pub bind_group: BindGroup,
     pub buffer: Buffer,
+    pub texture: Texture,
+    pub texture_image: Vec<u8>,
 }
 
 impl Material {
-    pub fn new(device: &Device, source: gltf::Material) -> Self {
+    pub fn new(device: &Device, source: gltf::Material, images: &Vec<gltf::image::Data>) -> Self {
         let uniform = MaterialUniform {
             base_color: source.pbr_metallic_roughness().base_color_factor(),
         };
+
+        let texture_details = source
+            .pbr_metallic_roughness()
+            .base_color_texture()
+            .and_then(|info| images.get(info.texture().source().index()))
+            .map(|texture_image_data| {
+                Material::get_texture_details(
+                    device,
+                    texture_image_data.width,
+                    texture_image_data.height,
+                    texture_image_data.pixels.clone(),
+                )
+            })
+            .unwrap_or_else(|| {
+                Material::get_texture_details(device, 1, 1, vec![255, 255, 255, 255])
+            });
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Material Uniform Buffer"),
@@ -61,32 +80,106 @@ impl Material {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Material Bind Group"),
             layout: &Material::layout(&device),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture_details
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&texture_details.texture_sampler),
+                },
+            ],
         });
 
         Material {
             bind_group: bind_group,
             buffer: buffer,
+            texture: texture_details.texture,
+            texture_image: texture_details.texture_image,
         }
     }
 
     pub fn layout(device: &Device) -> BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Material Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         })
+    }
+
+    fn get_texture_details(
+        device: &Device,
+        width: u32,
+        height: u32,
+        image: Vec<u8>,
+    ) -> TextureDetails {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("Texture {info.texture().source().index()}"),
+            size: Extent3d {
+                width: width,
+                height: height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1, //future exploration
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let texture_image = image;
+
+        let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        return TextureDetails {
+            texture,
+            texture_image,
+            texture_sampler,
+        };
     }
 }
 
@@ -102,24 +195,34 @@ impl Primitive {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x3,
-            }],
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x2,
+                },
+            ],
         }
     }
 }
 
-pub fn load_model(bytes: &[u8], device: &Device) -> Result<Asset<Uploaded>, LoadError> {
-    let (document, buffers, _images) = gltf::import_slice(bytes)?;
+pub fn load_model(bytes: &[u8], device: &Device) -> Result<Asset, LoadError> {
+    // We'll store the imports later so we can reuse assets without having to re-import them.
+    let import = Import::new(gltf::import_slice(bytes)?);
 
-    let materials: Vec<Material> = document
+    let materials: Vec<Material> = import
+        .document
         .materials()
-        .map(|material| Material::new(&device, material))
+        .map(|material| Material::new(&device, material, &import.images))
         .collect();
 
-    let meshes: Result<Vec<Mesh>, LoadError> = document
+    let meshes: Result<Vec<Mesh>, LoadError> = import
+        .document
         .meshes()
         .map(|mesh| {
             let primitives: Result<Vec<Primitive>, LoadError> = mesh
@@ -127,7 +230,7 @@ pub fn load_model(bytes: &[u8], device: &Device) -> Result<Asset<Uploaded>, Load
                 .map(|source_primitive| {
                     let material = source_primitive.material().index();
 
-                    let reader = source_primitive.reader(|b| Some(&buffers[b.index()]));
+                    let reader = source_primitive.reader(|b| Some(&import.buffers[b.index()]));
 
                     let positions = reader.read_positions().ok_or(Error::MissingBlob)?;
                     let uvs = reader
@@ -183,27 +286,31 @@ pub fn load_model(bytes: &[u8], device: &Device) -> Result<Asset<Uploaded>, Load
         .collect();
 
     Ok(Asset {
-        state: Uploaded {
-            meshes: meshes?,
-            materials: materials,
-            draws: Vec::new(),
-        },
+        meshes: meshes?,
+        materials: materials,
+        draws: Vec::new(),
     })
 }
 
 pub struct DrawData;
 
-pub struct Asset<State> {
-    pub state: State,
-}
-
-pub struct Imported {
+pub struct Import {
     pub document: gltf::Document,
     pub buffers: Vec<gltf::buffer::Data>,
     pub images: Vec<gltf::image::Data>,
 }
 
-pub struct Uploaded {
+impl Import {
+    pub fn new(import: (Document, Vec<gltf::buffer::Data>, Vec<gltf::image::Data>)) -> Self {
+        Import {
+            document: import.0,
+            buffers: import.1,
+            images: import.2,
+        }
+    }
+}
+
+pub struct Asset {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
     pub draws: Vec<DrawData>,
@@ -220,4 +327,10 @@ pub enum Residency {
     UploadQueued,
     Resident,
     Evicted,
+}
+
+struct TextureDetails {
+    texture: Texture,
+    texture_image: Vec<u8>,
+    texture_sampler: Sampler,
 }
