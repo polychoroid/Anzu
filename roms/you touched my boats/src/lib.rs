@@ -174,16 +174,16 @@ impl Simulation<BoatTouching> for BoatTouching {
         vec![
             AssetHandle {
                 id: AssetId(0),
-                bytes: include_bytes!("assets/coast_guard_patrol_boat_3d_model.glb"),
+                bytes: include_bytes!("assets/red_cube.glb"),
             },
             AssetHandle {
                 id: AssetId(1),
                 bytes: include_bytes!("assets/anzu_textured_cube.glb"),
             },
-            AssetHandle {
-                id: AssetId(2),
-                bytes: include_bytes!("assets/red_cube.glb"),
-            },
+            // AssetHandle {
+            //     id: AssetId(2),
+            //     bytes: include_bytes!("assets/coast_guard_patrol_boat_3d_model_rgba.glb"),
+            // },
         ]
     }
 

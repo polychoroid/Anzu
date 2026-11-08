@@ -124,7 +124,7 @@ impl Material {
             texture_details.texture.as_image_copy(),
             texture_details.texture_image.as_ref(),
             TexelCopyBufferLayout {
-                offset: 0,
+                offset: 0, // needs to be different for each unique texture
                 bytes_per_row: Some(texture_details.texture.width() * block_size.unwrap()), // unwrap risks acceptable here for now
                 rows_per_image: Some(texture_details.texture.height()),
             },

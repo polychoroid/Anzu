@@ -119,6 +119,8 @@ impl ApplicationHandler<AppEvent> for App {
             window_attributes = window_attributes.with_canvas(canvas);
         }
 
+        self.session.load_display_data().unwrap(); // I know, shame on me.
+
         let some_window = match event_loop.create_window(window_attributes) {
             Ok(window) => Some(window),
             Err(e) => {
@@ -132,8 +134,6 @@ impl ApplicationHandler<AppEvent> for App {
             self.window = Some(arc_window.clone());
             self.session.attach_display_target(arc_window.clone());
         }
-
-        self.session.load_display_data().unwrap(); // I know, shame on me.
 
         info!("New window created");
     }
