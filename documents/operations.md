@@ -24,7 +24,7 @@ The browser console provides the current logs and errors. The checked-in page lo
 - Resize the window and check for surface configuration errors. The current resize path has no zero-size guard.
 - Confirm that the current GLTF asset appears. The renderer uses only the first supplied instance.
 
-The active runtime does not expose frame or stage timing distributions, collision work counts, asset-residency metrics, upload-queue metrics, or pressure metrics. Do not treat profiling code in `abandoned_generated_code/` as active instrumentation.
+The active runtime does not expose frame or stage timing distributions, collision work counts, asset-residency metrics, upload-queue metrics, or pressure metrics. Previously documented profiling code was removed and does not provide active instrumentation.
 
 ### Performance Baseline Status
 

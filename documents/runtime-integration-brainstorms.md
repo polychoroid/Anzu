@@ -4,7 +4,7 @@
 
 Design notes recorded 2026-10-16 through 2026-10-17. Current-source timing notes were updated 2026-11-04. Use this document to resume design discussions. It records questions and target contracts, not approved Rust signatures or implemented features.
 
-Read [Architecture](architecture.md#runtime-rewrite-direction), [API Reference](api.md), and the [roadmap](../BACKLOG.md) first. Exclude archived code under `abandoned_generated_code/`. Read current source again before implementation because the observations below can become outdated.
+Read [Architecture](architecture.md#runtime-rewrite-direction), [API Reference](api.md), and the [roadmap](../BACKLOG.md) first. Read current source again before implementation because the observations below can become outdated. Historical source referenced in older notes has been removed.
 
 Agreed direction:
 

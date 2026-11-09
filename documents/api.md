@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document covers the active runtime workspace. The 2026-10-16 brainstorm supersedes the earlier archived-engine API inventory and direct-world snapshot examples. No stable wire API is implemented.
+This document covers the active runtime workspace. The 2026-10-16 brainstorm supersedes the earlier API inventory for a removed implementation and its direct-world snapshot examples. No stable wire API is implemented.
 
 ## Current Source Interfaces
 

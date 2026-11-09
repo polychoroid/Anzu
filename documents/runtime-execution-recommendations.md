@@ -2,7 +2,7 @@
 
 ## Current Precedence (2026-10-16)
 
-This document is historical guidance, not the next development contract. The [current architecture](architecture.md#runtime-rewrite-direction) and [roadmap](../BACKLOG.md) take precedence. Do not use archived code under `abandoned_generated_code/` as the implementation base for this integration stage.
+This document is historical guidance, not the next development contract. The [current architecture](architecture.md#runtime-rewrite-direction) and [roadmap](../BACKLOG.md) take precedence. The implementation source once used for this plan has been removed. Use the active source as evidence before applying any recommendation.
 
 The older stages below may inform computation over working data. They must not directly mutate committed authoritative state. Compute proposed updates, apply and commit them at the world state owner, then publish permitted batches. Session state applies those batches, and the session-owned display adapter extracts render data from stable session-permitted state. Actor scope controls state disclosure into the session, not how many actors the display can show.
 
@@ -10,7 +10,7 @@ Direct renderer access to authoritative snapshots or GPU simulation buffers is s
 
 This document records implementation recommendations and progress from 2026-07-01. It is a historical planning note, not a current implementation handoff.
 
-The legacy source described here is archived under `abandoned_generated_code/`. It is not part of the active Cargo workspace. Revalidate each recommendation against the active implementation before using it.
+The legacy source described here was not part of the active Cargo workspace and has since been removed. Source-specific observations are not independently verifiable. Revalidate each recommendation against the active implementation before using it.
 
 ## Objective
 
@@ -31,8 +31,8 @@ Internal references:
 
 - `BACKLOG.md` (Milestone 4 and profiling requirements)
 - `documents/architecture.md` (runtime/render separation and phase framing)
-- `abandoned_generated_code/simulation.rs` (historical scheduler and collision path)
-- `abandoned_generated_code/platform_browser.rs` (historical frame boundary: update then render)
+- Historical scheduler and collision observations from the 2026-07-01 planning pass.
+- Historical browser frame-boundary observation: update followed by render.
 
 External references:
 
@@ -60,7 +60,7 @@ The scheduler behavior recorded at that time was:
 6. Write resolved body state back to world.
 7. Process lifecycle TTL/despawn and emit frame report.
 
-The historical browser frame boundary was in `abandoned_generated_code/platform_browser.rs`:
+The historical browser frame boundary was recorded as:
 
 - `state.update(delta_seconds)` then `state.render()` on redraw.
 
@@ -337,7 +337,7 @@ Acceptance:
 
 ## Superseded Restart Checklist
 
-The original checklist below conflicts with the recorded status because it asks the reader to implement Slice C after marking that slice complete. It also targets archived code. Do not use it to start current work.
+The original checklist below conflicts with the recorded status because it asks the reader to implement Slice C after marking that slice complete. It also targets a removed implementation. Do not use it to start current work.
 
 The 2026-07-01 plan recorded Slice D as the next slice. Recheck the active source and backlog before planning further work.
 

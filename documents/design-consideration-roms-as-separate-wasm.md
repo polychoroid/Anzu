@@ -26,23 +26,11 @@ Target ROM responsibilities:
 - Game-specific rules and simulation behavior
 - Scenario logic and content-specific intent mapping
 
-## Historical Source Evidence (2026-07-06)
+## Historical Design Record (2026-07-06)
 
-At the time of this proposal, the active design compiled ROM code into the same WebAssembly module and selected it with a static resolver.
+At the time of this proposal, the design compiled ROM code into the same WebAssembly module and selected it with a static resolver. The source that supported this historical observation has since been removed, so this account is retained as a design record and is not independently verifiable against the current repository.
 
-Evidence:
-- `abandoned_generated_code/lib.rs`
-  - Hardcoded ROM resolver map (`anzu.triangle_man`, `anzu.triangle_man_2`)
-- `abandoned_generated_code/platform_browser.rs`
-  - Loads `manifest.json`, reads `rom_id`, then resolves through in-process closure
-- `abandoned_generated_code/rom.rs`
-  - `RomPackage` trait is in-process and uses host references/trait objects
-- `abandoned_generated_code/renderer/core.rs`
-  - `RenderRomPackage` returns static in-process render payload (`&'static` shader/vertex data)
-- `abandoned_generated_code/renderer/wasm.rs`
-  - Runtime `State` owns both `World` and `SimulationModel` directly
-
-Current source uses `anzu-winit::App` to create a local `You Touched My Boats` session. It does not load a ROM manifest, select a ROM from `rom_id`, or load separate ROM modules. The historical resolver is archived under `abandoned_generated_code/`.
+The current source uses `anzu-winit::App` to create a local `You Touched My Boats` session. It does not load a ROM manifest, select a ROM from `rom_id`, or load separate ROM modules.
 
 Implication: Neither the historical resolver nor this proposal defines a working plugin interface across WebAssembly module boundaries.
 

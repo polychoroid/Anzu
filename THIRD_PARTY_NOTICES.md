@@ -16,9 +16,9 @@ This project includes third-party dependencies.
 
 ## Rust Dependency License Inventory
 
-The existing license-check workflow still runs `cargo-deny` from the removed root-level `anzu-engine/` path. It does not audit the active workspace. The `deny.toml` under `abandoned_generated_code/anzu-engine/` applies only to archived code.
+The legacy license-check workflow refers to a removed root-level `anzu-engine/` path and does not audit the active workspace. Its former configuration is no longer present in the repository.
 
-Do not use the archived configuration as an audit of the active workspace. Add and validate a workspace-level license audit before using this file as release evidence.
+Do not treat the legacy workflow as an audit of the active workspace. Add and validate a workspace-level license audit before using this file as release evidence.
 
 ## Release Checklist
 

@@ -12,9 +12,7 @@ Live site: [https://polychoroid.github.io/Anzu/](https://polychoroid.github.io/A
 - `anzu-render-wgpu` has an early GLTF asset loader and `wgpu` surface renderer. It draws one instance and does not yet provide complete multi-instance or surface-recovery behavior.
 - The `You Touched My Boats` ROM maps keyboard input to actions, but action application only logs them. Its update application is unfinished.
 - `anzu-terminal` has a terminal input loop, but its display backend is unfinished. `RemoteServer` and `PredictiveRemoteServer` are empty declarations; no remote transport exists.
-- `abandoned_generated_code/` contains excluded historical engine code. It is not part of the active Cargo workspace.
-
-Check the API and architecture documents for implemented interfaces and target design. Do not treat archived code or design recommendations as current features.
+Check the API and architecture documents for implemented interfaces and target design. Do not treat historical notes or design recommendations as current features.
 
 ## Repository Layout
 
@@ -59,6 +57,10 @@ This serves the checked-in `anzu_winit` WebAssembly package, which can differ fr
 [BACKLOG.md](BACKLOG.md) defines the current user-outcome sequence. The architecture document records the target split between compute proposals, authoritative commit, filtered session publication, actor-partitioned session state, and display extraction. These boundaries are not fully implemented.
 
 Pub/sub is an architectural analogy, not a microservice deployment plan. WebSocket over TLS is proposed for the first remote transport. Prediction, interpolation, and separate-WASM loading are later work, not prerequisites.
+
+## Generative AI
+
+Generative artificial intelligence (AI) tools may assist with research, planning, documentation, and development. AI output is a proposal and must be reviewed and validated before acceptance. Previously agent-generated source code has been removed; no AI-generated source code is currently retained in the project.
 
 ## Special Thanks To
 

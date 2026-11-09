@@ -22,7 +22,7 @@ Target contracts:
 - Rendering consumes extracted session data and must not contain simulation rules or unrestricted world access.
 - Resource creation/destruction is centralized in renderer-owned lifecycle code.
 
-Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and ROM packages. Archived code under `abandoned_generated_code/` is excluded and is not completion evidence.
+Current implementation scope: use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and ROM packages. Removed historical source is not completion evidence.
 
 Platform decision: `anzu-winit` is the browser frontend and its shipped runtime is browser-only. It can retain native `target_arch` paths for development-workspace builds and runs. Those paths do not make it the desktop frontend. A future `anzu-desktop` package will provide the desktop platform shell.
 

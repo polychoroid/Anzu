@@ -15,9 +15,9 @@ Anzu is a browser-first simulation and visualization system. A user can select a
 - Order work by the demonstrable user outcome, not by subsystem or legacy feature number.
 - Every milestone has at least one Gherkin scenario with observable results.
 - Mark a milestone complete only when its scenarios pass and its stated evidence exists.
-- Treat unverified work as planned. Do not infer completion from old notes, abandoned code, or a successful build alone.
+- Treat unverified work as planned. Do not infer completion from old notes, removed code, or a successful build alone.
 - Keep implementation contracts and detailed API choices in the architecture and API documents. This roadmap records user outcomes, dependencies, and acceptance.
-- Keep `abandoned_generated_code/` out of this roadmap's implementation scope. Use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and the active ROM packages.
+- Use `anzu-runtime`, `anzu-winit`, `anzu-render-wgpu`, and the active ROM packages as the implementation scope.
 
 ## Current Implementation Baseline (2026-11-04)
 

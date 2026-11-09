@@ -2,7 +2,7 @@
 
 ## Current Development Scope (2026-11-05)
 
-The active workspace contains `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and `You Touched My Boats` ROM are path dependencies. `abandoned_generated_code/` contains excluded historical code; there is no active `anzu-engine` crate at the repository root.
+The active workspace contains `anzu-runtime`, `anzu-terminal`, and `anzu-winit`. The renderer and `You Touched My Boats` ROM are path dependencies. There is no active `anzu-engine` crate at the repository root. Historical source previously referenced by this guide has been removed.
 
 `anzu-winit` creates a local ROM session and `wgpu` display adapter. Its 16 ms interval sends one server tick and requests a redraw. `SessionData` does not apply the server's published updates, and the ROM's update application is unfinished. The renderer now reads GLTF positions and `TEXCOORD_0`, creates base-color material textures and samplers, uses a white fallback for materials without a texture, and samples the material texture in WGSL. Texture rendering is not yet validated: `Material::layout()` currently omits bindings 1 and 2, so the browser rejects the pipeline and material bind groups. The renderer also uploads texture pixels during rendering and draws one selected instance. The terminal display, remote host, and transport are unfinished.
 
@@ -32,11 +32,10 @@ The repository map below describes the active workspace. The build commands, tut
 - `anzu-terminal/` — terminal input loop and unfinished display adapter.
 - `roms/` — active ROM packages, including `You Touched My Boats`.
 - `docs/` — browser entry page and generated `anzu-winit` package. `manifest.json` is not loaded by the active app.
-- `abandoned_generated_code/` — archived engine code and historical artifacts; not compiled by the active workspace.
 - `documents/` — architecture, API, development, deployment, operations, and user guides.
 - `BACKLOG.md` — roadmap and task tracking.
 
-## Archived Engine Build Notes (Not Current)
+## Former Engine Build Notes (Not Current)
 
 The build commands and tutorials in this section target the former engine. The referenced root-level `anzu-engine/` directory does not exist in the active workspace. Do not use these commands to build the current app.
 
@@ -184,7 +183,7 @@ Minimal starter checklist:
 - One passing test for `BodyState::default` baseline validity.
 - One negative or edge-case test documenting expected behavior for invalid inputs.
 
-## Archived Engine Conventions (Historical)
+## Former Engine Conventions (Historical)
 
 Runtime pipeline continuation:
 - See `documents/runtime-execution-recommendations.md` for staged implementation guidance and a next-session resume checklist for Milestone 4 runtime execution work.
@@ -195,7 +194,7 @@ Runtime pipeline continuation:
 - **Simulation architecture:** Compute intent, physics, and policy changes over stable state and working data. Commit proposed updates through the authoritative state owner before publishing permitted session updates. Older direct-mutation tutorials below do not override this boundary.
 - **Spatial indexing:** Prefer uniform-grid or hash-based broadphase structures before adding more collision-heavy content.
 - **ROM ownership:** Keep control vocabularies, spawn rules, and scenario tuning in ROM code or ROM-owned data, not in engine-core modules.
-- **Input behavior:** The former `TextureDemoRom` and its `P`/`Escape` controls belong to archived code. The active ROM is `You Touched My Boats`; see its implementation status at the start of its README.
+- **Input behavior:** See the active `You Touched My Boats` ROM README for its current input behavior and implementation status.
 - **WebGPU best practices:** 
   - The active `anzu-render-wgpu` package uses wgpu 30.0.1.
   - The active shader is stored in `anzu-render-wgpu/src/shaders/shader.wgsl`.
