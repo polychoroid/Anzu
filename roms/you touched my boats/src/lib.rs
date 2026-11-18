@@ -10,7 +10,7 @@ use nalgebra::{Matrix4, Rotation3, Translation3, Vector3};
 
 mod entities;
 
-use crate::entities::{Asset, BoatStore, BulletStore, PlayerId, PlayerStore};
+use crate::entities::{BoatStore, BulletStore, PlayerId, PlayerStore};
 
 const SPIN_RADIANS_PER_SECOND: f32 = 0.75;
 
@@ -66,7 +66,7 @@ impl State for GameState {
     fn project_display(&self) -> Vec<DrawAssetInstance> {
         let aspect_ratio = self.display_width as f32 / self.display_height as f32;
 
-        let projection = Matrix4::new(
+        let perspective = Matrix4::new(
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 1.0,
         ) * nalgebra::Perspective3::new(aspect_ratio, PI / 3.0, 0.1, 100.0)
             .to_homogeneous();
@@ -92,39 +92,14 @@ impl State for GameState {
 
                 let scale = Matrix4::new_scaling(1.0);
 
-                let transform = projection * view * translation * rotation * scale;
+                let transform = perspective * view * translation * rotation * scale;
 
                 DrawAssetInstance {
                     asset_id: *asset_id,
-                    transform: transform.into(),
+                    transform: transform,
                 }
             })
             .collect()
-
-        // let motion = Translation3::new(0.0, 0.0, -5.0).to_homogeneous()
-        //     * Rotation3::from_axis_angle(&Vector3::z_axis(), 23.5_f32.to_radians())
-        //         .to_homogeneous()
-        //     * Rotation3::from_axis_angle(&Vector3::x_axis(), 23.5_f32.to_radians())
-        //         .to_homogeneous()
-        //     * Rotation3::from_axis_angle(&Vector3::y_axis(), angle).to_homogeneous()
-        //     * Matrix4::new_scaling(1.0);
-
-        // let transform = projection * motion;
-
-        // vec![
-        //     DrawAssetInstance {
-        //         asset_id: AssetId(0),
-        //         transform: transform.into(),
-        //     },
-        //     DrawAssetInstance {
-        //         asset_id: AssetId(1),
-        //         transform: transform.into(),
-        //     },
-        //     DrawAssetInstance {
-        //         asset_id: AssetId(2),
-        //         transform: transform.into(),
-        //     },
-        // ]
     }
 }
 
@@ -220,6 +195,12 @@ impl Simulation<BoatTouching> for BoatTouching {
             false => Some(std::mem::take(&mut self.update_queue)),
             true => None,
         }
+    }
+
+    fn start(&self) -> Result<(), std::io::Error> {
+        info!("Did you touch my boats?");
+        Ok(())
+        // spawn in players
     }
 
     fn step(&mut self) {

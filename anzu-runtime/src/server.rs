@@ -27,6 +27,7 @@ pub trait Server {
     fn dequeue_update_batch(&mut self) -> Option<Vec<<Self::Protocol as Protocol>::Update>>;
     fn load_display_assets(&self) -> Vec<AssetHandle>;
     fn queue_input(&mut self, input: InputSignal);
+    fn start(&self) -> Result<(), std::io::Error>;
     fn tick(&mut self, tick: Instant);
 }
 
@@ -52,6 +53,11 @@ impl<P: Protocol, S: Simulation<P>> Server for LocalServer<P, S> {
     fn queue_input(&mut self, input: InputSignal) {
         debug!("Input queued: {:?}", &input);
         self.input_queue.push(input)
+    }
+
+    fn start(&self) -> Result<(), std::io::Error> {
+        self.simulation.start()?;
+        Ok(())
     }
 
     fn tick(&mut self, tick: Instant) {

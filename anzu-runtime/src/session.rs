@@ -19,10 +19,10 @@ pub trait Session {
         &mut self,
         target: <Self::SessionDisplayAdapter as DisplayAdapter>::Target,
     );
-    fn load_display_data(&mut self) -> Result<(), std::io::Error>;
     fn queue_input(&mut self, input: <Self::SessionInptuAdapter as InputAdapter>::Command);
     fn resize_display(&mut self, width: u32, height: u32);
     fn request_redraw(&mut self);
+    fn startup(&mut self) -> Result<(), std::io::Error>;
     fn tick(&mut self);
 }
 
@@ -55,13 +55,6 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
         self.display_adapter.attach_target(target);
     }
 
-    fn load_display_data(&mut self) -> Result<(), std::io::Error> {
-        self.display_adapter
-            .load_assets(self.server.load_display_assets())?;
-        info!("Request load assets from server");
-        Ok(())
-    }
-
     fn queue_input(&mut self, command: I::Command) {
         if let Some(input) = self.input_adapter.map_input(command) {
             self.server.queue_input(input);
@@ -79,7 +72,22 @@ impl<I: InputAdapter, D: DisplayAdapter, S: Server> Session for SessionData<I, D
             .unwrap();
     }
 
+    fn startup(&mut self) -> Result<(), std::io::Error> {
+        self.load_display_assets()?;
+        self.server.start()?; //This should throw
+        Ok(())
+    }
+
     fn tick(&mut self) {
         self.server.tick(Instant::now());
+    }
+}
+
+impl<I: InputAdapter, D: DisplayAdapter, S: Server> SessionData<I, D, S> {
+    fn load_display_assets(&mut self) -> Result<(), std::io::Error> {
+        self.display_adapter
+            .load_assets(self.server.load_display_assets())?;
+        info!("Request load assets from server");
+        Ok(())
     }
 }

@@ -4,7 +4,13 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
+        {
+            "type": "node-terminal",
+            "request": "launch",
+            "name": "Build WebAssembly with DWARF (web, debug)",
+            "command": "wasm-pack build --target web --out-dir ../docs/pkg --dev",
+            "cwd": "${workspaceFolder}/anzu-winit"
+        },
         {
             "type": "lldb",
             "request": "launch",

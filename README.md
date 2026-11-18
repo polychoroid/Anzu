@@ -39,6 +39,51 @@ python3 -m http.server 8000 --directory docs
 
 This serves the checked-in `anzu_winit` WebAssembly package, which can differ from current source. See the [developer guide](documents/developer-guide.md) for workspace checks and the current limitations. There is no verified release workflow yet.
 
+## Browser Debugging
+
+Use Chrome DevTools and the [C/C++ DevTools Support (DWARF) extension](https://goo.gle/wasm-debugging-extension) to debug the Rust source. The dev container must have `wasm-pack` and the `wasm32-unknown-unknown` Rust target installed.
+
+1. Build the WebAssembly package from the repository root in the dev container:
+
+	 ```bash
+	 wasm-pack build anzu-winit --target web --out-dir ../docs/pkg --dev
+	 ```
+
+	 This replaces generated files in `docs/pkg/`. The `anzu-winit` dev profile includes DWARF debug information.
+
+2. Start the server as shown in [Quick Start](#quick-start). Open `http://localhost:8000/` in Chrome on the host.
+3. Open `chrome://extensions/`. Select **Details > Extension options** for **C/C++ DevTools Support (DWARF)**.
+4. Add a path mapping from the container checkout path to the host checkout path. For example, map `/workspaces/Anzu` to `/home/andrew/workspaces/Anzu`. Use your own paths if they differ.
+5. Reload the page with DevTools open. In **Sources > Page**, open a Rust source file and set a breakpoint. Reload the page or run the relevant code to test the breakpoint.
+
+### Connect a Workspace Folder
+
+The DWARF path mapping and the DevTools workspace connection are separate. A workspace connection lets DevTools access the host checkout.
+
+1. Create `docs/.well-known/appspecific/com.chrome.devtools.json` in the checkout. The server must serve this file at `/.well-known/appspecific/com.chrome.devtools.json`.
+2. Generate a UUID with `python3 -c 'import uuid; print(uuid.uuid4())'`. Put the UUID and the host checkout's absolute path in the file:
+
+	 ```json
+	 {
+		 "workspace": {
+			 "uuid": "REPLACE-WITH-UUID",
+			 "root": "/absolute/path/to/Anzu"
+		 }
+	 }
+	 ```
+
+	 This file is ignored by Git because the path is specific to the host.
+
+3. Reload `http://localhost:8000/`. In **Sources > Workspace**, select **Connect** and allow access to the folder.
+
+If Chrome runs in Flatpak and cannot access the folder, grant access on the host. For the `com.google.ChromeDev` Flatpak, replace the example path with your checkout path:
+
+```bash
+flatpak override --user --filesystem=/absolute/path/to/Anzu com.google.ChromeDev
+```
+
+This gives ChromeDev read and write access to the checkout. Restart ChromeDev after you change the permission. You can also select the folder manually in **Sources > Workspace**. See the [Chrome workspace documentation](https://developer.chrome.com/docs/devtools/workspaces/) and [WebAssembly debugging documentation](https://developer.chrome.com/docs/devtools/wasm/).
+
 ## Documentation Index
 
 - [Runtime Integration Brainstorms](documents/runtime-integration-brainstorms.md) - resume context, scheduling explanation, and future contract discussions.

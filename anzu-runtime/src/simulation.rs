@@ -10,5 +10,6 @@ pub trait Simulation<P: Protocol> {
     fn apply(&mut self, command: Self::Action);
     fn load_display_assets(&self) -> Vec<AssetHandle>;
     fn publish_updates(&mut self) -> Option<Vec<P::Update>>;
+    fn start(&self) -> Result<(), std::io::Error>;
     fn step(&mut self);
 }

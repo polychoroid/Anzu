@@ -1,3 +1,5 @@
+use nalgebra::Matrix4;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct AssetId(pub usize);
 
@@ -8,5 +10,5 @@ pub struct AssetHandle {
 
 pub struct DrawAssetInstance {
     pub asset_id: AssetId,
-    pub transform: [[f32; 4]; 4],
+    pub transform: Matrix4<f32>,
 }

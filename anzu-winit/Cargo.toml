@@ -46,3 +46,6 @@ web-sys = { version = "0.3.104", features = [
     "Window",
     "Element",
 ]}
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+dwarf-debug-info = true

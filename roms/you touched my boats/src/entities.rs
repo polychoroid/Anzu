@@ -1,5 +1,5 @@
 use anzu_runtime::assets::AssetId;
-use nalgebra::Vector3;
+use nalgebra::{Matrix3, Vector3};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -83,6 +83,9 @@ pub struct BoatStore {
     pub ammunition: Vec<Ammo>,
     pub positions: Vec<Vector3<f32>>,
     pub velocities: Vec<Vector3<f32>>,
+    pub angular_velocities: Vec<Vector3<f32>>,
+    pub inertia: Vec<Matrix3<f32>>,
+    pub masses: Vec<f32>,
     pub boats: usize,
 }
 
@@ -98,23 +101,67 @@ impl BoatStore {
             ammunition: Vec::new(),
             positions: Vec::new(),
             velocities: Vec::new(),
+            angular_velocities: Vec::new(),
+            inertia: Vec::new(),
+            masses: Vec::new(),
             boats: 0,
         };
 
-        let starting_positions: [Vector3<f32>; 2] =
-            [Vector3::new(-2., 0., -15.0), Vector3::new(2., 0., -15.0)];
+        let masses: [f32; 2] = [100., 100.];
+
+        let starting_positions = [Vector3::new(-2., 0., -15.0), Vector3::new(2., 0., -15.0)];
+
+        let starting_velocities = [Vector3::<f32>::zeros(), Vector3::<f32>::zeros()];
+
+        let starting_angular_velocities = [Vector3::<f32>::zeros(), Vector3::<f32>::zeros()];
+
+        let moments_of_interia: Vec<Matrix3<f32>> = masses
+            .iter()
+            .map(|&m| Matrix3::from_diagonal(&Vector3::new(m / 6.0, m / 6.0, m / 6.0)))
+            .collect();
 
         players
             .player_ids
             .into_iter()
             .zip(players.player_colors)
+            .zip(masses)
             .zip(starting_positions)
-            .for_each(|x| store.new_boat(x.0.0, x.0.1, x.1));
+            .zip(starting_velocities)
+            .zip(starting_angular_velocities)
+            .zip(moments_of_interia)
+            .for_each(
+                |(
+                    (
+                        ((((player_id, color), mass), position), initial_velocity),
+                        initial_angular_velocity,
+                    ),
+                    moment_of_inertia,
+                )| {
+                    store.new_boat(
+                        player_id,
+                        color,
+                        mass,
+                        position,
+                        initial_velocity,
+                        initial_angular_velocity,
+                        moment_of_inertia,
+                    )
+                },
+            );
 
         store
     }
 
-    pub fn new_boat(&mut self, player_id: PlayerId, color: Color, initial_position: Vector3<f32>) {
+    pub fn new_boat(
+        &mut self,
+        player_id: PlayerId,
+        color: Color,
+        mass: f32,
+        initial_position: Vector3<f32>,
+        initial_velocity: Vector3<f32>,
+        initial_angular_velocity: Vector3<f32>,
+        moment_of_inertia: Matrix3<f32>,
+    ) {
         let entity_id = EntityId::new();
         let boat_id = BoatId::new(entity_id);
         self.index.insert(boat_id, self.boats);
@@ -124,8 +171,11 @@ impl BoatStore {
         self.colors.push(color);
         self.integrity.push_mut(DamageUnit(100));
         self.ammunition.push_mut(Ammo(1000));
+        self.masses.push_mut(mass);
         self.positions.push_mut(initial_position);
-        self.velocities.push_mut(Vector3::zeros());
+        self.velocities.push_mut(initial_velocity);
+        self.angular_velocities.push_mut(initial_angular_velocity);
+        self.inertia.push_mut(moment_of_inertia);
         self.boats += 1;
     }
 }
