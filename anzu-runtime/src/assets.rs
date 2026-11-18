@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct AssetId(pub u32);
+pub struct AssetId(pub usize);
 
 pub struct AssetHandle {
     pub id: AssetId,

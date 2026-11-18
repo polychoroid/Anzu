@@ -1,6 +1,7 @@
 use anzu_runtime::assets::{AssetHandle, AssetId, DrawAssetInstance};
 use anzu_runtime::display::{RenderBackend, SupportedRenderBackends};
 use log::{debug, info};
+use nalgebra::Matrix4;
 use std::collections::HashMap;
 use std::io::Error;
 use wgpu::{
@@ -89,7 +90,7 @@ impl<'window> WgpuRenderBackend<'window> {
 
         let transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Matrix Transform Buffer"),
-            size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            size: WgpuRenderBackend::transform_stride(&device) * 2,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -101,7 +102,7 @@ impl<'window> WgpuRenderBackend<'window> {
                 visibility: wgpu::ShaderStages::VERTEX,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
+                    has_dynamic_offset: true,
                     min_binding_size: None,
                 },
                 count: None,
@@ -113,7 +114,11 @@ impl<'window> WgpuRenderBackend<'window> {
             layout: &transform_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: transform_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &transform_buffer,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(std::mem::size_of::<Matrix4<f32>>() as u64),
+                }),
             }],
         });
 
@@ -172,6 +177,12 @@ impl<'window> WgpuRenderBackend<'window> {
             assets: HashMap::new(),
         })
     }
+
+    fn transform_stride(device: &Device) -> u64 {
+        let matrix_bytes = std::mem::size_of::<Matrix4<f32>>() as u64;
+        let alignment = u64::from(device.limits().min_uniform_buffer_offset_alignment);
+        matrix_bytes.div_ceil(alignment) * alignment
+    }
 }
 
 impl<'window> RenderBackend for WgpuRenderBackend<'window> {
@@ -221,56 +232,72 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        if let Some(instance) = instances.first() {
-            self.queue.write_buffer(
-                &self.transform_buffer,
-                0,
-                bytemuck::bytes_of(&instance.transform),
-            );
-        }
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(Color {
+                            r: 0.45,
+                            g: 0.45,
+                            b: 0.45,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
 
-        // todo: should be iterating all instances.
-        let asset_id = &instances[0].asset_id;
-        if let Some(ref asset) = self.assets.get(asset_id) {
-            {
-                let forced_index = 0;
+            render_pass.set_pipeline(&self.render_pipeline);
 
-                info!("Render requested for asset: {:?}", asset_id);
+            // for an instance batch all objects that share geometry, pipeline, and material.
+            instances.iter().enumerate().for_each(|(index, instance)| {
+                let byte_offset = index as u64 * WgpuRenderBackend::transform_stride(&self.device);
 
-                let primitive = &asset.meshes[forced_index].primitives[0]; // Again shouldn't be selecting by index
-                let material_index = primitive.material.unwrap();
+                self.queue.write_buffer(
+                    &self.transform_buffer,
+                    byte_offset,
+                    bytemuck::bytes_of(&instance.transform),
+                );
 
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(Color {
-                                r: 0.45,
-                                g: 0.45,
-                                b: 0.45,
-                                a: 1.0,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                }); // for an instance batch all objects that share geometry, pipeline, and material. 
+                let asset_id = instance.asset_id;
+                if let Some(ref asset) = self.assets.get(&asset_id) {
+                    {
+                        let forced_index = 0;
 
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_vertex_buffer(0, primitive.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(primitive.index_buffer.slice(..), IndexFormat::Uint32);
-                render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
-                render_pass.set_bind_group(1, &asset.materials[material_index].bind_group, &[]);
-                render_pass.draw_indexed(0..primitive.index_count, 0, 0..1);
-            }
-        } else {
-            info!("Render requested to no loaded mesh");
+                        info!("Render requested for asset: {:?}", asset_id);
+
+                        let primitive = &asset.meshes[forced_index].primitives[0]; // Again shouldn't be selecting by index
+                        let material_index = primitive.material.unwrap();
+
+                        render_pass.set_vertex_buffer(0, primitive.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            primitive.index_buffer.slice(..),
+                            IndexFormat::Uint32,
+                        );
+                        render_pass.set_bind_group(
+                            0,
+                            &self.transform_bind_group,
+                            &[byte_offset as u32],
+                        );
+                        render_pass.set_bind_group(
+                            1,
+                            &asset.materials[material_index].bind_group,
+                            &[],
+                        );
+                        render_pass.draw_indexed(0..primitive.index_count, 0, 0..1);
+                    }
+                } else {
+                    info!("Render requested to no loaded mesh");
+                }
+            });
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -1,3 +1,4 @@
+use anzu_runtime::assets::AssetId;
 use nalgebra::Vector3;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -73,16 +74,16 @@ impl PlayerStore {
 }
 
 pub struct BoatStore {
-    index: HashMap<BoatId, usize>,
-    entity_ids: Vec<EntityId>,
-    assets: Vec<Asset>,
-    player_ids: Vec<PlayerId>,
-    colors: Vec<Color>,
-    integrity: Vec<DamageUnit>,
-    ammunition: Vec<Ammo>,
-    positions: Vec<Vector3<f32>>,
-    velocities: Vec<Vector3<f32>>,
-    boats: usize,
+    pub index: HashMap<BoatId, usize>,
+    pub entity_ids: Vec<EntityId>,
+    pub player_ids: Vec<PlayerId>,
+    pub asset_ids: Vec<AssetId>,
+    pub colors: Vec<Color>,
+    pub integrity: Vec<DamageUnit>,
+    pub ammunition: Vec<Ammo>,
+    pub positions: Vec<Vector3<f32>>,
+    pub velocities: Vec<Vector3<f32>>,
+    pub boats: usize,
 }
 
 impl BoatStore {
@@ -90,7 +91,7 @@ impl BoatStore {
         let mut store = Self {
             index: HashMap::new(),
             entity_ids: Vec::new(),
-            assets: Vec::new(),
+            asset_ids: Vec::new(),
             player_ids: Vec::new(),
             colors: Vec::new(),
             integrity: Vec::new(),
@@ -101,7 +102,7 @@ impl BoatStore {
         };
 
         let starting_positions: [Vector3<f32>; 2] =
-            [Vector3::new(-1., 0., 0.), Vector3::new(1., 0., 0.)];
+            [Vector3::new(-2., 0., -15.0), Vector3::new(2., 0., -15.0)];
 
         players
             .player_ids
@@ -118,7 +119,7 @@ impl BoatStore {
         let boat_id = BoatId::new(entity_id);
         self.index.insert(boat_id, self.boats);
         self.entity_ids.push(entity_id);
-        self.assets.push(Asset::Boat);
+        self.asset_ids.push(AssetId(self.boats));
         self.player_ids.push(player_id);
         self.colors.push(color);
         self.integrity.push_mut(DamageUnit(100));

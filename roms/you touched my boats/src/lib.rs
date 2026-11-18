@@ -10,7 +10,7 @@ use nalgebra::{Matrix4, Rotation3, Translation3, Vector3};
 
 mod entities;
 
-use crate::entities::{BoatStore, BulletStore, PlayerId, PlayerStore};
+use crate::entities::{Asset, BoatStore, BulletStore, PlayerId, PlayerStore};
 
 const SPIN_RADIANS_PER_SECOND: f32 = 0.75;
 
@@ -25,7 +25,7 @@ pub enum Actions {
 
 pub struct GameState {
     pub tick: u64,
-    start_time: Instant,
+    pub start_time: Instant,
     players: PlayerStore,
     boats: BoatStore,
     bullets: BulletStore,
@@ -64,39 +64,67 @@ impl State for GameState {
     }
 
     fn project_display(&self) -> Vec<DrawAssetInstance> {
-        let angle =
-            (self.start_time.elapsed().as_secs_f32() * SPIN_RADIANS_PER_SECOND).rem_euclid(TAU);
-
-        let motion = Translation3::new(0.0, 0.0, -5.0).to_homogeneous()
-            * Rotation3::from_axis_angle(&Vector3::z_axis(), 23.5_f32.to_radians())
-                .to_homogeneous()
-            * Rotation3::from_axis_angle(&Vector3::x_axis(), 23.5_f32.to_radians())
-                .to_homogeneous()
-            * Rotation3::from_axis_angle(&Vector3::y_axis(), angle).to_homogeneous()
-            * Matrix4::new_scaling(1.0);
-
         let aspect_ratio = self.display_width as f32 / self.display_height as f32;
+
         let projection = Matrix4::new(
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 1.0,
         ) * nalgebra::Perspective3::new(aspect_ratio, PI / 3.0, 0.1, 100.0)
             .to_homogeneous();
 
-        let transform = projection * motion;
+        let angle =
+            (self.start_time.elapsed().as_secs_f32() * SPIN_RADIANS_PER_SECOND).rem_euclid(TAU);
 
-        vec![
-            DrawAssetInstance {
-                asset_id: AssetId(0),
-                transform: transform.into(),
-            },
-            DrawAssetInstance {
-                asset_id: AssetId(1),
-                transform: transform.into(),
-            },
-            DrawAssetInstance {
-                asset_id: AssetId(2),
-                transform: transform.into(),
-            },
-        ]
+        let view = Matrix4::<f32>::identity();
+
+        self.boats
+            .asset_ids
+            .iter()
+            .zip(self.boats.positions.iter())
+            .map(|(asset_id, position)| {
+                let translation = Translation3::from(*position).to_homogeneous();
+
+                let rotation =
+                    Rotation3::from_axis_angle(&Vector3::z_axis(), 23.5_f32.to_radians())
+                        .to_homogeneous()
+                        * Rotation3::from_axis_angle(&Vector3::x_axis(), 23.5_f32.to_radians())
+                            .to_homogeneous()
+                        * Rotation3::from_axis_angle(&Vector3::y_axis(), angle).to_homogeneous();
+
+                let scale = Matrix4::new_scaling(1.0);
+
+                let transform = projection * view * translation * rotation * scale;
+
+                DrawAssetInstance {
+                    asset_id: *asset_id,
+                    transform: transform.into(),
+                }
+            })
+            .collect()
+
+        // let motion = Translation3::new(0.0, 0.0, -5.0).to_homogeneous()
+        //     * Rotation3::from_axis_angle(&Vector3::z_axis(), 23.5_f32.to_radians())
+        //         .to_homogeneous()
+        //     * Rotation3::from_axis_angle(&Vector3::x_axis(), 23.5_f32.to_radians())
+        //         .to_homogeneous()
+        //     * Rotation3::from_axis_angle(&Vector3::y_axis(), angle).to_homogeneous()
+        //     * Matrix4::new_scaling(1.0);
+
+        // let transform = projection * motion;
+
+        // vec![
+        //     DrawAssetInstance {
+        //         asset_id: AssetId(0),
+        //         transform: transform.into(),
+        //     },
+        //     DrawAssetInstance {
+        //         asset_id: AssetId(1),
+        //         transform: transform.into(),
+        //     },
+        //     DrawAssetInstance {
+        //         asset_id: AssetId(2),
+        //         transform: transform.into(),
+        //     },
+        // ]
     }
 }
 

@@ -218,5 +218,7 @@ These items are not part of the committed journey order. Revisit them only when 
 - GPU-resident authority, hybrid physics, and CPU/GPU numerical parity.
 - Multi-display local topology.
 - Blender GLB import, large-scene streaming, and residency policy.
+- Research texture atlases for rendering many instances with different images. Keep this distinct from archive formats such as WAD, which package resources for storage rather than arrange regions for GPU sampling.
+- Rendering configuration: detect adapter, backend, and format capabilities; resolve them with versioned user quality and performance preferences into supported effective settings. Recompute effective settings at startup, define fallbacks, and identify which changes require resource, pipeline, or device recreation. Persist preferences through a platform storage interface, with defaults when browser storage is unavailable or data is invalid or evicted. Report the selected backend, effective settings, and fallback reasons in diagnostics.
 - Audio, persistence, replay, and editor workflows.
 - Physics model comparison and interactive state inspection.
