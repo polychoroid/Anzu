@@ -272,7 +272,7 @@ impl<'window> RenderBackend for WgpuRenderBackend<'window> {
                     {
                         let forced_index = 0;
 
-                        info!("Render requested for asset: {:?}", asset_id);
+                        debug!("Render requested for asset: {:?}", asset_id);
 
                         let primitive = &asset.meshes[forced_index].primitives[0]; // Again shouldn't be selecting by index
                         let material_index = primitive.material.unwrap();
